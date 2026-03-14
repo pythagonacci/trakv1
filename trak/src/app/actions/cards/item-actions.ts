@@ -2,12 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { requireCardAccess, requireCardsBlockAccess } from "./context";
-import { safeRevalidatePath } from "@/app/actions/workspace";
 import { revalidateClientPages } from "@/app/actions/revalidate-client-page";
 import { setEntityProperties } from "@/app/actions/entity-properties";
 import type { AuthContext } from "@/lib/auth-context";
 import type { CardItem, CardAssetKind, CardWidth, CardHeight } from "@/types/card";
 import type { DueDateRange, Priority, Status } from "@/types/properties";
+import { revalidateDashboardProjectTabPath } from "@/app/actions/dashboard-path-revalidation";
 
 type ActionResult<T> = { data: T } | { error: string };
 
@@ -39,7 +39,7 @@ function hasPropertyUpdates(input: CardPropertyInput) {
 
 async function revalidateCardBlockPaths(projectId: string | null, tabId: string | null) {
   if (projectId && tabId) {
-    await safeRevalidatePath(`/dashboard/projects/${projectId}/tabs/${tabId}`);
+    await revalidateDashboardProjectTabPath({ projectId, tabId });
     await revalidateClientPages(projectId, tabId);
   }
   revalidatePath("/dashboard/projects");

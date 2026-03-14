@@ -216,11 +216,14 @@ export default function ClientTabCanvas({ tabId, clientId, workspaceId, blocks: 
       }
       router.refresh();
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      if (/block not found/i.test(message)) {
+        router.refresh();
+        return;
+      }
       console.error("Failed to delete block:", error);
       alert(
-        `Error deleting block: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`
+        `Error deleting block: ${message}`
       );
 
       if (blockSnapshot) {

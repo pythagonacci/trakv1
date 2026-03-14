@@ -2,10 +2,12 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser, checkWorkspaceMembership, getProjectMetadata } from "@/lib/auth-utils";
-import { safeRevalidatePath } from "@/app/actions/workspace";
-import { revalidatePath } from "next/cache";
 import type { AuthContext } from "@/lib/auth-context";
 import { cache } from "react";
+import {
+  revalidateDashboardProjectPath,
+  revalidateDashboardProjectTabPath,
+} from "@/app/actions/dashboard-path-revalidation";
 
 // Limits to prevent unbounded queries
 const TABS_PER_PROJECT_LIMIT = 1000;
@@ -125,9 +127,18 @@ export async function createTab(data: {
       return { error: "Failed to create tab" };
     }
 
-    // Revalidate paths to ensure UI updates immediately
-    await safeRevalidatePath(`/dashboard/projects/${data.projectId}`);
-    await safeRevalidatePath(`/dashboard/projects/${data.projectId}/tabs/${newTab.id}`);
+    // Revalidate both legacy ID paths and canonical readable paths.
+    await revalidateDashboardProjectPath({
+      projectId: data.projectId,
+      authContext: data.authContext,
+    });
+    await revalidateDashboardProjectTabPath({
+      projectId: data.projectId,
+      tabId: newTab.id,
+      projectName: null,
+      tabName: newTab.name,
+      authContext: data.authContext,
+    });
 
     return { data: newTab };
   } catch (error) {
@@ -537,8 +548,11 @@ export async function deleteTab(tabId: string, opts?: { authContext?: AuthContex
       await Promise.all(updates);
     }
 
-    // Revalidate paths to ensure UI updates immediately
-    await safeRevalidatePath(`/dashboard/projects/${tab.project_id}`);
+    // Revalidate both legacy ID paths and canonical readable paths.
+    await revalidateDashboardProjectPath({
+      projectId: tab.project_id,
+      authContext: opts?.authContext,
+    });
     // Revalidate all tab pages for this project (since we don't know which ones exist)
     // The project page revalidation will ensure the tab bar updates
 

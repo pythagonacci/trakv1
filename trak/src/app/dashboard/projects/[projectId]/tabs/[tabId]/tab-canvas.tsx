@@ -425,10 +425,14 @@ export default function TabCanvas({
       // Invalidate tab blocks cache so useTabBlocks refetches; prevents deleted block reappearing from stale cache
       queryClient.invalidateQueries({ queryKey: queryKeys.tabBlocks(tabId) });
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      if (/block not found/i.test(message)) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.tabBlocks(tabId) });
+        return;
+      }
       console.error("Failed to delete block:", error);
       alert(
-        `Error deleting block: ${error instanceof Error ? error.message : "Unknown error"
-        }`
+        `Error deleting block: ${message}`
       );
 
       if (blockSnapshot) {

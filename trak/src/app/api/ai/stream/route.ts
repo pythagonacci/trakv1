@@ -30,9 +30,10 @@ export async function POST(request: NextRequest) {
     const { supabase } = await requireUser();
 
     const body = await request.json();
-    const { command, tabId, messages, confirmation, resumeFromConfirmation, routingMode, attachedFiles } = body as {
+    const { command, tabId, messages, confirmation, resumeFromConfirmation, routingMode, attachedFiles, contextBlockId } = body as {
       command: string;
       tabId?: string;
+      contextBlockId?: string;
       messages?: AIMessage[];
       confirmation?: WriteConfirmationApproval | null;
       resumeFromConfirmation?: boolean;
@@ -99,6 +100,7 @@ export async function POST(request: NextRequest) {
           const generator = executeWorkflowAICommandStream({
             tabId: resolvedTabId,
             command,
+            contextBlockId: typeof contextBlockId === "string" && contextBlockId.trim().length > 0 ? contextBlockId.trim() : undefined,
             conversationHistory: messages,
             persistSession: false,
             confirmation: confirmation ?? null,

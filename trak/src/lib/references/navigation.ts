@@ -15,10 +15,10 @@ export function getReferenceHref(input: {
 
   if (input.reference_type === "task") {
     if (input.tab_id) {
-      if (input.is_workflow || !input.project_id) {
+      if (input.is_workflow) {
         return `/dashboard/workflow/${input.tab_id}#task-${input.reference_id}`;
       }
-      if (!input.project_name || !input.tab_name) {
+      if (!input.project_id || !input.project_name || !input.tab_name) {
         return null;
       }
       return `${buildProjectTabPath(input.project_id, input.tab_id, input.project_name, input.tab_name)}#task-${input.reference_id}`;
@@ -27,10 +27,10 @@ export function getReferenceHref(input: {
   }
 
   if (input.reference_type === "block" && input.tab_id) {
-    if (input.is_workflow || !input.project_id) {
+    if (input.is_workflow) {
       return `/dashboard/workflow/${input.tab_id}#block-${input.reference_id}`;
     }
-    if (!input.project_name || !input.tab_name) {
+    if (!input.project_id || !input.project_name || !input.tab_name) {
       return null;
     }
     return `${buildProjectTabPath(input.project_id, input.tab_id, input.project_name, input.tab_name)}#block-${input.reference_id}`;
@@ -57,20 +57,20 @@ export function getLinkableItemHref(input: {
   }
 
   if (input.referenceType === "block" && input.tabId) {
-    if (input.isWorkflow || !input.projectId) {
+    if (input.isWorkflow) {
       return `/dashboard/workflow/${input.tabId}#block-${input.id}`;
     }
-    if (!input.projectName || !input.tabName) {
+    if (!input.projectId || !input.projectName || !input.tabName) {
       return null;
     }
     return `${buildProjectTabPath(input.projectId, input.tabId, input.projectName, input.tabName)}#block-${input.id}`;
   }
 
   if (input.referenceType === "task" && input.tabId) {
-    if (input.isWorkflow || !input.projectId) {
+    if (input.isWorkflow) {
       return `/dashboard/workflow/${input.tabId}#task-${input.id}`;
     }
-    if (!input.projectName || !input.tabName) {
+    if (!input.projectId || !input.projectName || !input.tabName) {
       return null;
     }
     return `${buildProjectTabPath(input.projectId, input.tabId, input.projectName, input.tabName)}#task-${input.id}`;

@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { revalidatePath } from "next/cache";
+import { revalidateDashboardProjectPath } from "@/app/actions/dashboard-path-revalidation";
 
 // ============================================================================
 // TYPES
@@ -119,7 +119,7 @@ export async function enableClientPage(projectId: string) {
       return { error: "Failed to enable client page" };
     }
 
-    revalidatePath(`/dashboard/projects/${projectId}`);
+    await revalidateDashboardProjectPath({ projectId });
 
     return { data: updatedProject };
   } catch (error) {
@@ -179,7 +179,7 @@ export async function disableClientPage(projectId: string) {
       return { error: "Failed to disable client page" };
     }
 
-    revalidatePath(`/dashboard/projects/${projectId}`);
+    await revalidateDashboardProjectPath({ projectId });
 
     return { success: true };
   } catch (error) {
@@ -250,7 +250,7 @@ export async function updateClientPageSettings(
       return { error: "Failed to update settings" };
     }
 
-    revalidatePath(`/dashboard/projects/${projectId}`);
+    await revalidateDashboardProjectPath({ projectId });
 
     return { success: true };
   } catch (error) {
@@ -391,7 +391,7 @@ export async function toggleTabVisibility(tabId: string, isVisible: boolean) {
       return { error: "Failed to update tab visibility" };
     }
 
-    revalidatePath(`/dashboard/projects/${tab.project_id}`);
+    await revalidateDashboardProjectPath({ projectId: tab.project_id });
 
     return { success: true };
   } catch (error) {
@@ -453,7 +453,7 @@ export async function updateTabClientTitle(tabId: string, clientTitle: string | 
       return { error: "Failed to update client title" };
     }
 
-    revalidatePath(`/dashboard/projects/${tab.project_id}`);
+    await revalidateDashboardProjectPath({ projectId: tab.project_id });
 
     return { success: true };
   } catch (error) {
@@ -641,4 +641,3 @@ export async function getDocForClientPage(docId: string, publicToken: string) {
     return { data: null, error: "Failed to fetch document" };
   }
 }
-

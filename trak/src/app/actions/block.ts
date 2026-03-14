@@ -1,13 +1,15 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentWorkspaceId, safeRevalidatePath } from "@/app/actions/workspace";
-import { revalidatePath } from "next/cache";
+import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { cache } from "react";
 import { revalidateClientPages } from "@/app/actions/revalidate-client-page";
 import { IndexingQueue } from "@/lib/search/job-queue";
 import type { EntityProperties } from "@/types/properties";
 import { buildEntityPropertiesFromRows } from "@/app/actions/entity-properties";
+import {
+  revalidateDashboardProjectTabPath,
+} from "@/app/actions/dashboard-path-revalidation";
 
 // ============================================================================
 // TYPES
@@ -568,8 +570,12 @@ export async function createBlock(data: {
       }
     }
 
-    // Revalidate the tab page path
-    await safeRevalidatePath(`/dashboard/projects/${tab.project_id}/tabs/${data.tabId}`);
+    // Revalidate both legacy ID paths and canonical readable paths.
+    await revalidateDashboardProjectTabPath({
+      projectId: tab.project_id,
+      tabId: data.tabId,
+      authContext: data.authContext,
+    });
     await revalidateClientPages(tab.project_id, data.tabId, {
       publicToken: project.public_token ?? undefined,
       clientPageEnabled: project.client_page_enabled ?? undefined,
@@ -813,8 +819,11 @@ export async function updateBlock(data: {
         .eq("task_block_id", data.blockId);
     }
 
-    // 8. Revalidate the tab page path
-    await safeRevalidatePath(`/dashboard/projects/${projectId}/tabs/${block.tab_id}`);
+    // Revalidate both legacy ID paths and canonical readable paths.
+    await revalidateDashboardProjectTabPath({
+      projectId,
+      tabId: block.tab_id,
+    });
     await revalidateClientPages(projectId, block.tab_id, {
       publicToken: project.public_token ?? undefined,
       clientPageEnabled: project.client_page_enabled ?? undefined,
@@ -957,8 +966,12 @@ export async function deleteBlock(blockId: string, opts?: { authContext?: AuthCo
       return { error: deleteError.message || "Failed to delete block" };
     }
 
-    // 9. Revalidate the tab page path
-    await safeRevalidatePath(`/dashboard/projects/${projectId}/tabs/${block.tab_id}`);
+    // Revalidate both legacy ID paths and canonical readable paths.
+    await revalidateDashboardProjectTabPath({
+      projectId,
+      tabId: block.tab_id,
+      authContext: opts?.authContext,
+    });
     await revalidateClientPages(projectId, block.tab_id, {
       publicToken: project.public_token ?? undefined,
       clientPageEnabled: project.client_page_enabled ?? undefined,
@@ -1088,14 +1101,20 @@ export async function moveBlock(data: {
       return { error: moveError.message || "Failed to move block" };
     }
 
-    // 11. Revalidate both source and target tab paths (if different)
-    await safeRevalidatePath(`/dashboard/projects/${sourceTab.project_id}/tabs/${sourceBlock.tab_id}`);
+    // Revalidate both legacy ID paths and canonical readable paths.
+    await revalidateDashboardProjectTabPath({
+      projectId: sourceTab.project_id,
+      tabId: sourceBlock.tab_id,
+    });
     await revalidateClientPages(sourceTab.project_id, sourceBlock.tab_id, {
       publicToken: sourceProject.public_token ?? undefined,
       clientPageEnabled: sourceProject.client_page_enabled ?? undefined,
     });
     if (data.targetTabId !== sourceBlock.tab_id) {
-      await safeRevalidatePath(`/dashboard/projects/${targetTab.project_id}/tabs/${data.targetTabId}`);
+      await revalidateDashboardProjectTabPath({
+        projectId: targetTab.project_id,
+        tabId: data.targetTabId,
+      });
       await revalidateClientPages(targetTab.project_id, data.targetTabId, {
         publicToken: targetProject.public_token ?? undefined,
         clientPageEnabled: targetProject.client_page_enabled ?? undefined,
@@ -1221,8 +1240,11 @@ export async function duplicateBlock(blockId: string) {
       return { error: createError.message || "Failed to duplicate block" };
     }
 
-    // 9. Revalidate the tab page path
-    await safeRevalidatePath(`/dashboard/projects/${tab.project_id}/tabs/${sourceBlock.tab_id}`);
+    // Revalidate both legacy ID paths and canonical readable paths.
+    await revalidateDashboardProjectTabPath({
+      projectId: tab.project_id,
+      tabId: sourceBlock.tab_id,
+    });
     await revalidateClientPages(tab.project_id, sourceBlock.tab_id, {
       publicToken: project.public_token ?? undefined,
       clientPageEnabled: project.client_page_enabled ?? undefined,

@@ -407,8 +407,8 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
     }
     if (!isTasksSource) return;
 
-    const hasAnyReadable = rawRows.some((row) => hasReadableTitle(row));
-    if (hasAnyReadable) return;
+    const hasRowsMissingReadableTitle = rawRows.some((row) => !hasReadableTitle(row));
+    if (!hasRowsMissingReadableTitle) return;
 
     const ids = Array.from(
       new Set(
@@ -525,15 +525,19 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
 
   const getTaskHrefForRow = useCallback(
     (row: ChartRow): string | null => {
-      const projectId = (row as any).projectId as string | undefined;
-      const tabId = (row as any).tabId as string | undefined;
+      const projectId = typeof row.projectId === "string" ? row.projectId : undefined;
+      const tabId = typeof row.tabId === "string" ? row.tabId : undefined;
       const href = getLinkableItemHref({
         referenceType: "task",
         id: String(row.id),
         tabId: tabId ?? block.tab_id,
-        tabName: (row as any).tabName as string | undefined,
+        tabName:
+          (typeof row.tabName === "string" ? row.tabName : undefined) ??
+          (typeof row.Tab === "string" ? row.Tab : undefined),
         projectId: projectId ?? null,
-        projectName: (row as any).projectName as string | undefined,
+        projectName:
+          (typeof row.projectName === "string" ? row.projectName : undefined) ??
+          (typeof row.Project === "string" ? row.Project : undefined),
         isWorkflow: false,
       });
       return href ?? `#task-${row.id}`;

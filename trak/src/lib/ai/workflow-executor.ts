@@ -1747,6 +1747,7 @@ RESPONSE PATTERN:
 export async function* executeWorkflowAICommandStream(params: {
   tabId: string;
   command: string;
+  contextBlockId?: string;
   routingMode?: "default" | "chart" | "shopify";
   confirmation?: WriteConfirmationApproval | null;
   resumeFromConfirmation?: boolean;
@@ -1871,9 +1872,64 @@ export async function* executeWorkflowAICommandStream(params: {
     }
   }
 
+  const explicitBlockContextId =
+    typeof params.contextBlockId === "string" && params.contextBlockId.trim().length > 0
+      ? params.contextBlockId.trim()
+      : undefined;
   const [tableContext, blockContext] = await Promise.all([
-    resolveLatestTableContext({ supabase, tabId: params.tabId, history }),
-    resolveLatestBlockContext({ supabase, tabId: params.tabId, history }),
+    explicitBlockContextId
+      ? (async () => {
+          const { data: explicitBlock } = await supabase
+            .from("blocks")
+            .select("id, type, content, tab_id")
+            .eq("id", explicitBlockContextId)
+            .eq("tab_id", params.tabId)
+            .maybeSingle();
+
+          if (!explicitBlock || explicitBlock.type !== "table") {
+            return { tableId: undefined, blockId: undefined };
+          }
+
+          const tableId = (explicitBlock.content as Record<string, unknown> | null)?.tableId as string | undefined;
+          return {
+            tableId,
+            blockId: explicitBlock.id as string,
+          };
+        })()
+      : resolveLatestTableContext({ supabase, tabId: params.tabId, history }),
+    explicitBlockContextId
+      ? (async () => {
+          const { data: explicitBlock } = await supabase
+            .from("blocks")
+            .select("id, type, content, tab_id")
+            .eq("id", explicitBlockContextId)
+            .eq("tab_id", params.tabId)
+            .maybeSingle();
+
+          if (!explicitBlock) {
+            return { blockId: undefined, blockType: undefined, chartContent: undefined };
+          }
+
+          const content = explicitBlock.content as Record<string, unknown> | null;
+          const chartContent =
+            explicitBlock.type === "chart" &&
+            content &&
+            typeof content.spec === "object" &&
+            Array.isArray(content.rows)
+              ? {
+                  spec: content.spec as Record<string, unknown>,
+                  rows: content.rows as Array<Record<string, unknown>>,
+                  universeTotal: typeof content.universeTotal === "number" ? content.universeTotal : undefined,
+                }
+              : undefined;
+
+          return {
+            blockId: explicitBlock.id as string,
+            blockType: explicitBlock.type as string,
+            chartContent,
+          };
+        })()
+      : resolveLatestBlockContext({ supabase, tabId: params.tabId, history }),
   ]);
 
   const systemPrefix: AIMessage[] = [
@@ -1932,6 +1988,7 @@ IMPORTANT SAFETY:
 - If a field like Priority/Status is missing in source data, fill with "Unspecified" rather than leaving blanks.
 ${tableContext.tableId ? `CURRENT TABLE CONTEXT: tableId=${tableContext.tableId}, blockId=${tableContext.blockId}` : ""}
 ${blockContext.blockId ? `CURRENT BLOCK CONTEXT: blockId=${blockContext.blockId}, type=${blockContext.blockType}` : ""}
+${explicitBlockContextId ? "SELECTED BLOCK CONTEXT RULE: The user explicitly clicked the AI button on a specific block. Treat that block as the primary context and default target unless the user clearly asks for broader workspace/project context. You may pull in extra workspace information when it materially helps answer the request, but do not silently ignore the selected block." : ""}
 ${blockContext.chartContent ? `
 CHART CONVERSION: The latest block is a chart. To convert it to a different type (e.g. "render as doughnut chart", "make it a pie chart"), you MUST call createSpecChartBlock with the SAME rows and a spec with the new type.
 Current chart data (use these rows and modify spec.type as needed):
@@ -1995,7 +2052,7 @@ RESPONSE PATTERN:
       currentProjectId,
       currentTabId: params.tabId,
       contextTableId: tableContext.tableId,
-      contextBlockId: blockContext.blockId ?? tableContext.blockId,
+      contextBlockId: explicitBlockContextId ?? blockContext.blockId ?? tableContext.blockId,
     },
     [...systemPrefix, ...conversationHistory],
     {

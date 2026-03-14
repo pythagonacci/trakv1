@@ -103,13 +103,19 @@ function taskLikeToChartRow(task: TaskLikeRow): ChartRow {
   if (task.tab_name != null) row.Tab = String(task.tab_name);
   // Preserve navigation metadata when present so charts can deep-link to tasks
   if (task.project_id != null) {
-    (row as any).projectId = String(task.project_id);
+    row.projectId = String(task.project_id);
+  }
+  if (task.project_name != null) {
+    row.projectName = String(task.project_name);
   }
   if (task.tab_id != null) {
-    (row as any).tabId = String(task.tab_id);
+    row.tabId = String(task.tab_id);
+  }
+  if (task.tab_name != null) {
+    row.tabName = String(task.tab_name);
   }
   if (task.task_block_id != null) {
-    (row as any).taskBlockId = String(task.task_block_id);
+    row.taskBlockId = String(task.task_block_id);
   }
   return row;
 }
@@ -184,9 +190,11 @@ function cardLikeToChartRow(card: CardLikeRow): ChartRow {
   };
   if (card.project_name != null) row.Project = String(card.project_name);
   if (card.tab_name != null) row.Tab = String(card.tab_name);
-  if (card.project_id != null) (row as any).projectId = String(card.project_id);
-  if (card.tab_id != null) (row as any).tabId = String(card.tab_id);
-  if (card.cards_block_id != null) (row as any).cardsBlockId = String(card.cards_block_id);
+  if (card.project_id != null) row.projectId = String(card.project_id);
+  if (card.project_name != null) row.projectName = String(card.project_name);
+  if (card.tab_id != null) row.tabId = String(card.tab_id);
+  if (card.tab_name != null) row.tabName = String(card.tab_name);
+  if (card.cards_block_id != null) row.cardsBlockId = String(card.cards_block_id);
   return row;
 }
 

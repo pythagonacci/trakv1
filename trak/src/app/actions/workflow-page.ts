@@ -5,6 +5,7 @@ import { getAuthenticatedUser } from "@/lib/auth-utils";
 import { getCurrentWorkspaceId, safeRevalidatePath } from "@/app/actions/workspace";
 import { saveFileAnalysisAsBlock } from "@/app/actions/file-analysis";
 import { enableClientPage } from "@/app/actions/client-page";
+import { revalidateDashboardProjectPath } from "@/app/actions/dashboard-path-revalidation";
 
 export type ActionResult<T> = { data: T } | { error: string };
 
@@ -127,7 +128,7 @@ export async function createWorkflowPage(params: {
 
   if ("error" in tabResult) return { error: tabResult.error || "Failed to create workflow tab" };
 
-  await safeRevalidatePath(`/dashboard/projects/${projectId}`);
+  await revalidateDashboardProjectPath({ projectId, authContext: { supabase, userId: user.id } });
   await safeRevalidatePath(`/dashboard/workflow/${tabResult.data.id}`);
 
   return { data: { tabId: tabResult.data.id, tabName: title, projectId } };
@@ -236,7 +237,7 @@ export async function convertFileAnalysisToWorkflowPage(params: {
     }
   }
 
-  await safeRevalidatePath(`/dashboard/projects/${projectId}`);
+  await revalidateDashboardProjectPath({ projectId, authContext: { supabase, userId: user.id } });
   await safeRevalidatePath(`/dashboard/workflow/${tabId}`);
 
   return { data: { tabId, tabName: title, projectId } };
@@ -346,7 +347,7 @@ export async function deleteWorkflowPage(params: {
     return { error: "Failed to delete workflow page" };
   }
 
-  await safeRevalidatePath(`/dashboard/projects/${tab.project_id}`);
+  await revalidateDashboardProjectPath({ projectId: tab.project_id, authContext: { supabase, userId: user.id } });
   await safeRevalidatePath("/dashboard/workflow");
 
   return { data: { success: true } };

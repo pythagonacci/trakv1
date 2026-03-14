@@ -358,16 +358,20 @@ export default function DashboardChartWidget({ config }: DashboardChartWidgetPro
     chartData.meta?.labelLabel ?? spec.breakdown?.fieldLabel ?? spec.breakdown?.field ?? "Distribution";
 
   const getTaskHrefForRow = (row: ChartRow): string | null => {
-    const projectIdFromRow = (row as any).projectId as string | undefined;
-    const tabIdFromRow = (row as any).tabId as string | undefined;
+    const projectIdFromRow = typeof row.projectId === "string" ? row.projectId : undefined;
+    const tabIdFromRow = typeof row.tabId === "string" ? row.tabId : undefined;
     if (!tabIdFromRow) return `#task-${row.id}`;
     const href = getLinkableItemHref({
       referenceType: "task",
       id: String(row.id),
       tabId: tabIdFromRow,
-      tabName: (row as any).tabName as string | undefined,
+      tabName:
+        (typeof row.tabName === "string" ? row.tabName : undefined) ??
+        (typeof row.Tab === "string" ? row.Tab : undefined),
       projectId: projectIdFromRow ?? (query?.projectId ?? null),
-      projectName: (row as any).projectName as string | undefined,
+      projectName:
+        (typeof row.projectName === "string" ? row.projectName : undefined) ??
+        (typeof row.Project === "string" ? row.Project : undefined),
       isWorkflow: false,
     });
     return href ?? `#task-${row.id}`;
