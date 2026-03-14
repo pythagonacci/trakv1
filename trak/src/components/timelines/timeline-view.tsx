@@ -278,6 +278,31 @@ function buildGrid(start: Date, end: Date, zoomLevel: ZoomLevel = "day") {
   return cells;
 }
 
+type MonthSegment = {
+  key: string;
+  label: string;
+  startIndex: number;
+  span: number;
+};
+
+function computeMonthSegments(grid: { key: string; date: Date; dayLabel: string; monthLabel?: string; weekLabel?: string }[]): MonthSegment[] {
+  const segments: MonthSegment[] = [];
+  if (grid.length === 0) return segments;
+  let startIndex = 0;
+  let currentLabel = format(grid[0].date, "MMM yyyy");
+  for (let i = 1; i <= grid.length; i++) {
+    const label = i < grid.length ? format(grid[i].date, "MMM yyyy") : null;
+    if (label !== currentLabel || i === grid.length) {
+      segments.push({ key: `${currentLabel}_${startIndex}`, label: currentLabel, startIndex, span: i - startIndex });
+      if (i < grid.length) {
+        currentLabel = label!;
+        startIndex = i;
+      }
+    }
+  }
+  return segments;
+}
+
 function getColumnWidth(zoomLevel: ZoomLevel): number {
   switch (zoomLevel) {
     case "day": return 44;
@@ -969,6 +994,10 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
   const grid = useMemo(
     () => buildGrid(renderRange.start, renderRange.end, zoomLevel),
     [renderRange.start, renderRange.end, zoomLevel]
+  );
+  const monthSegments = useMemo(
+    () => (zoomLevel === "day" ? computeMonthSegments(grid) : []),
+    [zoomLevel, grid]
   );
   const totalColumns = useMemo(() => grid.length, [grid]);
   const baseColumnWidth = useMemo(() => getColumnWidth(zoomLevel), [zoomLevel]);
@@ -1909,7 +1938,10 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
         {/* Left rail: event list aligned 1:1 with timeline rows */}
         {!isEventListCollapsed && (
           <div className="border-r border-[var(--border)] bg-[var(--surface)] flex flex-col min-w-[320px] w-[320px] shrink-0">
-            <div className="sticky top-0 z-10 min-h-[44px] border-b border-[var(--border)] bg-[var(--surface)] shrink-0" />
+            <div
+              className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--surface)] shrink-0"
+              style={{ minHeight: zoomLevel === "day" ? 56 : 44 }}
+            />
             <div className="flex flex-col min-h-0">
               {flatRows.length === 0 ? (
                 <div className="min-h-[44px] border-b border-[var(--border)] flex items-center px-3 text-sm text-[var(--muted-foreground)]">
@@ -1980,31 +2012,68 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
         <div ref={scrollRef} className="overflow-x-auto min-w-0">
           <div className="inline-block min-w-0 w-full" style={{ minWidth: `${totalColumns * columnWidth}px` }}>
             {/* Sticky date header */}
-            <div className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--surface)] h-[44px] overflow-hidden">
-              <div
-                className="grid"
-                style={{ gridTemplateColumns: `repeat(${totalColumns}, ${columnWidth}px)` }}
-              >
-                {grid.map((c, idx) => (
+            <div
+              className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--surface)] overflow-hidden"
+              style={{ height: zoomLevel === "day" ? 56 : 44 }}
+            >
+              {zoomLevel === "day" && monthSegments.length > 0 ? (
+                <>
+                  {/* Month row */}
                   <div
-                    key={`dateheader_${c.key}`}
-                    className="flex h-[44px] flex-col items-center justify-center border-l border-[var(--border)] py-2 text-[10px] text-[var(--tertiary-foreground)] first:border-l-0"
+                    className="grid"
+                    style={{ gridTemplateColumns: `repeat(${totalColumns}, ${columnWidth}px)` }}
                   >
-                    {c.monthLabel ? (
-                      <span className="mb-0.5 text-[11px] font-medium text-[var(--muted-foreground)]">
-                        {c.monthLabel}
-                      </span>
-                    ) : (
-                      <span className="mb-0.5" />
-                    )}
-                    {c.weekLabel ? (
-                      <span className="text-[9px]">{c.weekLabel}</span>
-                    ) : (
-                      <span>{c.dayLabel}</span>
-                    )}
+                    {monthSegments.map((seg) => (
+                      <div
+                        key={seg.key}
+                        className="flex items-center pl-1.5 pt-1 text-[10px] text-[var(--muted-foreground)] border-l border-[var(--border)] first:border-l-0"
+                        style={{ gridColumn: `span ${seg.span}` }}
+                      >
+                        {seg.label}
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                  {/* Day row */}
+                  <div
+                    className="grid"
+                    style={{ gridTemplateColumns: `repeat(${totalColumns}, ${columnWidth}px)` }}
+                  >
+                    {grid.map((c) => (
+                      <div
+                        key={`dateheader_${c.key}`}
+                        className="flex h-[28px] items-center justify-center border-l border-[var(--border)] text-[10px] text-[var(--tertiary-foreground)] first:border-l-0"
+                      >
+                        {c.dayLabel}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div
+                  className="grid"
+                  style={{ gridTemplateColumns: `repeat(${totalColumns}, ${columnWidth}px)` }}
+                >
+                  {grid.map((c) => (
+                    <div
+                      key={`dateheader_${c.key}`}
+                      className="flex h-[44px] flex-col items-center justify-center border-l border-[var(--border)] py-2 text-[10px] text-[var(--tertiary-foreground)] first:border-l-0"
+                    >
+                      {c.monthLabel ? (
+                        <span className="mb-0.5 text-[11px] font-medium text-[var(--muted-foreground)]">
+                          {c.monthLabel}
+                        </span>
+                      ) : (
+                        <span className="mb-0.5" />
+                      )}
+                      {c.weekLabel ? (
+                        <span className="text-[9px]">{c.weekLabel}</span>
+                      ) : (
+                        <span>{c.dayLabel}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Timeline grid: row-based, no per-cell borders */}
