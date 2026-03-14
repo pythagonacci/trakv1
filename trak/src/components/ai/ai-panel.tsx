@@ -150,6 +150,7 @@ export function AIPanel({
   const [searchMode, setSearchMode] = useState<"answer" | "search">("answer");
   const [searchEntries, setSearchEntries] = useState<SearchEntry[]>([]);
   const [assistantRoutingMode, setAssistantRoutingMode] = useState<"default" | "chart" | "shopify">("default");
+  const [assistantSessionStarted, setAssistantSessionStarted] = useState(false);
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -257,6 +258,7 @@ export function AIPanel({
     setMessages([]);
     setInput("");
     setAssistantMessages([]);
+    setAssistantSessionStarted(false);
     setSearchEntries([]);
     setStreamingStatus(null);
     setStreamingResponse(null);
@@ -353,6 +355,7 @@ export function AIPanel({
         content: trimmedCommand,
         ...(attachedFileNames?.length ? { attachedFileNames } : {}),
       };
+      setAssistantSessionStarted(true);
       setAssistantMessages((prev) => [...prev, userMessage]);
       outboundHistory.push({ role: "user", content: trimmedCommand });
       if (mode === "assistant" && contextFiles.length > 0) {
@@ -1016,6 +1019,7 @@ export function AIPanel({
   const handleClearChat = async () => {
     if (mode === "assistant") {
       setAssistantMessages([]);
+      setAssistantSessionStarted(false);
       setInput("");
       return;
     }
@@ -1121,20 +1125,30 @@ export function AIPanel({
 
   const modePillClass = (active: boolean, compact = false) =>
     cn(
-      compact ? "rounded-md px-2 py-0.5 text-[11px] transition-colors" : "rounded-md px-2.5 py-1 text-xs transition-colors",
+      compact ? "rounded-[var(--radius-sm)] px-2 py-0.5 text-[11px] transition-colors" : "rounded-[var(--radius-sm)] px-2.5 py-1 text-[11px] transition-colors",
       active
-        ? "border border-[var(--border)] bg-[var(--surface-hover)] text-[var(--foreground)] font-semibold shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
+        ? "border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] font-semibold"
         : "border border-transparent text-[var(--muted-foreground)] hover:border-[var(--border)] hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
     );
   const isClearChatDisabled =
     (mode === "file" && (isClearing || isSyncing)) ||
     (mode === "assistant" && assistantLoading) ||
     (mode === "search" && searchLoading);
+  const isAssistantEmpty = mode === "assistant" && !assistantSessionStarted && !assistantLoading && !pendingWriteConfirmation;
+  const isFileEmpty = mode === "file" && messages.length === 0 && !isLoading && !isSyncing;
+  const isSearchEmpty = mode === "search" && searchEntries.length === 0 && !searchLoading;
+  const showEmptyState = isAssistantEmpty || isFileEmpty || isSearchEmpty;
+  const headerTitle = mode === "file" ? "File Analysis" : mode === "search" ? "Workspace Search" : "AI Assistant";
+  const headerSubtitle = mode === "file"
+    ? "Ask questions about your files"
+    : mode === "search"
+      ? "Unstructured RAG across your workspace"
+      : "";
 
   const headerAction = showCollapseButton && onCollapse ? (
     <button
       onClick={onCollapse}
-      className="inline-flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+      className="inline-flex items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
       title="Collapse"
     >
       <PanelRightClose className="h-4 w-4" />
@@ -1142,7 +1156,7 @@ export function AIPanel({
   ) : onClose ? (
     <button
       onClick={onClose}
-      className="inline-flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+      className="inline-flex items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
       title="Close"
     >
       <X className="h-4 w-4" />
@@ -1152,9 +1166,9 @@ export function AIPanel({
   return (
     <aside
       className={cn(
-        "relative flex h-full w-full flex-col border-l border-[var(--border)]",
-        variant === "modal" && "z-40 max-w-[480px] min-w-[360px] bg-[#fbfcfd] shadow-[0_6px_24px_rgba(0,0,0,0.08)] backdrop-blur-sm",
-        variant === "sidebar" && "bg-[#fbfcfd]",
+        "relative flex h-full w-full flex-col bg-[#fbfcfd]",
+        variant === "modal" && "z-40 max-w-[480px] min-w-[360px] rounded-l-[10px] border border-[var(--border)] shadow-[0_8px_22px_rgba(0,0,0,0.06)]",
+        variant === "sidebar" && "border-l border-[var(--border)]",
         isDragging && "ring-2 ring-[var(--primary)]/40"
       )}
       onDragOver={handleDragOver}
@@ -1163,9 +1177,9 @@ export function AIPanel({
     >
       {/* Header: full when no query sent, thin bar with mode pills after first query */}
       {headerCollapsed ? (
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--border)] bg-[#fbfcfd] px-3 py-1.5">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--border)] bg-[#fbfcfd] px-3 py-2">
           <div className="flex flex-1 items-center justify-center min-w-0">
-            <div className="flex items-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 text-[11px]">
+            <div className="flex items-center rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface-muted)] p-0.5 text-[11px]">
               <button
                 type="button"
                 onClick={() => setMode("assistant")}
@@ -1192,7 +1206,7 @@ export function AIPanel({
           {onClose ? (
             <button
               onClick={onClose}
-              className="shrink-0 inline-flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+              className="shrink-0 inline-flex items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
               title="Close"
             >
               <X className="h-4 w-4" />
@@ -1201,51 +1215,49 @@ export function AIPanel({
         </div>
       ) : (
         <>
-          <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[#fbfcfd] px-4 py-3">
-            <div className="flex min-w-0 items-center gap-3">
-              <Sparkles className="h-4 w-4 shrink-0 text-[var(--primary)]" />
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-[var(--foreground)]">
-                  {mode === "file" ? "File Analysis" : mode === "search" ? "Workspace Search" : "AI Assistant"}
+          <div className="flex shrink-0 flex-col gap-3 border-b border-[var(--border)] bg-[#fbfcfd] px-4 py-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex min-w-0 items-start gap-3">
+                <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-[var(--primary)]" />
+                <div className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <div className="truncate text-[15px] font-semibold leading-tight text-[var(--foreground)]">
+                      {headerTitle}
+                    </div>
+                    <div className="flex shrink-0 items-center rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface-muted)] p-0.5 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setMode("assistant")}
+                        className={modePillClass(mode === "assistant")}
+                      >
+                        AI Assistant
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMode("file")}
+                        className={modePillClass(mode === "file")}
+                      >
+                        File Analysis
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMode("search")}
+                        className={modePillClass(mode === "search")}
+                      >
+                        Search
+                      </button>
+                    </div>
+                  </div>
+                  {headerSubtitle ? (
+                    <div className="mt-0.5 text-xs leading-snug text-[var(--muted-foreground)]">
+                      {headerSubtitle}
+                    </div>
+                  ) : null}
                 </div>
-                <div className="text-xs text-[var(--muted-foreground)]">
-                  {mode === "file"
-                    ? "Ask questions about your files"
-                    : mode === "search"
-                      ? "Unstructured RAG across your workspace"
-                      : "Prompt to actions and answers"}
-                </div>
-              </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <div className="flex items-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 text-xs">
-                <button
-                  type="button"
-                  onClick={() => setMode("assistant")}
-                  className={modePillClass(mode === "assistant")}
-                >
-                  AI Assistant
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMode("file")}
-                  className={modePillClass(mode === "file")}
-                >
-                  File Analysis
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMode("search")}
-                  className={modePillClass(mode === "search")}
-                >
-                  Search
-                </button>
               </div>
               {headerAction}
             </div>
           </div>
-
-          {/* Context bar */}
           <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[#fbfcfd] px-4 py-2 text-xs text-[var(--muted-foreground)]">
             {mode === "file" ? (
               <>
@@ -1262,7 +1274,7 @@ export function AIPanel({
                 <span className="truncate">
                   {currentWorkspace?.name ? `${currentWorkspace.name} workspace` : "Workspace search"}
                 </span>
-                <span className="flex items-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-0.5 text-[11px]">
+                <span className="flex items-center rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-muted)] p-0.5 text-[11px]">
                   <button
                     type="button"
                     onClick={() => setSearchMode("answer")}
@@ -1295,8 +1307,22 @@ export function AIPanel({
       )}
 
       {/* Messages */}
-      <div ref={messagesContainerRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-[#fbfcfd] px-4 py-4">
-        {mode === "file" ? (
+      <div ref={messagesContainerRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-[#fbfcfd] px-4 py-4">
+        {showEmptyState ? (
+          <div className="flex min-h-full items-center justify-center px-4 py-8">
+            <div className="max-w-[280px] text-center">
+              <Sparkles className="mx-auto mb-3 h-[18px] w-[18px] text-[var(--primary)]" />
+              <h2 className="text-[24px] font-semibold leading-tight tracking-tight text-[var(--foreground)]">
+                What would you like to work on?
+              </h2>
+              {/* Demo hidden copy:
+              <p className="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">
+                Ask questions or have Trak take action anywhere in your workspace.
+              </p>
+              */}
+            </div>
+          </div>
+        ) : mode === "file" ? (
           messages.map((message) => {
             const isUser = message.role === "user";
             const actions = resolveActions(message);
@@ -1304,7 +1330,7 @@ export function AIPanel({
               <div key={message.id} className={cn("flex", isUser ? "justify-end" : "justify-start")}>
                 <div
                   className={cn(
-                    "max-w-[90%] space-y-2 rounded-lg border px-3 py-2 text-sm shadow-[0_1px_2px_rgba(0,0,0,0.02)]",
+                    "max-w-[90%] space-y-2 rounded-[var(--radius-md)] border px-3 py-2 text-sm",
                     isUser
                       ? "border-[var(--primary)]/30 bg-[var(--primary)]/10 text-[var(--foreground)]"
                       : "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]"
@@ -1326,7 +1352,7 @@ export function AIPanel({
                             key={option}
                             type="button"
                             onClick={() => handleClarificationSelect(option)}
-                            className="rounded-full border border-[var(--border)] px-3 py-1 text-xs hover:bg-[var(--surface-hover)]"
+                            className="rounded-[var(--radius-sm)] border border-[var(--border)] px-2.5 py-1 text-xs hover:bg-[var(--surface-hover)]"
                           >
                             {option}
                           </button>
@@ -1381,7 +1407,7 @@ export function AIPanel({
                   )}
 
                   {message.content?.charts?.map((chart, idx) => (
-                    <div key={idx} className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-2 text-xs">
+                    <div key={idx} className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-2 py-2 text-xs">
                       <div className="mb-1 font-semibold">{chart.title || "Chart"}</div>
                       <div className="mb-1 text-[var(--muted-foreground)]">Type: {chart.type}</div>
                       {chart.series?.map((series) => (
@@ -1419,7 +1445,7 @@ export function AIPanel({
                           key={`${message.id}-${action.type}-${action.fileIds?.join("-") || "none"}-${actionIndex}`}
                           type="button"
                           onClick={() => handleAction(action, message.id)}
-                          className="rounded-full border border-[var(--border)] px-3 py-1 text-xs hover:bg-[var(--surface-hover)]"
+                          className="rounded-[var(--radius-sm)] border border-[var(--border)] px-2.5 py-1 text-xs hover:bg-[var(--surface-hover)]"
                         >
                           {action.label}
                         </button>
@@ -1437,7 +1463,7 @@ export function AIPanel({
               <div key={message.id} className={cn("flex", isUser ? "justify-end" : "justify-start")}>
                 <div
                   className={cn(
-                    "max-w-[90%] space-y-2 rounded-lg border px-3 py-2 text-sm shadow-[0_1px_2px_rgba(0,0,0,0.02)]",
+                    "max-w-[90%] space-y-2 rounded-[var(--radius-md)] border px-3 py-2 text-sm",
                     isUser
                       ? "border-[var(--primary)]/30 bg-[var(--primary)]/10 text-[var(--foreground)]"
                       : "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]"
@@ -1467,7 +1493,7 @@ export function AIPanel({
                         onClick={() => handleUndo(message.id, message.undoBatches || [])}
                         disabled={undoingMessageId === message.id}
                         className={cn(
-                          "inline-flex items-center gap-2 rounded-md border border-[var(--border)] px-2.5 py-1 text-[11px] font-medium transition-colors",
+                          "inline-flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] px-2.5 py-1 text-[11px] font-medium transition-colors",
                           "text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)]",
                           undoingMessageId === message.id && "opacity-60"
                         )}
@@ -1484,7 +1510,7 @@ export function AIPanel({
                         onClick={() => handleAddToPage(message.id, message.content)}
                         disabled={addingToPageMessageId === message.id}
                         className={cn(
-                          "inline-flex items-center gap-2 rounded-md border border-[var(--border)] px-2.5 py-1 text-[11px] font-medium transition-colors",
+                          "inline-flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] px-2.5 py-1 text-[11px] font-medium transition-colors",
                           "text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]",
                           addingToPageMessageId === message.id && "opacity-60"
                         )}
@@ -1511,12 +1537,12 @@ export function AIPanel({
             return (
               <React.Fragment key={entry.id}>
                 <div className="flex justify-end">
-                  <div className="max-w-[90%] rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/10 px-3 py-2 text-sm text-[var(--foreground)] shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+                  <div className="max-w-[90%] rounded-[var(--radius-md)] border border-[var(--primary)]/30 bg-[var(--primary)]/10 px-3 py-2 text-sm text-[var(--foreground)]">
                     <p className="whitespace-pre-wrap">{entry.query}</p>
                   </div>
                 </div>
                 <div className="flex justify-start">
-                  <div className="max-w-[90%] space-y-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+                  <div className="max-w-[90%] space-y-3 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)]">
                     {entry.status === "loading" && (
                       <div className="flex items-center gap-2 text-[var(--muted-foreground)]">
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -1548,7 +1574,7 @@ export function AIPanel({
                             {entry.sources.map((source, index) => {
                               const previewHtml = formatPreview(source.chunk_content);
                               return (
-                                <div key={`${entry.id}-source-${index}`} className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-2 text-xs">
+                                <div key={`${entry.id}-source-${index}`} className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-2 py-2 text-xs">
                                   <div className="flex items-center justify-between gap-2">
                                     <div className="flex items-center gap-2 font-medium text-[var(--foreground)]">
                                       <FileText className="h-3 w-3 text-[var(--muted-foreground)]" />
@@ -1580,7 +1606,7 @@ export function AIPanel({
                           entry.results.map((result, index) => {
                             const previewHtml = formatPreview(result.chunks?.[0]?.content || result.summary);
                             return (
-                              <div key={`${entry.id}-result-${index}`} className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-2 text-xs">
+                              <div key={`${entry.id}-result-${index}`} className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-2 py-2 text-xs">
                                 <div className="flex items-center justify-between gap-2">
                                   <div className="font-medium text-[var(--foreground)]">
                                     {result.sourceType} · {result.sourceId}
@@ -1612,20 +1638,20 @@ export function AIPanel({
 
         {mode === "assistant" && pendingWriteConfirmation && !assistantLoading && (
           <div className="flex justify-start">
-            <div className="max-w-[90%] space-y-3 rounded-lg border border-[var(--border)] bg-[var(--muted)] px-3 py-3 text-sm text-[var(--foreground)]">
+            <div className="max-w-[90%] space-y-3 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--muted)] px-3 py-3 text-sm text-[var(--foreground)]">
               <p className="whitespace-pre-wrap">{pendingWriteConfirmation.question}</p>
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={handleApprovePendingWrite}
-                  className="rounded-md border border-[var(--primary)] bg-[var(--primary)] px-3 py-1 text-xs text-white hover:bg-[var(--primary-hover)]"
+                  className="rounded-[var(--radius-sm)] border border-[var(--primary)] bg-[var(--primary)] px-3 py-1 text-xs text-white hover:bg-[var(--primary-hover)]"
                 >
                   Yes, continue
                 </button>
                 <button
                   type="button"
                   onClick={handleDenyPendingWrite}
-                  className="rounded-md border border-[var(--border)] px-3 py-1 text-xs hover:bg-[var(--surface-hover)]"
+                  className="rounded-[var(--radius-sm)] border border-[var(--border)] px-3 py-1 text-xs hover:bg-[var(--surface-hover)]"
                 >
                   No, cancel
                 </button>
@@ -1640,12 +1666,12 @@ export function AIPanel({
                     value={writeClarificationInput}
                     onChange={(event) => setWriteClarificationInput(event.target.value)}
                     placeholder="Type clarification..."
-                    className="h-8 flex-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 text-xs outline-none focus:border-[var(--secondary)]"
+                    className="h-8 flex-1 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-2 text-xs outline-none focus:border-[var(--secondary)]"
                   />
                   <button
                     type="button"
                     onClick={handleClarifyPendingWrite}
-                    className="rounded-md border border-[var(--border)] px-2 py-1 text-xs hover:bg-[var(--surface-hover)]"
+                    className="rounded-[var(--radius-sm)] border border-[var(--border)] px-2 py-1 text-xs hover:bg-[var(--surface-hover)]"
                   >
                     Send
                   </button>
@@ -1657,7 +1683,7 @@ export function AIPanel({
 
         {mode === "file" && isLoading && (
           <div className="flex justify-start">
-            <div className="flex items-center gap-2 rounded-lg bg-[var(--muted)] px-3 py-2 text-sm">
+            <div className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2 text-sm">
               <Loader2 className="h-4 w-4 animate-spin" />
               <span className="text-[var(--muted-foreground)]">Thinking...</span>
             </div>
@@ -1670,7 +1696,7 @@ export function AIPanel({
 
         {mode === "assistant" && assistantLoading && (
           <div className="flex justify-start">
-            <div className="flex items-center gap-2 rounded-lg bg-[var(--muted)] px-3 py-2 text-sm">
+            <div className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2 text-sm">
               <Loader2 className="h-4 w-4 animate-spin" />
               <span className="text-[var(--muted-foreground)]">
                 {streamingResponse || streamingStatus || "Thinking..."}
@@ -1683,26 +1709,16 @@ export function AIPanel({
       </div>
 
       {/* Input */}
-      <form onSubmit={handleSubmit} className="flex shrink-0 flex-col gap-2 border-t border-[var(--border)] bg-[#fbfcfd] p-4">
-        <div className="flex items-center gap-2">
-          {(mode === "file" || mode === "assistant") && (
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="rounded-md border border-[var(--border)] px-2 py-2 text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-              title="Attach files"
-            >
-              <Paperclip className="h-4 w-4" />
-            </button>
-          )}
-          <div className="flex-1">
+      <form onSubmit={handleSubmit} className="flex shrink-0 flex-col gap-2 border-t border-[var(--border)] bg-[#fbfcfd] px-3 py-3">
+        <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] p-2">
+          <div className="flex flex-col gap-2">
             {mode === "assistant" && assistantRoutingMode !== "default" && (
-              <div className="mb-2 inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[11px] text-[var(--foreground)]">
+              <div className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-0.5 text-[11px] text-[var(--foreground)]">
                 <span>{assistantRoutingMode === "chart" ? "@chart" : "@shopify"}</span>
                 <button
                   type="button"
                   onClick={() => setAssistantRoutingMode("default")}
-                  className="rounded-full p-0.5 text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                  className="rounded-[var(--radius-xs)] p-0.5 text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
                   aria-label={`Remove @${assistantRoutingMode} tag`}
                 >
                   <X className="h-3 w-3" />
@@ -1710,19 +1726,19 @@ export function AIPanel({
               </div>
             )}
             {(mode === "assistant" || mode === "file") && contextFiles.length > 0 && (
-              <div className="mb-2 flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--muted-foreground)]">
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--muted-foreground)]">
                 <Paperclip className="h-3 w-3 shrink-0" />
                 <span className="shrink-0">Attached:</span>
                 {contextFiles.map((f) => (
                   <span
                     key={f.id}
-                    className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] pl-1.5 pr-1 py-0.5"
+                    className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-muted)] pl-1.5 pr-1 py-0.5"
                   >
                     <span className="truncate max-w-[120px]">{f.file_name}</span>
                     <button
                       type="button"
                       onClick={() => setContextFiles((prev) => prev.filter((x) => x.id !== f.id))}
-                      className="rounded p-0.5 text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                      className="rounded-[var(--radius-xs)] p-0.5 text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
                       aria-label={`Remove ${f.file_name}`}
                     >
                       <X className="h-3 w-3" />
@@ -1731,71 +1747,85 @@ export function AIPanel({
                 ))}
               </div>
             )}
-            <textarea
-              ref={inputRef}
-              rows={1}
-              value={input}
-              onChange={(e) => handleMentionInput(e.target.value)}
-              placeholder={
-                mode === "file"
-                  ? "Ask about your files..."
-                  : mode === "search"
-                    ? "Search your workspace..."
-                    : "Ask anything or give a command..."
-              }
-              className={cn(
-                "w-full min-h-[40px] resize-none overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm shadow-[0_1px_2px_rgba(0,0,0,0.02)]",
-                "text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]",
-                "focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
+            <div className="flex items-start gap-2">
+              {(mode === "file" || mode === "assistant") && (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                  title="Attach files"
+                >
+                  <Paperclip className="h-4 w-4" />
+                </button>
               )}
-            />
+              <div className="min-w-0 flex-1">
+                <textarea
+                  ref={inputRef}
+                  rows={1}
+                  value={input}
+                  onChange={(e) => handleMentionInput(e.target.value)}
+                  placeholder={
+                    mode === "file"
+                      ? "Ask about your files..."
+                      : mode === "search"
+                        ? "Search your workspace..."
+                        : "Ask anything or give a command..."
+                  }
+                  className={cn(
+                    "w-full min-h-[40px] resize-none overflow-y-auto rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm leading-5",
+                    "text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]",
+                    "focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
+                  )}
+                />
+              </div>
+              {mode === "assistant" && assistantLoading ? (
+                <button
+                  type="button"
+                  onClick={stopStreaming}
+                  className={cn(
+                    "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--destructive)]/60 bg-[var(--destructive)]/10 text-[var(--destructive)]",
+                    "hover:bg-[var(--destructive)]/20"
+                  )}
+                  title="Stop"
+                >
+                  <Square className="h-4 w-4" />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={
+                    !input.trim() ||
+                    (mode === "file"
+                      ? isLoading || !sessionId
+                      : mode === "assistant"
+                        ? assistantLoading
+                        : searchLoading)
+                  }
+                  className={cn(
+                    "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--primary)] text-[var(--primary-foreground)]",
+                    "disabled:opacity-50"
+                  )}
+                >
+                  <Send className="h-4 w-4" />
+                </button>
+              )}
+            </div>
           </div>
-          {mode === "assistant" && assistantLoading ? (
-            <button
-              type="button"
-              onClick={stopStreaming}
-              className={cn(
-                "rounded-md border border-[var(--destructive)]/60 bg-[var(--destructive)]/10 px-3 py-2 text-xs text-[var(--destructive)]",
-                "hover:bg-[var(--destructive)]/20"
-              )}
-              title="Stop"
-            >
-              <Square className="h-4 w-4" />
-            </button>
-          ) : (
-            <button
-              type="submit"
-              disabled={
-                !input.trim() ||
-                (mode === "file"
-                  ? isLoading || !sessionId
-                  : mode === "assistant"
-                    ? assistantLoading
-                    : searchLoading)
-              }
-              className={cn(
-                "rounded-md bg-[var(--primary)] px-3 py-2 text-xs text-[var(--primary-foreground)]",
-                "disabled:opacity-50"
-              )}
-            >
-              <Send className="h-4 w-4" />
-            </button>
-          )}
         </div>
         <button
           type="button"
           onClick={handleClearChat}
           disabled={isClearChatDisabled}
           className={cn(
-            "text-[11px] underline underline-offset-2 text-[var(--muted-foreground)] transition-colors",
-            "hover:text-[var(--foreground)] disabled:opacity-50 disabled:no-underline"
+            "self-end text-[11px] text-[var(--muted-foreground)] underline underline-offset-2 decoration-transparent transition-colors",
+            "hover:text-[var(--foreground)] hover:decoration-current active:decoration-current active:text-[var(--foreground)] focus-visible:decoration-current focus-visible:outline-none disabled:opacity-50 disabled:no-underline"
           )}
         >
           Clear Chat
         </button>
 
         {mode === "file" && showMentions && mentionSuggestions.length > 0 && (
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] text-xs shadow-lg">
+          <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] text-xs shadow-[0_4px_14px_rgba(0,0,0,0.08)]">
             {mentionSuggestions.map((file) => (
               <button
                 key={file.id}

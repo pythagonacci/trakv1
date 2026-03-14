@@ -523,7 +523,7 @@ function DraggableEvent({
             )}
             <div
               className={cn(
-                "event-bar relative overflow-hidden flex h-8 w-full items-center gap-2 rounded-[6px] px-3 text-[11px] text-white shadow-sm",
+                "event-bar relative overflow-hidden flex h-8 w-full items-center gap-2 rounded-[6px] px-3 text-xs text-black shadow-sm",
                 event.color || "bg-[var(--foreground)]"
               )}
             >
@@ -543,7 +543,7 @@ function DraggableEvent({
               {statusField && (
                 <span
                   className={cn(
-                    "relative z-10 ml-auto inline-flex max-w-[128px] items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                    "relative z-10 ml-auto inline-flex max-w-[128px] items-center rounded-full border px-1.5 py-0.5 text-[11px] font-medium !text-black",
                     STATUS_PILL_COLORS[statusField.value]
                   )}
                   title={getTimelineStatusDisplayLabel(statusField)}
@@ -553,7 +553,7 @@ function DraggableEvent({
                 </span>
               )}
               {progress > 0 && (
-                <span className={cn("relative z-10 text-[10px]", statusField ? "ml-1" : "ml-auto")}>{progress}%</span>
+                <span className={cn("relative z-10 text-[11px] text-black", statusField ? "ml-1" : "ml-auto")}>{progress}%</span>
               )}
             </div>
           </>
@@ -648,7 +648,7 @@ function DraggableEvent({
           {/* Event bar */}
           <div
             className={cn(
-              "event-bar group relative overflow-hidden flex h-8 w-full items-center gap-2 rounded-[6px] px-3 pr-7 text-[11px] text-white shadow-sm transition-transform cursor-move",
+              "event-bar group relative overflow-hidden flex h-8 w-full items-center gap-2 rounded-[6px] px-3 pr-7 text-xs text-black shadow-sm transition-transform cursor-move",
               isCritical && "ring-2 ring-red-500 ring-offset-1",
               event.color || "bg-[var(--foreground)]"
             )}
@@ -674,7 +674,7 @@ function DraggableEvent({
             {statusField && (
               <span
                 className={cn(
-                  "relative z-10 ml-auto inline-flex max-w-[128px] items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                  "relative z-10 ml-auto inline-flex max-w-[128px] items-center rounded-full border px-1.5 py-0.5 text-[11px] font-medium !text-black",
                   STATUS_PILL_COLORS[statusField.value]
                 )}
                 title={getTimelineStatusDisplayLabel(statusField)}
@@ -684,7 +684,7 @@ function DraggableEvent({
               </span>
             )}
             {progress > 0 && (
-              <span className={cn("relative z-10 text-[10px]", statusField ? "ml-1" : "ml-auto")}>{progress}%</span>
+              <span className={cn("relative z-10 text-[11px] text-black", statusField ? "ml-1" : "ml-auto")}>{progress}%</span>
             )}
             {!readOnly && onAddSubEvent && (
               <button
@@ -1256,6 +1256,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
 
   const MAIN_BAR_HEIGHT = 32;
   const SUBEVENT_BAR_HEIGHT = 20;
+  const SUBEVENT_RENDER_HEIGHT = 18;
   const ROW_HEIGHT_BASE = 44;
 
   const { rowHeights, rowTops, totalRowHeight } = useMemo(() => {
@@ -1334,13 +1335,19 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
 
   function barStyleForSubEvent(startISO: string, endISO: string, rowTop: number, subEventIndex: number): React.CSSProperties {
     const base = barStyle(startISO, endISO, rowTop);
-    const top = rowTop + 8 + MAIN_BAR_HEIGHT + subEventIndex * SUBEVENT_BAR_HEIGHT + (SUBEVENT_BAR_HEIGHT / 2) - 8;
+    const top =
+      rowTop +
+      8 +
+      MAIN_BAR_HEIGHT +
+      subEventIndex * SUBEVENT_BAR_HEIGHT +
+      SUBEVENT_BAR_HEIGHT / 2 -
+      SUBEVENT_RENDER_HEIGHT / 2;
     return {
       ...base,
       top: `${top}px`,
       left: `calc(${base.left} + 12px)`,
       width: `calc(${base.width} - 24px)`,
-      height: "16px",
+      height: `${SUBEVENT_RENDER_HEIGHT}px`,
       minWidth: "4px",
     };
   }
@@ -1980,9 +1987,17 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
           )}
 
           {!readOnly && (
-            <Button ref={addEventButtonRef} size="sm" onClick={addEvent} className="inline-flex items-center gap-1.5">
+            <button
+              ref={addEventButtonRef}
+              onClick={addEvent}
+              className={cn(
+                "flex h-8 items-center gap-1.5 rounded-[4px] border px-3 py-1.5 text-xs font-medium transition-colors",
+                "border-[var(--primary)]/30 bg-[var(--primary)]/10 text-[var(--primary)]",
+                "hover:bg-[var(--primary-hover)]/90 hover:border-[var(--primary-hover)]/50",
+              )}
+            >
               <Plus className="h-3.5 w-3.5" /> Add event
-            </Button>
+            </button>
           )}
         </div>
       </div>
@@ -2039,7 +2054,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                         </div>
                       </div>
                       {rowSubEvents.length > 0 && (
-                        <ul className="mt-0.5 pl-4 space-y-0.5 border-l border-[var(--border)] ml-1">
+                        <ul className="mt-0.5 pl-4 space-y-0 border-l border-[var(--border)] ml-1">
                           {rowSubEvents.map((child) => (
                             <li
                               key={child.id}
@@ -2053,6 +2068,7 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
                                 if (child.isPreview || isPreviewSubEventId(child.id)) return;
                                 openPanel(child.id);
                               }}
+                              style={{ minHeight: `${SUBEVENT_BAR_HEIGHT}px` }}
                             >
                               <Minus className="h-3 w-3 shrink-0 text-[var(--muted-foreground)]" aria-hidden />
                               <span className="truncate flex-1 min-w-0">{child.title || "Untitled"}</span>

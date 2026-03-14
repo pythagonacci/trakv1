@@ -687,7 +687,7 @@ export default function ShopifyProductBlock({ block, onUpdate }: ShopifyProductB
               </div>
 
               {(product.description || product.tags.length > 0) && (
-                <div className="border-t border-[var(--border)] px-4 pt-4">
+                <div className="px-4 pt-4">
                   <div className="space-y-4">
                     {product.description && (
                       <div className="space-y-2">

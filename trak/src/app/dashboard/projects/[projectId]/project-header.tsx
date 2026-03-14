@@ -136,10 +136,12 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
   };
 
   const currentTabName = tabId ? findTabName(tabs, tabId) : null;
+  const canCollapseHeader = !!tabId || isOverview;
+  const currentHeaderContextName = isOverview ? "Overview" : currentTabName;
 
 
   // Collapsed view - only show when collapsed and on a tab
-  if (isCollapsed && tabId && currentTabName) {
+  if (isCollapsed && canCollapseHeader && currentHeaderContextName) {
     return (
       <>
         <div className="flex items-center justify-between h-5 px-2 border-b border-[var(--border)]/30 bg-[var(--surface)]/50 backdrop-blur-sm">
@@ -148,7 +150,7 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
             <span className="text-[var(--foreground)]/30">·</span>
             <span className="flex items-center gap-1">
               <span className="h-1 w-1 rounded-full bg-[var(--foreground)]/50"></span>
-              <span className="truncate">{currentTabName}</span>
+              <span className="truncate">{currentHeaderContextName}</span>
               {tabs.length > 0 && (
                 <button
                   onClick={() => setIsTabBarOpen(!isTabBarOpen)}
@@ -272,15 +274,15 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
-          {/* Collapse button - only show when on a tab */}
-          {tabId && (
+          {/* Collapse button - show on a tab or overview */}
+          {canCollapseHeader && (
             <button
               onClick={handleCollapseToggle}
-              className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] transition-all duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] shadow-sm"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[11px] font-medium text-[var(--foreground)] transition-all duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] shadow-sm"
               title="Collapse header"
+              aria-label="Collapse header"
             >
               <ChevronUp className="h-3 w-3" />
-              Collapse
             </button>
           )}
 
