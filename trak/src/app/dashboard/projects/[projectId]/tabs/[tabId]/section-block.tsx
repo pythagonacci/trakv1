@@ -148,7 +148,7 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, pro
   };
 
   const saveTitle = async () => {
-    const trimmed = titleValue.trim();
+    const trimmed = titleValue.trim() || "Section";
     setEditingTitle(false);
     if (trimmed !== title) {
       await persistContent({ title: trimmed });

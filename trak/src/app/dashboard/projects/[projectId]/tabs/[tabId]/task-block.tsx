@@ -658,7 +658,14 @@ function BoardTaskCard(props: BoardTaskCardProps) {
       role={cardRole}
       tabIndex={cardTabIndex}
       onClick={handleCardClick}
-      onKeyDown={hasCardClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleCardClick(e as any); } } : undefined}
+      onKeyDown={hasCardClick ? (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          const target = e.target as HTMLElement;
+          if (target.closest("input, textarea")) return;
+          e.preventDefault();
+          handleCardClick(e as any);
+        }
+      } : undefined}
       className={cn(
         "group rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-xs transition-shadow",
         "hover:border-[var(--secondary)]/30 hover:shadow-sm",
@@ -1665,8 +1672,9 @@ export default function TaskBlock({
       delete next[String(subtaskId)];
       return next;
     });
-    if (draftValue !== originalText) {
-      await updateSubtask(taskId, subtaskId, { text: draftValue });
+    const finalText = (draftValue || "").trim() || "New subtask";
+    if (finalText !== originalText) {
+      await updateSubtask(taskId, subtaskId, { text: finalText });
     }
   };
 
@@ -3102,9 +3110,9 @@ export default function TaskBlock({
                     }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
                         const target = e.target as HTMLElement;
-                        if (target.closest("button, [role='menuitem'], [data-no-card-open]")) return;
+                        if (target.closest("button, [role='menuitem'], [data-no-card-open], input, textarea")) return;
+                        e.preventDefault();
                         setSelectedTaskId(String(task.id));
                       }
                     }}
@@ -3198,7 +3206,8 @@ export default function TaskBlock({
                             type="text"
                             value={editingTaskText}
                             onBlur={() => {
-                              updateTask(task.id, { text: editingTaskText });
+                              const finalText = (editingTaskText || "").trim() || "New task";
+                              updateTask(task.id, { text: finalText });
                               setEditingTaskId(null);
                             }}
                             onKeyDown={(e) => {
@@ -3220,7 +3229,8 @@ export default function TaskBlock({
                                 return;
                               }
                               if (e.key === "Enter") {
-                                updateTask(task.id, { text: editingTaskText });
+                                const finalText = (editingTaskText || "").trim() || "New task";
+                                updateTask(task.id, { text: finalText });
                                 setEditingTaskId(null);
                               }
                               if (e.key === "Escape") {
@@ -4311,7 +4321,8 @@ export default function TaskBlock({
                                   setEditingTaskText(e.target.value);
                                 }}
                                 onBlur={() => {
-                                  updateTask(task.id, { text: editingTaskText });
+                                  const finalText = (editingTaskText || "").trim() || "New task";
+                                  updateTask(task.id, { text: finalText });
                                   setEditingTaskId(null);
                                 }}
                                 onKeyDown={(e) => {
@@ -4333,7 +4344,8 @@ export default function TaskBlock({
                                     return;
                                   }
                                   if (e.key === "Enter") {
-                                    updateTask(task.id, { text: editingTaskText });
+                                    const finalText = (editingTaskText || "").trim() || "New task";
+                                    updateTask(task.id, { text: finalText });
                                     setEditingTaskId(null);
                                   }
                                   if (e.key === "Escape") {
@@ -4640,12 +4652,14 @@ export default function TaskBlock({
                                 value={editingSubtaskText}
                                 onChange={(e) => setEditingSubtaskText(e.target.value)}
                                 onBlur={() => {
-                                  updateSubtask(parentTaskId, subtask.id, { text: editingSubtaskText });
+                                  const finalText = (editingSubtaskText || "").trim() || "New subtask";
+                                  updateSubtask(parentTaskId, subtask.id, { text: finalText });
                                   setEditingSubtaskId(null);
                                 }}
                                 onKeyDown={(e) => {
                                   if (e.key === "Enter") {
-                                    updateSubtask(parentTaskId, subtask.id, { text: editingSubtaskText });
+                                    const finalText = (editingSubtaskText || "").trim() || "New subtask";
+                                    updateSubtask(parentTaskId, subtask.id, { text: finalText });
                                     setEditingSubtaskId(null);
                                   }
                                   if (e.key === "Escape") {
@@ -4929,9 +4943,9 @@ export default function TaskBlock({
                     }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
                         const target = e.target as HTMLElement;
-                        if (target.closest("button, [role='menuitem'], [data-no-card-open]")) return;
+                        if (target.closest("button, [role='menuitem'], [data-no-card-open], input, textarea")) return;
+                        e.preventDefault();
                         setSelectedTaskId(String(task.id));
                       }
                     }}
@@ -5048,7 +5062,8 @@ export default function TaskBlock({
                                 setEditingTaskText(e.target.value);
                               }}
                               onBlur={() => {
-                                updateTask(task.id, { text: editingTaskText });
+                                const finalText = (editingTaskText || "").trim() || "New task";
+                                updateTask(task.id, { text: finalText });
                                 setEditingTaskId(null);
                               }}
                               onKeyDown={(e) => {
@@ -5070,7 +5085,8 @@ export default function TaskBlock({
                                   return;
                                 }
                                 if (e.key === "Enter") {
-                                  updateTask(task.id, { text: editingTaskText });
+                                  const finalText = (editingTaskText || "").trim() || "New task";
+                                  updateTask(task.id, { text: finalText });
                                   setEditingTaskId(null);
                                 }
                                 if (e.key === "Escape") {
