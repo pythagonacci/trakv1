@@ -82,6 +82,10 @@ interface TaskDetailCardProps {
   onAddReference?: (anchorRect?: DOMRect, mode?: "notes" | "attachments") => void;
   /** Callback to add a text note (stored as a comment with [note] prefix). */
   onAddNote?: (text: string) => boolean | void | Promise<boolean | void>;
+  /** Callback to update an existing text note. */
+  onUpdateNote?: (noteId: string, text: string) => boolean | void | Promise<boolean | void>;
+  /** Callback to delete an existing text note. */
+  onDeleteNote?: (noteId: string) => boolean | void | Promise<boolean | void>;
   /** Callback to add a comment. For subtasks, parentTaskId is used. */
   onAddComment?: (text: string, parentId?: string | null) => boolean | void | Promise<boolean | void>;
   /** Open @ mention picker for the comment input (same as gallery). getAnchorRect() returns current caret rect for re-anchoring; onInsert(text) inserts the chosen mention. */
@@ -141,6 +145,10 @@ function stripNotePrefix(text: string): string {
   return text.startsWith(NOTE_PREFIX) ? text.slice(NOTE_PREFIX.length).trim() : text;
 }
 
+function getDisplayedNoteText(text: string): string {
+  return stripNotePrefix(stripSubtaskPrefix(text));
+}
+
 function buildCommentChildren<T extends { id: string | number; parentId?: string | null }>(comments: T[]) {
   const map = new Map<string, T[]>();
   for (const comment of comments) {
@@ -163,6 +171,8 @@ export function TaskDetailCard({
   insideBlock = false,
   onAddReference,
   onAddNote,
+  onUpdateNote,
+  onDeleteNote,
   onAddComment,
   onOpenCommentMentionPicker,
   getTextareaCaretRect,
@@ -199,8 +209,12 @@ export function TaskDetailCard({
   >([]);
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
   const [noteDraft, setNoteDraft] = useState("");
+  const [savedNoteDrafts, setSavedNoteDrafts] = useState<Record<string, string>>({});
+  const [savingNoteIds, setSavingNoteIds] = useState<Record<string, boolean>>({});
   const [isSubmittingNote, setIsSubmittingNote] = useState(false);
   const noteTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const savedNoteTextareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
+  const savedNoteBodiesRef = useRef<Record<string, string>>({});
   const commentMentionStartRef = useRef<number | null>(null);
   const commentMentionEndRef = useRef<number | null>(null);
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
@@ -236,6 +250,44 @@ export function TaskDetailCard({
     element.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [focusCommentId, task.comments]);
 
+  useEffect(() => {
+    const nextBodies = Object.fromEntries(
+      textNotes.map((note) => [String(note.id), getDisplayedNoteText(note.text)])
+    );
+    setSavedNoteDrafts((prev) => {
+      const next: Record<string, string> = {};
+      let changed = false;
+
+      for (const [noteId, noteText] of Object.entries(nextBodies)) {
+        const previousServerText = savedNoteBodiesRef.current[noteId];
+        const previousDraft = prev[noteId];
+        if (previousDraft === undefined || previousDraft === previousServerText) {
+          next[noteId] = noteText;
+          if (previousDraft !== noteText) changed = true;
+        } else {
+          next[noteId] = previousDraft;
+        }
+      }
+
+      if (Object.keys(prev).length !== Object.keys(next).length) {
+        changed = true;
+      }
+
+      savedNoteBodiesRef.current = nextBodies;
+      return changed ? next : prev;
+    });
+  }, [textNotes]);
+
+  useEffect(() => {
+    for (const note of textNotes) {
+      const noteId = String(note.id);
+      const textarea = savedNoteTextareaRefs.current[noteId];
+      if (!textarea) continue;
+      textarea.style.height = "0px";
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+  }, [textNotes, savedNoteDrafts]);
+
   const handleAddComment = async () => {
     const text = buildCommentWithLinks(commentDraft, commentMentionSpans).trim();
     if (!text || !onAddComment) return;
@@ -268,7 +320,57 @@ export function TaskDetailCard({
     }
   };
 
+  const handleSavedNoteBlur = async (noteId: string, originalText: string) => {
+    if (!onUpdateNote && !onDeleteNote) return;
+
+    const originalNote = getDisplayedNoteText(originalText);
+    const draft = savedNoteDrafts[noteId] ?? originalNote;
+    const trimmedDraft = draft.trim();
+    const trimmedOriginal = originalNote.trim();
+
+    if (trimmedDraft === trimmedOriginal) {
+      if (draft !== originalNote) {
+        setSavedNoteDrafts((prev) => ({ ...prev, [noteId]: originalNote }));
+      }
+      return;
+    }
+
+    setSavingNoteIds((prev) => ({ ...prev, [noteId]: true }));
+    try {
+      if (!trimmedDraft) {
+        const didDelete = await onDeleteNote?.(noteId);
+        if (didDelete === false) {
+          setSavedNoteDrafts((prev) => ({ ...prev, [noteId]: originalNote }));
+          return;
+        }
+        setSavedNoteDrafts((prev) => {
+          const next = { ...prev };
+          delete next[noteId];
+          return next;
+        });
+        return;
+      }
+
+      const didSave = await onUpdateNote?.(noteId, trimmedDraft);
+      if (didSave === false) {
+        setSavedNoteDrafts((prev) => ({ ...prev, [noteId]: originalNote }));
+        return;
+      }
+      setSavedNoteDrafts((prev) => ({ ...prev, [noteId]: trimmedDraft }));
+    } catch {
+      setSavedNoteDrafts((prev) => ({ ...prev, [noteId]: originalNote }));
+    } finally {
+      setSavingNoteIds((prev) => {
+        const next = { ...prev };
+        delete next[noteId];
+        return next;
+      });
+    }
+  };
+
   const canAdd = !disabled && (onAddReference || onAddNote || onAddComment);
+  const canEditSavedNotes = !disabled && Boolean(onUpdateNote && onDeleteNote);
+  const showNewNoteInput = Boolean(onAddNote) && textNotes.length === 0;
 
   return (
     <div
@@ -324,7 +426,7 @@ export function TaskDetailCard({
           <div className="space-y-1.5">
             <p className="text-xs font-semibold text-[var(--foreground)]">Notes</p>
             {(notes.length > 0 || textNotes.length > 0) && (
-              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 space-y-1 overflow-visible min-h-0 max-h-[none]">
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 space-y-0.5 overflow-visible min-h-0 max-h-[none]">
                 {notes.map((ref) => (
                   <div
                     key={ref.id}
@@ -348,14 +450,38 @@ export function TaskDetailCard({
                     )}
                   </div>
                 ))}
-                {textNotes.map((c) => (
-                  <div key={String(c.id)} className="text-sm text-[var(--foreground)]">
-                    {stripNotePrefix(stripSubtaskPrefix(c.text))}
-                  </div>
-                ))}
+                {textNotes.map((c) => {
+                  const noteId = String(c.id);
+                  const noteText = savedNoteDrafts[noteId] ?? getDisplayedNoteText(c.text);
+                  return canEditSavedNotes ? (
+                    <textarea
+                      key={noteId}
+                      ref={(element) => {
+                        savedNoteTextareaRefs.current[noteId] = element;
+                      }}
+                      value={noteText}
+                      onChange={(e) => setSavedNoteDrafts((prev) => ({ ...prev, [noteId]: e.target.value }))}
+                      onBlur={() => void handleSavedNoteBlur(noteId, c.text)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          setSavedNoteDrafts((prev) => ({ ...prev, [noteId]: getDisplayedNoteText(c.text) }));
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      placeholder="Write a note..."
+                      disabled={savingNoteIds[noteId]}
+                      rows={1}
+                      className="block w-full resize-none overflow-hidden border-0 bg-transparent px-0 py-0 text-sm leading-[1.3] text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)] disabled:cursor-wait disabled:opacity-60"
+                    />
+                  ) : (
+                    <div key={noteId} className="text-sm text-[var(--foreground)]">
+                      {getDisplayedNoteText(c.text)}
+                    </div>
+                  );
+                })}
               </div>
             )}
-            {onAddNote && (
+            {showNewNoteInput && (
               <textarea
                 ref={noteTextareaRef}
                 value={noteDraft}

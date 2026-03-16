@@ -167,6 +167,7 @@ function extractRawId(itemId: BoardItemId): string {
 }
 
 const SUBTASK_COMMENT_PREFIX = /^\[subtask:([^\]]+)\]\s*/i;
+const NOTE_PREFIX = "[note] ";
 
 function encodeSubtaskCommentText(subtaskId: string, text: string): string {
   return `[subtask:${subtaskId}] ${text}`;
@@ -1772,6 +1773,65 @@ export default function TaskBlock({
     }
     setNewComment(prev => ({ ...prev, [taskId]: "" }));
     setCommentMentionSpans(prev => ({ ...prev, [taskId]: [] }));
+    return true;
+  };
+
+  const updateNoteComment = async ({
+    taskId,
+    commentId,
+    noteText,
+    subtaskId,
+  }: {
+    taskId: string | number;
+    commentId: string;
+    noteText: string;
+    subtaskId?: string;
+  }) => {
+    const nextText = subtaskId
+      ? encodeSubtaskCommentText(subtaskId, `${NOTE_PREFIX}${noteText}`)
+      : `${NOTE_PREFIX}${noteText}`;
+
+    if (isTempBlock) {
+      const task = tasks.find((entry) => entry.id === taskId);
+      if (!task) return false;
+      const nextComments = (task.comments || []).map((comment) =>
+        String(comment.id) === commentId ? { ...comment, text: nextText } : comment
+      );
+      await updateTask(taskId, { comments: nextComments });
+      return true;
+    }
+
+    const result = await commentMutations.update.mutateAsync({
+      commentId,
+      updates: { text: nextText },
+    });
+    if ("error" in result) {
+      console.error("Failed to update note:", result.error);
+      return false;
+    }
+    return true;
+  };
+
+  const deleteNoteComment = async ({
+    taskId,
+    commentId,
+  }: {
+    taskId: string | number;
+    commentId: string;
+  }) => {
+    if (isTempBlock) {
+      const task = tasks.find((entry) => entry.id === taskId);
+      if (!task) return false;
+      const nextComments = (task.comments || []).filter((comment) => String(comment.id) !== commentId);
+      await updateTask(taskId, { comments: nextComments });
+      return true;
+    }
+
+    const result = await commentMutations.remove.mutateAsync(commentId);
+    if ("error" in result) {
+      console.error("Failed to delete note:", result.error);
+      return false;
+    }
     return true;
   };
 
@@ -6038,8 +6098,27 @@ export default function TaskBlock({
             onAddNote={
               projectId && !isTempBlock
                 ? async (text) => {
-                    await addComment(selectedTask.id, `[note] ${text}`);
+                    await addComment(selectedTask.id, `${NOTE_PREFIX}${text}`);
                   }
+                : undefined
+            }
+            onUpdateNote={
+              projectId
+                ? async (noteId, text) =>
+                    updateNoteComment({
+                      taskId: selectedTask.id,
+                      commentId: noteId,
+                      noteText: text,
+                    })
+                : undefined
+            }
+            onDeleteNote={
+              projectId
+                ? async (noteId) =>
+                    deleteNoteComment({
+                      taskId: selectedTask.id,
+                      commentId: noteId,
+                    })
                 : undefined
             }
             onAddComment={
@@ -6090,9 +6169,29 @@ export default function TaskBlock({
             onAddNote={
               projectId && !isTempBlock
                 ? async (text) => {
-                    const hint = encodeSubtaskCommentText(String(selectedSubtask.id), `[note] ${text}`);
+                    const hint = encodeSubtaskCommentText(String(selectedSubtask.id), `${NOTE_PREFIX}${text}`);
                     await addComment(selectedParentTask.id, hint);
                   }
+                : undefined
+            }
+            onUpdateNote={
+              projectId
+                ? async (noteId, text) =>
+                    updateNoteComment({
+                      taskId: selectedParentTask.id,
+                      commentId: noteId,
+                      noteText: text,
+                      subtaskId: String(selectedSubtask.id),
+                    })
+                : undefined
+            }
+            onDeleteNote={
+              projectId
+                ? async (noteId) =>
+                    deleteNoteComment({
+                      taskId: selectedParentTask.id,
+                      commentId: noteId,
+                    })
                 : undefined
             }
             onAddComment={
