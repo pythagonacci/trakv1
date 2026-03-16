@@ -1,11 +1,19 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { X, Plus, MessageSquare } from "lucide-react";
+import { X, Plus, Paperclip } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { sanitizeHtml } from "@/lib/sanitize-html";
 import { useTaskReferences, useSubtaskReferences, useDeleteTaskReference, useDeleteSubtaskReference } from "@/lib/hooks/use-task-queries";
 import { useBlockReferencePicker } from "@/components/blocks/block-reference-picker-provider";
+import { useUser } from "@/hooks/use-user";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { format } from "date-fns";
 
 function escapeHtml(s: string): string {
@@ -196,7 +204,10 @@ export function TaskDetailCard({
   const commentMentionStartRef = useRef<number | null>(null);
   const commentMentionEndRef = useRef<number | null>(null);
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
+  const attachmentButtonRef = useRef<HTMLButtonElement>(null);
   const referencePicker = useBlockReferencePicker();
+  const { data: currentUser } = useUser();
+  const currentUserInitial = currentUser?.name?.charAt(0)?.toUpperCase() ?? currentUser?.email?.charAt(0)?.toUpperCase() ?? "?";
 
   /** Auto-grow notes textarea to fit content, capped so card never exceeds block. */
   const NOTES_TEXTAREA_MAX_HEIGHT_PX = 200;
@@ -265,12 +276,12 @@ export function TaskDetailCard({
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); onClose(); }}
-        className="absolute top-2 right-2 p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors z-10"
+        className="absolute top-3 right-4 p-1.5 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors z-10"
         aria-label="Close"
       >
         <X className="h-4 w-4" />
       </button>
-      <div className="p-4 flex flex-col flex-1 min-h-0 overflow-hidden pr-10">
+      <div className="pl-4 pr-5 pt-4 pb-2 flex flex-col flex-1 min-h-0 overflow-hidden">
         <div className="min-w-0">
           <h3 className="text-base font-semibold text-[var(--foreground)] leading-tight">
             {task.text || "Untitled task"}
@@ -349,58 +360,11 @@ export function TaskDetailCard({
                     handleAddNote();
                   }
                 }}
-                placeholder="Add a note..."
+                placeholder="Write a note..."
                 disabled={disabled}
-                rows={2}
-                className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed resize-none min-h-[3.5rem] max-h-[200px] overflow-y-auto"
+                rows={1}
+                className="w-full border-0 border-b border-[var(--border)] rounded-none bg-transparent px-0 py-1.5 text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)] disabled:opacity-50 disabled:cursor-not-allowed resize-none min-h-[1.5rem] max-h-[200px] overflow-y-auto"
               />
-            )}
-          </div>
-
-          {/* Attachments (non-file references) */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold text-[var(--foreground)]">Attachments</p>
-              {canAdd && onAddReference && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onAddReference((e.currentTarget as HTMLElement).getBoundingClientRect(), "attachments");
-                  }}
-                  className="text-xs text-[var(--foreground)] hover:text-[var(--primary)] flex items-center gap-1"
-                >
-                  <Plus className="h-3 w-3" />
-                  Add
-                </button>
-              )}
-            </div>
-            {attachments.length > 0 && (
-              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 space-y-1">
-                {attachments.map((ref) => (
-                  <div
-                    key={ref.id}
-                    className="flex items-center justify-between group/ref"
-                  >
-                    <span className="text-sm text-[var(--foreground)] truncate flex-1 min-w-0">
-                      {ref.title}
-                    </span>
-                    {!disabled && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteReference(ref.id);
-                        }}
-                        className="ml-2 p-0.5 rounded text-[var(--muted-foreground)] hover:text-red-500 opacity-0 group-hover/ref:opacity-100 transition-opacity shrink-0"
-                        aria-label="Remove"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
             )}
           </div>
 
@@ -482,118 +446,193 @@ export function TaskDetailCard({
                     </button>
                   </div>
                 )}
-                <div className="flex gap-2">
-                <textarea
-                  ref={commentInputRef}
-                  value={commentDraft}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    setCommentDraft(next);
-                    // Re-anchor mention spans after edit (find each label in new draft in order)
-                    setCommentMentionSpans((prev) => {
-                      const newSpans: Array<{ start: number; end: number; href: string; label: string }> = [];
-                      let searchStart = 0;
-                      for (const span of prev) {
-                        const idx = next.indexOf(span.label, searchStart);
-                        if (idx === -1) continue;
-                        newSpans.push({
-                          start: idx,
-                          end: idx + span.label.length,
-                          href: span.href,
-                          label: span.label,
-                        });
-                        searchStart = idx + span.label.length;
-                      }
-                      return newSpans;
-                    });
-
-                    const mentionStart = commentMentionStartRef.current;
-                    if (mentionStart === null || (!onCommentMentionQueryChange && !onCloseCommentMentionPicker)) return;
-
-                    const cursorPosition = e.currentTarget.selectionStart ?? next.length;
-                    const shouldStopMentioning =
-                      mentionStart >= next.length ||
-                      next[mentionStart] !== "@" ||
-                      cursorPosition <= mentionStart;
-
-                    if (shouldStopMentioning) {
-                      commentMentionStartRef.current = null;
-                      commentMentionEndRef.current = null;
-                      onCloseCommentMentionPicker?.();
-                      return;
-                    }
-
-                    commentMentionEndRef.current = cursorPosition;
-                    const nextQuery = next.slice(mentionStart + 1, cursorPosition);
-                    onCommentMentionQueryChange?.(nextQuery);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      if (referencePicker?.isOpen) return;
-                      e.preventDefault();
-                      handleAddComment();
-                      return;
-                    }
-                    if (e.key === "@" && onOpenCommentMentionPicker && getTextareaCaretRect) {
-                      e.preventDefault();
-                      const current = e.currentTarget.value;
-                      const start = e.currentTarget.selectionStart ?? current.length;
-                      const end = e.currentTarget.selectionEnd ?? start;
-                      const next = current.slice(0, start) + "@" + current.slice(end);
+                <div className="flex gap-2 items-center">
+                  <div
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--surface-hover)] text-[10px] font-medium text-[var(--foreground)]"
+                    aria-hidden
+                  >
+                    {currentUserInitial}
+                  </div>
+                  <textarea
+                    ref={commentInputRef}
+                    value={commentDraft}
+                    onChange={(e) => {
+                      const next = e.target.value;
                       setCommentDraft(next);
-                      commentMentionStartRef.current = start;
-                      commentMentionEndRef.current = start + 1;
-                      const anchorRect = getTextareaCaretRect(e.currentTarget) ?? e.currentTarget.getBoundingClientRect();
-                      const getAnchorRect = () =>
-                        commentInputRef.current
-                          ? getTextareaCaretRect(commentInputRef.current) ?? commentInputRef.current.getBoundingClientRect()
-                          : null;
-                      onOpenCommentMentionPicker(anchorRect, getAnchorRect, (text) => {
-                        const s = commentMentionStartRef.current;
-                        if (s === null) return;
-                        const endIdx = commentMentionEndRef.current ?? s + 1;
-                        const link = parseCommentLinkMarkdown(text);
-                        const labelOnly = link ? link.label : text;
-                        setCommentDraft((prev) => prev.slice(0, s) + labelOnly + prev.slice(endIdx));
-                        if (link) {
-                          setCommentMentionSpans((prev) =>
-                            [...prev, { start: s, end: s + labelOnly.length, href: link.href, label: link.label }].sort(
-                              (a, b) => a.start - b.start
-                            )
-                          );
+                      // Re-anchor mention spans after edit (find each label in new draft in order)
+                      setCommentMentionSpans((prev) => {
+                        const newSpans: Array<{ start: number; end: number; href: string; label: string }> = [];
+                        let searchStart = 0;
+                        for (const span of prev) {
+                          const idx = next.indexOf(span.label, searchStart);
+                          if (idx === -1) continue;
+                          newSpans.push({
+                            start: idx,
+                            end: idx + span.label.length,
+                            href: span.href,
+                            label: span.label,
+                          });
+                          searchStart = idx + span.label.length;
                         }
+                        return newSpans;
+                      });
+
+                      const mentionStart = commentMentionStartRef.current;
+                      if (mentionStart === null || (!onCommentMentionQueryChange && !onCloseCommentMentionPicker)) return;
+
+                      const cursorPosition = e.currentTarget.selectionStart ?? next.length;
+                      const shouldStopMentioning =
+                        mentionStart >= next.length ||
+                        next[mentionStart] !== "@" ||
+                        cursorPosition <= mentionStart;
+
+                      if (shouldStopMentioning) {
                         commentMentionStartRef.current = null;
                         commentMentionEndRef.current = null;
-                        requestAnimationFrame(() => {
-                          commentInputRef.current?.focus();
-                          const pos = s + labelOnly.length;
-                          commentInputRef.current?.setSelectionRange(pos, pos);
+                        onCloseCommentMentionPicker?.();
+                        return;
+                      }
+
+                      commentMentionEndRef.current = cursorPosition;
+                      const nextQuery = next.slice(mentionStart + 1, cursorPosition);
+                      onCommentMentionQueryChange?.(nextQuery);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        if (referencePicker?.isOpen) return;
+                        e.preventDefault();
+                        handleAddComment();
+                        return;
+                      }
+                      if (e.key === "@" && onOpenCommentMentionPicker && getTextareaCaretRect) {
+                        e.preventDefault();
+                        const current = e.currentTarget.value;
+                        const start = e.currentTarget.selectionStart ?? current.length;
+                        const end = e.currentTarget.selectionEnd ?? start;
+                        const next = current.slice(0, start) + "@" + current.slice(end);
+                        setCommentDraft(next);
+                        commentMentionStartRef.current = start;
+                        commentMentionEndRef.current = start + 1;
+                        const anchorRect = getTextareaCaretRect(e.currentTarget) ?? e.currentTarget.getBoundingClientRect();
+                        const getAnchorRect = () =>
+                          commentInputRef.current
+                            ? getTextareaCaretRect(commentInputRef.current) ?? commentInputRef.current.getBoundingClientRect()
+                            : null;
+                        onOpenCommentMentionPicker(anchorRect, getAnchorRect, (text) => {
+                          const s = commentMentionStartRef.current;
+                          if (s === null) return;
+                          const endIdx = commentMentionEndRef.current ?? s + 1;
+                          const link = parseCommentLinkMarkdown(text);
+                          const labelOnly = link ? link.label : text;
+                          setCommentDraft((prev) => prev.slice(0, s) + labelOnly + prev.slice(endIdx));
+                          if (link) {
+                            setCommentMentionSpans((prev) =>
+                              [...prev, { start: s, end: s + labelOnly.length, href: link.href, label: link.label }].sort(
+                                (a, b) => a.start - b.start
+                              )
+                            );
+                          }
+                          commentMentionStartRef.current = null;
+                          commentMentionEndRef.current = null;
+                          requestAnimationFrame(() => {
+                            commentInputRef.current?.focus();
+                            const pos = s + labelOnly.length;
+                            commentInputRef.current?.setSelectionRange(pos, pos);
+                          });
                         });
-                      });
-                    }
-                  }}
-                  placeholder="Add a comment..."
-                  rows={2}
-                  style={{ maxHeight: COMMENT_TEXTAREA_MAX_HEIGHT_PX }}
-                  className="flex-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none resize-none min-h-[2.5rem] overflow-y-auto"
-                />
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleAddComment();
-                  }}
-                  disabled={!commentDraft.trim() || isSubmittingComment}
-                  className="shrink-0 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                >
-                  <MessageSquare className="h-3 w-3" />
-                  Add
-                </button>
+                      }
+                    }}
+                    placeholder="Write a comment..."
+                    rows={1}
+                    style={{ maxHeight: COMMENT_TEXTAREA_MAX_HEIGHT_PX }}
+                    className="flex-1 border-0 border-b border-[var(--border)] rounded-none bg-transparent px-0 py-1.5 text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)] resize-none min-h-[1.5rem] overflow-y-auto"
+                  />
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleAddComment();
+                    }}
+                    disabled={!commentDraft.trim() || isSubmittingComment}
+                    className="shrink-0 text-xs font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Add
+                  </button>
                 </div>
               </div>
             )}
           </div>
         </div>
+
+        {/* Attachments: paperclip at bottom (aligned with X above) */}
+        {canAdd && onAddReference && (
+          <div className="flex justify-end pt-1.5 pb-0.5 border-t border-[var(--border)] mt-1.5">
+            {attachments.length > 0 ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    ref={attachmentButtonRef}
+                    type="button"
+                    onClick={(e) => e.stopPropagation()}
+                    className="p-1.5 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
+                    aria-label="Attachments"
+                  >
+                    <Paperclip className="h-4 w-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" side="top">
+                  <DropdownMenuItem
+                    onSelect={(e) => {
+                      e.preventDefault();
+                      const rect = attachmentButtonRef.current?.getBoundingClientRect();
+                      if (rect) onAddReference(rect, "attachments");
+                    }}
+                  >
+                    <Plus className="h-3.5 w-3.5 mr-2" />
+                    Add attachment
+                  </DropdownMenuItem>
+                  {attachments.length > 0 && <DropdownMenuSeparator />}
+                  {attachments.map((ref) => (
+                    <div
+                      key={ref.id}
+                      className="flex items-center justify-between gap-2 min-w-0 px-3 py-2 text-sm text-[var(--foreground)]"
+                    >
+                      <span className="truncate flex-1">{ref.title}</span>
+                      {!disabled && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            handleDeleteReference(ref.id);
+                          }}
+                          className="p-0.5 rounded text-[var(--muted-foreground)] hover:text-red-500 shrink-0"
+                          aria-label="Remove"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <button
+                ref={attachmentButtonRef}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                  onAddReference(rect, "attachments");
+                }}
+                className="p-1.5 rounded text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
+                aria-label="Add attachment"
+              >
+                <Paperclip className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -140,6 +140,115 @@ function serializeCommentMentions(text: string, tokens: DraftMentionToken[]) {
   return result;
 }
 
+function renderCommentDraftWithMentions(text: string, tokens: DraftMentionToken[]) {
+  if (!text) return null;
+
+  const sortedTokens = [...tokens].sort((a, b) => a.start - b.start);
+  const segments: React.ReactNode[] = [];
+  let cursor = 0;
+
+  for (const token of sortedTokens) {
+    if (token.start < cursor || token.end > text.length) continue;
+    const slice = text.slice(token.start, token.end);
+    if (slice !== token.label) continue;
+
+    if (token.start > cursor) {
+      segments.push(
+        <span key={`text-${cursor}`}>
+          {text.slice(cursor, token.start)}
+        </span>
+      );
+    }
+
+    segments.push(
+      <span
+        key={`mention-${token.start}-${token.end}-${token.href}`}
+        className="text-[var(--primary)] underline underline-offset-2"
+      >
+        {slice}
+      </span>
+    );
+    cursor = token.end;
+  }
+
+  if (cursor < text.length) {
+    segments.push(<span key={`text-${cursor}`}>{text.slice(cursor)}</span>);
+  }
+
+  return segments.length > 0 ? segments : text;
+}
+
+function MentionDraftTextarea({
+  textareaRef,
+  value,
+  tokens,
+  placeholder,
+  rows,
+  autoFocus,
+  wrapperClassName,
+  overlayClassName,
+  textareaClassName,
+  onChange,
+  onKeyDown,
+  onKeyUp,
+}: {
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  value: string;
+  tokens: DraftMentionToken[];
+  placeholder: string;
+  rows: number;
+  autoFocus?: boolean;
+  wrapperClassName: string;
+  overlayClassName: string;
+  textareaClassName: string;
+  onChange: React.ChangeEventHandler<HTMLTextAreaElement>;
+  onKeyDown: React.KeyboardEventHandler<HTMLTextAreaElement>;
+  onKeyUp?: React.KeyboardEventHandler<HTMLTextAreaElement>;
+}) {
+  const overlayRef = useRef<HTMLDivElement>(null);
+
+  const syncOverlayScroll = useCallback(() => {
+    if (!textareaRef.current || !overlayRef.current) return;
+    overlayRef.current.scrollTop = textareaRef.current.scrollTop;
+    overlayRef.current.scrollLeft = textareaRef.current.scrollLeft;
+  }, [textareaRef]);
+
+  useEffect(() => {
+    syncOverlayScroll();
+  }, [value, syncOverlayScroll]);
+
+  return (
+    <div className={cn("relative", wrapperClassName)}>
+      <div
+        ref={overlayRef}
+        aria-hidden="true"
+        className={cn(
+          "pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words",
+          overlayClassName
+        )}
+      >
+        {value ? renderCommentDraftWithMentions(value, tokens) : null}
+      </div>
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        onKeyUp={onKeyUp}
+        onScroll={syncOverlayScroll}
+        placeholder={placeholder}
+        rows={rows}
+        autoFocus={autoFocus}
+        className={cn(
+          "relative z-10 w-full bg-transparent text-transparent caret-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:outline-none resize-none selection:bg-[var(--foreground)]/15",
+          textareaClassName
+        )}
+        style={{ WebkitTextFillColor: "transparent" }}
+      />
+    </div>
+  );
+}
+
 const CELL_WIDTH = 150;
 const CELL_HEIGHT = 112;
 const CELL_GAP = 12;
@@ -2077,13 +2186,13 @@ function GalleryImageAddCommentInput({
   containerRef?: React.RefObject<HTMLElement | null>;
 }) {
   const [commentText, setCommentText] = useState("");
+  const [mentionTokens, setMentionTokens] = useState<DraftMentionToken[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
   const commentTextRef = useRef("");
   const referencePicker = useBlockReferencePicker();
   const mentionStartIndexRef = useRef<number | null>(null);
   const mentionQueryRef = useRef("");
-  const mentionTokensRef = useRef<DraftMentionToken[]>([]);
 
   useEffect(() => {
     commentTextRef.current = commentText;
@@ -2116,19 +2225,17 @@ function GalleryImageAddCommentInput({
       const safeEnd = Math.min(currentValue.length, safeStart + 1 + activeQuery.length);
       return currentValue.slice(0, safeStart) + replacement + currentValue.slice(safeEnd);
     });
-    mentionTokensRef.current = shiftMentionTokens(
-      mentionTokensRef.current,
-      mentionStart,
-      replacedLength,
-      replacement.length
-    );
-    mentionTokensRef.current.push({
-      start: mentionStart,
-      end: mentionStart + replacement.length,
-      label: replacement,
-      href,
+    setMentionTokens((currentTokens) => {
+      const nextTokens = shiftMentionTokens(currentTokens, mentionStart, replacedLength, replacement.length);
+      nextTokens.push({
+        start: mentionStart,
+        end: mentionStart + replacement.length,
+        label: replacement,
+        href,
+      });
+      nextTokens.sort((a, b) => a.start - b.start);
+      return nextTokens;
     });
-    mentionTokensRef.current.sort((a, b) => a.start - b.start);
 
     clearInlineMention();
     requestAnimationFrame(() => {
@@ -2150,7 +2257,7 @@ function GalleryImageAddCommentInput({
 
   const handleSubmit = async () => {
     closeInlineMentionPicker();
-    const serializedText = serializeCommentMentions(commentText, mentionTokensRef.current).trim();
+    const serializedText = serializeCommentMentions(commentText, mentionTokens).trim();
     if (!serializedText) return;
     setIsSubmitting(true);
     try {
@@ -2166,20 +2273,27 @@ function GalleryImageAddCommentInput({
 
   return (
     <div className="rounded-md border border-[var(--border)] bg-[var(--surface-hover)]/50 p-2 space-y-2">
-      <textarea
-        ref={commentInputRef}
+      <MentionDraftTextarea
+        textareaRef={commentInputRef}
         value={commentText}
+        tokens={mentionTokens}
+        placeholder="Write a comment... (@ to mention)"
+        rows={2}
+        autoFocus
+        wrapperClassName="rounded-md border border-[var(--border)] bg-[var(--surface)] focus-within:border-[var(--foreground)]/20"
+        overlayClassName="min-h-[48px] px-2.5 py-2 text-[11px] leading-normal text-[var(--foreground)]"
+        textareaClassName="min-h-[48px] px-2.5 py-2 text-[11px] leading-normal"
         onChange={(e) => {
           const nextValue = e.target.value;
           const previousValue = commentTextRef.current;
           setCommentText(nextValue);
           const editDelta = getTextEditDelta(previousValue, nextValue);
-          mentionTokensRef.current = shiftMentionTokens(
-            mentionTokensRef.current,
+          setMentionTokens((currentTokens) => shiftMentionTokens(
+            currentTokens,
             editDelta.start,
             editDelta.removedLength,
             editDelta.insertedLength
-          );
+          ));
 
           const mentionStart = mentionStartIndexRef.current;
           if (mentionStart === null || !referencePicker) return;
@@ -2250,10 +2364,6 @@ function GalleryImageAddCommentInput({
           e.stopPropagation();
         }}
         onKeyUp={(e) => e.stopPropagation()}
-        placeholder="Write a comment... (@ to mention)"
-        className="w-full min-h-[48px] rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-[11px] text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:outline-none focus:border-[var(--foreground)]/20 resize-none"
-        rows={2}
-        autoFocus
       />
       <div className="flex justify-end gap-2">
         <button
@@ -2375,13 +2485,13 @@ function GalleryImageContextMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const [showCommentInput, setShowCommentInput] = useState(false);
   const [commentText, setCommentText] = useState("");
+  const [mentionTokens, setMentionTokens] = useState<DraftMentionToken[]>([]);
   const [adjustedPosition, setAdjustedPosition] = useState({ x, y });
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
   const commentTextRef = useRef("");
   const referencePicker = useBlockReferencePicker();
   const mentionStartIndexRef = useRef<number | null>(null);
   const mentionQueryRef = useRef("");
-  const mentionTokensRef = useRef<DraftMentionToken[]>([]);
 
   useEffect(() => {
     commentTextRef.current = commentText;
@@ -2414,19 +2524,17 @@ function GalleryImageContextMenu({
       const safeEnd = Math.min(currentValue.length, safeStart + 1 + activeQuery.length);
       return currentValue.slice(0, safeStart) + replacement + currentValue.slice(safeEnd);
     });
-    mentionTokensRef.current = shiftMentionTokens(
-      mentionTokensRef.current,
-      mentionStart,
-      replacedLength,
-      replacement.length
-    );
-    mentionTokensRef.current.push({
-      start: mentionStart,
-      end: mentionStart + replacement.length,
-      label: replacement,
-      href,
+    setMentionTokens((currentTokens) => {
+      const nextTokens = shiftMentionTokens(currentTokens, mentionStart, replacedLength, replacement.length);
+      nextTokens.push({
+        start: mentionStart,
+        end: mentionStart + replacement.length,
+        label: replacement,
+        href,
+      });
+      nextTokens.sort((a, b) => a.start - b.start);
+      return nextTokens;
     });
-    mentionTokensRef.current.sort((a, b) => a.start - b.start);
 
     clearInlineMention();
     requestAnimationFrame(() => {
@@ -2487,7 +2595,7 @@ function GalleryImageContextMenu({
 
   const submitComment = () => {
     closeInlineMentionPicker();
-    const serializedText = serializeCommentMentions(commentText, mentionTokensRef.current).trim();
+    const serializedText = serializeCommentMentions(commentText, mentionTokens).trim();
     if (!serializedText) return;
     onAddComment(serializedText);
   };
@@ -2559,20 +2667,26 @@ function GalleryImageContextMenu({
             <MessageSquare className="h-3.5 w-3.5 text-[var(--tertiary-foreground)]" />
             <span className="text-xs font-medium text-[var(--foreground)]">Add comment</span>
           </div>
-          <textarea
-            ref={commentInputRef}
+          <MentionDraftTextarea
+            textareaRef={commentInputRef}
             value={commentText}
+            tokens={mentionTokens}
+            placeholder="Write a comment... (@ to mention)"
+            rows={2}
+            wrapperClassName="rounded-md border border-[var(--border)] bg-[var(--surface-hover)]/50 transition-colors focus-within:border-[var(--foreground)]/20 focus-within:bg-[var(--surface)]"
+            overlayClassName="min-h-[48px] px-2.5 py-2 text-xs leading-normal text-[var(--foreground)]"
+            textareaClassName="min-h-[48px] px-2.5 py-2 text-xs leading-normal"
             onChange={(e) => {
               const nextValue = e.target.value;
               const previousValue = commentTextRef.current;
               setCommentText(nextValue);
               const editDelta = getTextEditDelta(previousValue, nextValue);
-              mentionTokensRef.current = shiftMentionTokens(
-                mentionTokensRef.current,
+              setMentionTokens((currentTokens) => shiftMentionTokens(
+                currentTokens,
                 editDelta.start,
                 editDelta.removedLength,
                 editDelta.insertedLength
-              );
+              ));
 
               const mentionStart = mentionStartIndexRef.current;
               if (mentionStart === null || !referencePicker) return;
@@ -2639,15 +2753,12 @@ function GalleryImageContextMenu({
                 closeInlineMentionPicker();
                 setShowCommentInput(false);
                 setCommentText("");
-                mentionTokensRef.current = [];
+                setMentionTokens([]);
                 return;
               }
               e.stopPropagation();
             }}
             onKeyUp={(e) => e.stopPropagation()}
-            placeholder="Write a comment... (@ to mention)"
-            className="w-full min-h-[48px] rounded-md border border-[var(--border)] bg-[var(--surface-hover)]/50 px-2.5 py-2 text-xs text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:outline-none focus:border-[var(--foreground)]/20 focus:bg-[var(--surface)] resize-none transition-colors"
-            rows={2}
           />
           <div className="flex items-center justify-between">
             <button
@@ -2655,7 +2766,7 @@ function GalleryImageContextMenu({
                 closeInlineMentionPicker();
                 setShowCommentInput(false);
                 setCommentText("");
-                mentionTokensRef.current = [];
+                setMentionTokens([]);
               }}
               className="text-[10px] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)] transition-colors"
             >
