@@ -1743,7 +1743,7 @@ export default function TaskBlock({
     const draft = explicitText ?? newComment[taskId] ?? "";
     const spans = commentMentionSpans[taskId] ?? [];
     const commentText = (explicitText !== undefined ? explicitText : buildCommentWithLinks(draft, spans)).trim();
-    if (!commentText) return;
+    if (!commentText) return false;
 
     const task = tasks.find(t => t.id === taskId);
     if (isTempBlock) {
@@ -1758,7 +1758,7 @@ export default function TaskBlock({
       await updateTask(taskId, { comments: newComments });
       setNewComment(prev => ({ ...prev, [taskId]: "" }));
       setCommentMentionSpans(prev => ({ ...prev, [taskId]: [] }));
-      return;
+      return true;
     }
 
     const result = await commentMutations.create.mutateAsync({
@@ -1768,10 +1768,11 @@ export default function TaskBlock({
     });
     if ("error" in result) {
       console.error("Failed to add comment:", result.error);
-      return;
+      return false;
     }
     setNewComment(prev => ({ ...prev, [taskId]: "" }));
     setCommentMentionSpans(prev => ({ ...prev, [taskId]: [] }));
+    return true;
   };
 
   const openTaskCommentComposer = (taskId: string | number, initialText?: string) => {

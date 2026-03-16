@@ -1,10 +1,16 @@
 "use client";
 
-import { useState, useEffect, useTransition } from "react";
+import { useState, useEffect, useTransition, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { Loader2, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { getProductDetails, refreshProduct } from "@/app/actions/shopify-products";
+import Toast from "@/app/dashboard/projects/toast";
+import {
+  getProductDetails,
+  refreshProduct,
+  type ProductWithVariants,
+} from "@/app/actions/shopify-products";
 import { createProjectFromProduct } from "@/app/actions/project";
 import { UnitsSoldWidget } from "./units-sold-widget";
 import { buildProjectPath, buildProjectTabPath } from "@/lib/dashboard-routes";
@@ -13,22 +19,25 @@ interface ProductDetailProps {
   productId: string;
   isOpen: boolean;
   onClose: () => void;
+  onUnimport?: () => Promise<{ type: "success" | "error"; message: string }>;
+  isUnimporting?: boolean;
 }
 
-export function ShopifyProductDetail({ productId, isOpen, onClose }: ProductDetailProps) {
+export function ShopifyProductDetail({
+  productId,
+  isOpen,
+  onClose,
+  onUnimport,
+  isUnimporting = false,
+}: ProductDetailProps) {
   const router = useRouter();
-  const [product, setProduct] = useState<any>(null);
+  const [product, setProduct] = useState<ProductWithVariants | null>(null);
   const [loading, setLoading] = useState(true);
   const [isPending, startTransition] = useTransition();
   const [isCreatingProject, startCreateTransition] = useTransition();
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
-  useEffect(() => {
-    if (isOpen && productId) {
-      loadProduct();
-    }
-  }, [isOpen, productId]);
-
-  const loadProduct = async () => {
+  const loadProduct = useCallback(async () => {
     setLoading(true);
     const result = await getProductDetails(productId);
 
@@ -38,6 +47,30 @@ export function ShopifyProductDetail({ productId, isOpen, onClose }: ProductDeta
       console.error("Error loading product:", result.error);
     }
     setLoading(false);
+  }, [productId]);
+
+  useEffect(() => {
+    if (isOpen && productId) {
+      const timer = window.setTimeout(() => {
+        void loadProduct();
+        setToast(null);
+      }, 0);
+      return () => window.clearTimeout(timer);
+    }
+  }, [isOpen, productId, loadProduct]);
+
+  const handleUnimportClick = () => {
+    if (!onUnimport) return;
+
+    void (async () => {
+      const result = await onUnimport();
+      setToast(result);
+      if (result.type === "success") {
+        window.setTimeout(() => {
+          onClose();
+        }, 900);
+      }
+    })();
   };
 
   const handleRefresh = () => {
@@ -101,7 +134,15 @@ export function ShopifyProductDetail({ productId, isOpen, onClose }: ProductDeta
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="relative max-w-4xl max-h-[90vh] overflow-y-auto">
+        {toast && (
+          <Toast
+            message={toast.message}
+            type={toast.type}
+            onClose={() => setToast(null)}
+            className="absolute right-6 top-6 z-20"
+          />
+        )}
         <DialogHeader>
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
@@ -111,6 +152,24 @@ export function ShopifyProductDetail({ productId, isOpen, onClose }: ProductDeta
               </p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
+              {onUnimport && (
+                <Button
+                  onClick={handleUnimportClick}
+                  disabled={isUnimporting}
+                  variant="outline"
+                  size="sm"
+                  className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                >
+                  {isUnimporting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <>
+                      <Trash2 className="h-4 w-4" />
+                      <span className="ml-1">Unimport</span>
+                    </>
+                  )}
+                </Button>
+              )}
               <Button
                 onClick={handleCreateProject}
                 disabled={isCreatingProject}
@@ -199,7 +258,7 @@ export function ShopifyProductDetail({ productId, isOpen, onClose }: ProductDeta
               Variants ({product.variants?.length || 0})
             </h3>
             <div className="space-y-3">
-              {product.variants?.map((variant: any) => (
+              {product.variants?.map((variant) => (
                 <div
                   key={variant.id}
                   className="border rounded-lg p-4 hover:bg-gray-50 transition-colors"
@@ -256,7 +315,7 @@ export function ShopifyProductDetail({ productId, isOpen, onClose }: ProductDeta
                             Inventory by Location:
                           </p>
                           <div className="grid grid-cols-2 gap-2">
-                            {variant.inventory.map((inv: any) => (
+                            {variant.inventory.map((inv) => (
                               <div key={inv.id} className="text-xs">
                                 <span className="text-gray-600">{inv.location_name}:</span>
                                 <span className="ml-2 font-medium">{inv.available}</span>

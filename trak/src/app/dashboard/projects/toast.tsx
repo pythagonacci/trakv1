@@ -2,15 +2,23 @@
 
 import React, { useEffect } from "react";
 import { CheckCircle, XCircle, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface ToastProps {
   message: string;
   type: "success" | "error";
   onClose: () => void;
   duration?: number;
+  className?: string;
 }
 
-export default function Toast({ message, type, onClose, duration = 3000 }: ToastProps) {
+export default function Toast({
+  message,
+  type,
+  onClose,
+  duration = 3000,
+  className,
+}: ToastProps) {
   useEffect(() => {
     const timer = setTimeout(() => {
       onClose();
@@ -20,7 +28,12 @@ export default function Toast({ message, type, onClose, duration = 3000 }: Toast
   }, [duration, onClose]);
 
   return (
-    <div className="fixed top-4 right-4 z-[100] animate-in slide-in-from-top-2 duration-300">
+    <div
+      className={cn(
+        "fixed right-4 top-4 z-[100] animate-in slide-in-from-top-2 duration-300",
+        className
+      )}
+    >
       <div
         className={`flex items-center gap-3 rounded-xl border px-4 py-3 shadow-popover backdrop-blur-sm ${
           type === "success"

@@ -1,51 +1,64 @@
 "use client";
 
-import { useState, useEffect, useTransition } from "react";
+import { useState, useEffect, useTransition, useCallback } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { listShopifyProducts, importShopifyProducts } from "@/app/actions/shopify-products";
+import Toast from "@/app/dashboard/projects/toast";
 
 interface ShopifyProductPickerProps {
   isOpen: boolean;
   onClose: () => void;
   connectionId: string;
-  onImport: () => void;
+}
+
+interface PickerProduct {
+  id: string;
+  title: string;
+  status: string;
+  productType: string | null;
+  variantsCount: number;
+  featuredImage: {
+    url: string;
+  } | null;
 }
 
 export function ShopifyProductPicker({
   isOpen,
   onClose,
   connectionId,
-  onImport,
 }: ShopifyProductPickerProps) {
   const [search, setSearch] = useState("");
-  const [products, setProducts] = useState<any[]>([]);
+  const [products, setProducts] = useState<PickerProduct[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [endCursor, setEndCursor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [, startTransition] = useTransition();
 
   // Fetch products on mount and when search changes
-  useEffect(() => {
-    if (isOpen) {
-      fetchProducts(true);
-    }
-  }, [search, isOpen]);
-
-  const fetchProducts = async (reset: boolean = false) => {
+  const fetchProducts = useCallback(async ({
+    reset = false,
+    searchTerm,
+    afterCursor,
+  }: {
+    reset?: boolean;
+    searchTerm?: string;
+    afterCursor?: string | null;
+  } = {}) => {
     setLoading(true);
     setError(null);
 
     try {
       const result = await listShopifyProducts(connectionId, {
-        search: search || undefined,
+        search: searchTerm || undefined,
         limit: 50,
-        afterCursor: reset ? undefined : endCursor || undefined,
+        afterCursor: reset ? undefined : afterCursor || undefined,
       });
 
       if ("error" in result) {
@@ -53,20 +66,29 @@ export function ShopifyProductPicker({
         return;
       }
 
-      const newProducts = reset ? result.data.products : [...products, ...result.data.products];
-      setProducts(newProducts);
+      setProducts((currentProducts) =>
+        reset ? result.data.products : [...currentProducts, ...result.data.products]
+      );
       setHasMore(result.data.pageInfo.hasNextPage);
       setEndCursor(result.data.pageInfo.endCursor);
-    } catch (err) {
+    } catch {
       setError("Failed to load products");
     } finally {
       setLoading(false);
     }
-  };
+  }, [connectionId]);
+
+  // Fetch products on mount and when search changes
+  useEffect(() => {
+    if (isOpen) {
+      void fetchProducts({ reset: true, searchTerm: search });
+      setToast(null);
+    }
+  }, [fetchProducts, search, isOpen]);
 
   const handleLoadMore = () => {
     if (!loading && hasMore) {
-      fetchProducts(false);
+      void fetchProducts({ searchTerm: search, afterCursor: endCursor });
     }
   };
 
@@ -97,23 +119,37 @@ export function ShopifyProductPicker({
       setImporting(false);
 
       if ("error" in result) {
-        alert(`Failed to import products: ${result.error}`);
+        setToast({
+          message: `Failed to import products: ${result.error}`,
+          type: "error",
+        });
       } else {
-        alert(
-          `Successfully imported ${result.data.imported} products${result.data.skipped > 0 ? ` (${result.data.skipped} skipped)` : ""}`
-        );
-        onImport();
-        onClose();
+        const productWord = result.data.imported === 1 ? "product" : "products";
+        const message =
+          result.data.skipped > 0
+            ? `Successfully imported ${result.data.imported} ${productWord} (${result.data.skipped} skipped).`
+            : `Successfully imported ${result.data.imported} ${productWord}.`;
+        setToast({ message, type: "success" });
+        setSelected(new Set());
       }
     });
   };
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
+      <DialogContent className="relative flex max-h-[80vh] max-w-3xl flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle>Import Products from Shopify</DialogTitle>
         </DialogHeader>
+
+        {toast && (
+          <Toast
+            message={toast.message}
+            type={toast.type}
+            onClose={() => setToast(null)}
+            className="absolute right-6 top-6 z-20"
+          />
+        )}
 
         <div className="flex-1 overflow-hidden flex flex-col">
           {/* Search */}

@@ -475,13 +475,59 @@ export async function importShopifyProducts(
       }
     }
 
-    // Revalidate integrations page
+    // Revalidate Shopify pages and integrations settings
+    revalidatePath("/dashboard/shopify/products");
+    revalidatePath("/dashboard/shopify/stores");
     revalidatePath("/dashboard/settings/integrations");
 
     return { data: { imported, skipped } };
   } catch (error) {
     console.error("Error in importShopifyProducts:", error);
     return { error: "Failed to import products" };
+  }
+}
+
+export async function unimportShopifyProduct(
+  trakProductId: string
+): Promise<ActionResult<{ id: string }>> {
+  try {
+    const user = await getAuthenticatedUser();
+    if (!user) {
+      return { error: "Unauthorized" };
+    }
+
+    const workspaceId = await getCurrentWorkspaceId();
+    if (!workspaceId) {
+      return { error: "No workspace selected" };
+    }
+
+    const supabase = await createClient();
+
+    const { data: deletedProduct, error } = await supabase
+      .from("trak_products")
+      .delete()
+      .eq("id", trakProductId)
+      .eq("workspace_id", workspaceId)
+      .select("id")
+      .maybeSingle();
+
+    if (error) {
+      console.error("Error unimporting Shopify product:", error);
+      return { error: "Failed to remove product" };
+    }
+
+    if (!deletedProduct) {
+      return { error: "Product not found" };
+    }
+
+    revalidatePath("/dashboard/shopify/products");
+    revalidatePath("/dashboard/shopify/stores");
+    revalidatePath("/dashboard/settings/integrations");
+
+    return { data: { id: deletedProduct.id } };
+  } catch (error) {
+    console.error("Error in unimportShopifyProduct:", error);
+    return { error: "Internal server error" };
   }
 }
 

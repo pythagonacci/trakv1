@@ -166,7 +166,6 @@ export function ShopifyConnectionCard({ connection, onUpdate, canManage }: Shopi
           isOpen={showProductPicker}
           onClose={() => setShowProductPicker(false)}
           connectionId={connection.id}
-          onImport={onUpdate}
         />
       )}
     </>

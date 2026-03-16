@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useDashboardHeader } from "@/app/dashboard/header-visibility-context";
 import { ShopifyConnection } from "@/app/actions/shopify-connection";
 import { ShopifyConnectionCard } from "@/components/shopify/connection-card";
@@ -34,8 +35,9 @@ export function ShopifyStoresClient({
   success,
   error,
 }: ShopifyStoresClientProps) {
+  const router = useRouter();
   const { setHeaderHidden } = useDashboardHeader();
-  const [connections, setConnections] = useState<ShopifyConnection[]>(initialConnections);
+  const connections = initialConnections;
   const [showConnectDialog, setShowConnectDialog] = useState(false);
   const [showMessage, setShowMessage] = useState(success || !!error);
 
@@ -52,7 +54,7 @@ export function ShopifyStoresClient({
   }, [showMessage]);
 
   const handleConnectionUpdate = () => {
-    window.location.reload();
+    router.refresh();
   };
 
   return (

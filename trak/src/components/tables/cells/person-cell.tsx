@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { type TableField } from "@/types/table";
 import { formatUserDisplay } from "@/lib/field-utils";
+import {
+  haveSamePersonIds,
+  parsePersonSelectionIds,
+  resolvePersonDisplayEntries,
+  type WorkspaceMember,
+} from "./person-cell-utils";
 
 interface Props {
   field: TableField;
@@ -13,17 +19,7 @@ interface Props {
   onStartEdit: () => void;
   onCancel: () => void;
   onCommit: (value: unknown) => void;
-  workspaceMembers?: Array<{ id: string; name?: string; email?: string }>;
-}
-
-function parsePersonValue(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.filter((v): v is string => typeof v === "string");
-  }
-  if (typeof value === "string" && value.length > 0) {
-    return [value];
-  }
-  return [];
+  workspaceMembers?: WorkspaceMember[];
 }
 
 function getInitials(displayName: string): string {
@@ -44,14 +40,15 @@ export function PersonCell({
   saving,
   workspaceMembers = [],
 }: Props) {
-  const [selectedIds, setSelectedIds] = useState<string[]>(parsePersonValue(value));
+  const parsedValueIds = useMemo(() => parsePersonSelectionIds(value), [value]);
+  const [selectedIds, setSelectedIds] = useState<string[]>(parsedValueIds);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setSelectedIds(parsePersonValue(value));
-  }, [value]);
+    setSelectedIds(parsedValueIds);
+  }, [parsedValueIds]);
 
   useEffect(() => {
     if (editing) {
@@ -68,13 +65,17 @@ export function PersonCell({
     const handleClickOutside = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setDropdownOpen(false);
+        if (haveSamePersonIds(selectedIds, parsedValueIds)) {
+          onCancel();
+          return;
+        }
         onCommit(selectedIds.length > 0 ? selectedIds : null);
       }
     };
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [dropdownOpen, selectedIds, onCommit]);
+  }, [dropdownOpen, onCancel, onCommit, parsedValueIds, selectedIds]);
 
   const toggleMember = (memberId: string) => {
     setSelectedIds((prev) => {
@@ -92,9 +93,10 @@ export function PersonCell({
     onCommit(newIds.length > 0 ? newIds : null);
   };
 
-  const selectedMembers = selectedIds
-    .map((id) => workspaceMembers.find((m) => m.id === id))
-    .filter(Boolean) as Array<{ id: string; name?: string; email?: string }>;
+  const displayEntries = useMemo(
+    () => resolvePersonDisplayEntries(value, workspaceMembers),
+    [value, workspaceMembers]
+  );
 
   const filteredMembers = workspaceMembers.filter((member) => {
     if (!searchQuery) return true;
@@ -168,7 +170,7 @@ export function PersonCell({
     );
   }
 
-  if (selectedMembers.length === 0) {
+  if (displayEntries.length === 0) {
     return (
       <button
         className="w-full text-left text-xs text-[var(--muted-foreground)] truncate min-h-[18px] hover:text-[var(--primary)] transition-colors duration-150"
@@ -181,8 +183,8 @@ export function PersonCell({
   }
 
   const displayLimit = 2;
-  const visibleMembers = selectedMembers.slice(0, displayLimit);
-  const remainingCount = selectedMembers.length - displayLimit;
+  const visibleMembers = displayEntries.slice(0, displayLimit);
+  const remainingCount = displayEntries.length - displayLimit;
 
   return (
     <div
@@ -191,26 +193,29 @@ export function PersonCell({
     >
       <div className="flex items-center gap-1.5 flex-wrap">
         {visibleMembers.map((member) => {
-          const displayName = formatUserDisplay(member);
+          const displayName = member.displayName;
           const initials = getInitials(displayName);
+          const memberId = member.id;
 
           return (
-            <div key={member.id} className="flex items-center gap-1 group/member">
+            <div key={member.key} className="flex items-center gap-1 group/member">
               <div
                 className="h-6 w-6 rounded-full bg-[var(--primary)] text-[var(--primary-foreground)] flex items-center justify-center text-xs font-medium flex-shrink-0"
                 title={`${displayName}${member.email ? ` (${member.email})` : ""}`}
               >
                 {initials}
               </div>
-              {selectedMembers.length === 1 && (
+              {displayEntries.length === 1 && (
                 <span className="text-xs text-[var(--foreground)] truncate">{displayName}</span>
               )}
-              <button
-                onClick={(e) => removeMember(member.id, e)}
-                className="opacity-0 group-hover/member:opacity-100 transition-opacity hover:text-[var(--error)]"
-              >
-                <X className="h-3 w-3" />
-              </button>
+              {memberId && (
+                <button
+                  onClick={(e) => removeMember(memberId, e)}
+                  className="opacity-0 group-hover/member:opacity-100 transition-opacity hover:text-[var(--error)]"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
             </div>
           );
         })}

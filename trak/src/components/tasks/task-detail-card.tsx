@@ -81,9 +81,9 @@ interface TaskDetailCardProps {
   /** Callback to open reference picker (Attachments only). Notes use onAddNote. */
   onAddReference?: (anchorRect?: DOMRect, mode?: "notes" | "attachments") => void;
   /** Callback to add a text note (stored as a comment with [note] prefix). */
-  onAddNote?: (text: string) => void | Promise<void>;
+  onAddNote?: (text: string) => boolean | void | Promise<boolean | void>;
   /** Callback to add a comment. For subtasks, parentTaskId is used. */
-  onAddComment?: (text: string, parentId?: string | null) => void | Promise<void>;
+  onAddComment?: (text: string, parentId?: string | null) => boolean | void | Promise<boolean | void>;
   /** Open @ mention picker for the comment input (same as gallery). getAnchorRect() returns current caret rect for re-anchoring; onInsert(text) inserts the chosen mention. */
   onOpenCommentMentionPicker?: (
     anchorRect: DOMRect | null,
@@ -253,10 +253,16 @@ export function TaskDetailCard({
   const handleAddNote = async () => {
     const text = noteDraft.trim();
     if (!text || !onAddNote) return;
+    const previousDraft = noteDraft;
     setIsSubmittingNote(true);
+    setNoteDraft("");
     try {
-      await onAddNote(text);
-      setNoteDraft("");
+      const didSave = await onAddNote(text);
+      if (didSave === false) {
+        setNoteDraft(previousDraft);
+      }
+    } catch {
+      setNoteDraft(previousDraft);
     } finally {
       setIsSubmittingNote(false);
     }
@@ -361,7 +367,7 @@ export function TaskDetailCard({
                   }
                 }}
                 placeholder="Write a note..."
-                disabled={disabled}
+                disabled={disabled || isSubmittingNote}
                 rows={1}
                 className="w-full border-0 border-b border-[var(--border)] rounded-none bg-transparent px-0 py-1.5 text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)] disabled:opacity-50 disabled:cursor-not-allowed resize-none min-h-[1.5rem] max-h-[200px] overflow-y-auto"
               />

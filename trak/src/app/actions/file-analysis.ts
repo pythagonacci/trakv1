@@ -34,6 +34,30 @@ export interface FileAnalysisMessageRecord {
   citations?: FileCitation[];
 }
 
+async function findExistingFileAnalysisSession(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  userId: string;
+  workspaceId: string;
+  projectId: string | null;
+  tabId: string | null;
+}) {
+  let query = params.supabase
+    .from("file_analysis_sessions")
+    .select("*")
+    .eq("user_id", params.userId)
+    .eq("workspace_id", params.workspaceId);
+
+  if (params.tabId) {
+    query = query.eq("tab_id", params.tabId);
+  } else if (params.projectId) {
+    query = query.is("tab_id", null).eq("project_id", params.projectId);
+  } else {
+    query = query.is("tab_id", null).is("project_id", null);
+  }
+
+  return query.maybeSingle();
+}
+
 export async function getOrCreateFileAnalysisSession(params: {
   workspaceId: string;
   projectId?: string | null;
@@ -73,21 +97,13 @@ export async function getOrCreateFileAnalysisSession(params: {
       ? "project"
       : "workspace";
 
-  let query = supabase
-    .from("file_analysis_sessions")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("workspace_id", workspaceId);
-
-  if (tabId) {
-    query = query.eq("tab_id", tabId);
-  } else if (projectId) {
-    query = query.is("tab_id", null).eq("project_id", projectId);
-  } else {
-    query = query.is("tab_id", null).is("project_id", null);
-  }
-
-  const { data: existing, error: existingError } = await query.maybeSingle();
+  const { data: existing, error: existingError } = await findExistingFileAnalysisSession({
+    supabase,
+    userId: user.id,
+    workspaceId,
+    projectId,
+    tabId,
+  });
 
   if (existingError) {
     logger.error("getOrCreateFileAnalysisSession query error:", existingError);
@@ -111,6 +127,22 @@ export async function getOrCreateFileAnalysisSession(params: {
     .single();
 
   if (error || !session) {
+    if (error?.code === "23505") {
+      const { data: racedSession, error: retryError } = await findExistingFileAnalysisSession({
+        supabase,
+        userId: user.id,
+        workspaceId,
+        projectId,
+        tabId,
+      });
+
+      if (retryError) {
+        logger.error("getOrCreateFileAnalysisSession retry query error:", retryError);
+      } else if (racedSession) {
+        return { data: racedSession as FileAnalysisSession };
+      }
+    }
+
     logger.error("getOrCreateFileAnalysisSession insert error:", error);
     return { error: "Failed to create session" };
   }
@@ -141,8 +173,12 @@ export async function getFileAnalysisSessionMessages(sessionId: string): Promise
   }
 
   const fileIds = new Set<string>();
-  (messages || []).forEach((message: any) => {
-    (message.file_analysis_citations || []).forEach((citation: any) => {
+  (
+    (messages || []) as Array<{
+      file_analysis_citations?: Array<{ file_id?: string | null }>;
+    }>
+  ).forEach((message) => {
+    (message.file_analysis_citations || []).forEach((citation) => {
       if (citation.file_id) fileIds.add(citation.file_id);
     });
   });
@@ -153,11 +189,29 @@ export async function getFileAnalysisSessionMessages(sessionId: string): Promise
       .from("file_attachments")
       .select("file_id")
       .in("file_id", Array.from(fileIds));
-    attachedMap = new Map((attachments || []).map((att: any) => [att.file_id, true]));
+    attachedMap = new Map(
+      ((attachments || []) as Array<{ file_id: string }>).map((attachment) => [attachment.file_id, true])
+    );
   }
 
-  const formatted = (messages || []).map((message: any) => {
-    const citations = (message.file_analysis_citations || []).map((citation: any) => {
+  const formatted = ((messages || []) as Array<{
+    id: string;
+    session_id: string;
+    role: "user" | "assistant" | "system";
+    content: unknown;
+    created_at: string;
+    file_analysis_citations?: Array<{
+      id: string;
+      file_id: string;
+      chunk_id?: string | null;
+      page_number?: number | null;
+      row_start?: number | null;
+      row_end?: number | null;
+      excerpt?: string | null;
+      files?: { file_name?: string | null } | Array<{ file_name?: string | null }> | null;
+    }>;
+  }>).map((message) => {
+    const citations = (message.file_analysis_citations || []).map((citation) => {
       const fileName = Array.isArray(citation.files)
         ? citation.files[0]?.file_name
         : citation.files?.file_name;
@@ -326,7 +380,7 @@ export async function saveFileAnalysisAsBlock(params: {
           const { error: deleteRowsError } = await supabase
             .from("table_rows")
             .delete()
-            .in("id", existingRows.map((row: any) => row.id));
+            .in("id", (existingRows as Array<{ id: string }>).map((row) => row.id));
           if (deleteRowsError) {
             return { error: "Failed to reset table rows" };
           }
@@ -505,7 +559,9 @@ export async function getFileAnalysisComments(params: {
     return { error: "Failed to load files" };
   }
 
-  const workspaceIds = Array.from(new Set((files || []).map((file: any) => file.workspace_id)));
+  const workspaceIds = Array.from(
+    new Set(((files || []) as Array<{ workspace_id: string }>).map((file) => file.workspace_id))
+  );
   for (const workspaceId of workspaceIds) {
     const membership = await checkWorkspaceMembership(workspaceId, user.id);
     if (!membership) {

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { unimportShopifyProduct } from "@/app/actions/shopify-products";
 import { useDashboardHeader } from "@/app/dashboard/header-visibility-context";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -44,6 +45,11 @@ interface ShopifyProductsClientProps {
   selectedConnectionId?: string;
 }
 
+type UnimportResult = {
+  type: "success" | "error";
+  message: string;
+};
+
 export function ShopifyProductsClient({
   initialProducts,
   connections,
@@ -52,7 +58,9 @@ export function ShopifyProductsClient({
   const router = useRouter();
   const { setHeaderHidden } = useDashboardHeader();
   const [search, setSearch] = useState("");
+  const [products, setProducts] = useState(initialProducts);
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
+  const [removingProductId, setRemovingProductId] = useState<string | null>(null);
 
   // Hide dashboard header on this page
   useEffect(() => {
@@ -60,8 +68,12 @@ export function ShopifyProductsClient({
     return () => setHeaderHidden(false);
   }, [setHeaderHidden]);
 
+  useEffect(() => {
+    setProducts(initialProducts);
+  }, [initialProducts]);
+
   // Filter products by search
-  const filteredProducts = initialProducts.filter((product) =>
+  const filteredProducts = products.filter((product) =>
     product.title.toLowerCase().includes(search.toLowerCase())
   );
 
@@ -73,8 +85,32 @@ export function ShopifyProductsClient({
     }
   };
 
+  const handleUnimport = async (
+    productId: string,
+    productTitle: string
+  ): Promise<UnimportResult> => {
+    setRemovingProductId(productId);
+    const result = await unimportShopifyProduct(productId);
+    setRemovingProductId(null);
+
+    if ("error" in result) {
+      return {
+        message: `Failed to remove product: ${result.error}`,
+        type: "error",
+      };
+    }
+
+    setProducts((currentProducts) =>
+      currentProducts.filter((product) => product.id !== productId)
+    );
+    return {
+      message: `"${productTitle}" was removed from the products page.`,
+      type: "success",
+    };
+  };
+
   return (
-    <div className="pl-8 pr-4 pt-12 pb-8 max-w-7xl">
+    <div className="w-full px-8 pt-12 pb-8">
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-2">Products</h1>
@@ -82,14 +118,14 @@ export function ShopifyProductsClient({
       </div>
 
       {/* Filters */}
-      <div className="mb-6 flex gap-4">
+      <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center">
         <div className="flex-1">
           <Input
             type="text"
             placeholder="Search products..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="max-w-md"
+            className="w-full md:max-w-xl"
           />
         </div>
 
@@ -98,7 +134,7 @@ export function ShopifyProductsClient({
             value={selectedConnectionId || "all"}
             onValueChange={handleConnectionFilter}
           >
-            <SelectTrigger className="w-64">
+            <SelectTrigger className="w-full md:w-64 md:shrink-0">
               <SelectValue placeholder="All stores" />
             </SelectTrigger>
             <SelectContent>
@@ -145,14 +181,14 @@ export function ShopifyProductsClient({
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
           {filteredProducts.map((product) => (
             <Card
               key={product.id}
-              className="cursor-pointer hover:shadow-lg transition-shadow"
+              className="cursor-pointer transition-shadow hover:shadow-lg"
               onClick={() => setSelectedProduct(product.id)}
             >
-              <CardContent className="p-4">
+              <CardContent className="flex h-full flex-col p-4">
                 {/* Product Image */}
                 {product.featured_image_url ? (
                   <img
@@ -179,7 +215,7 @@ export function ShopifyProductsClient({
                 )}
 
                 {/* Product Info */}
-                <div>
+                <div className="flex flex-1 flex-col">
                   <h3 className="font-semibold text-lg mb-1 line-clamp-2">
                     {product.title}
                   </h3>
@@ -207,7 +243,7 @@ export function ShopifyProductsClient({
                   </div>
 
                   {/* Status Badge */}
-                  <div className="mt-3">
+                  <div className="mt-auto pt-3">
                     <span
                       className={`inline-block px-2 py-1 rounded text-xs ${
                         product.status === "active"
@@ -231,6 +267,17 @@ export function ShopifyProductsClient({
           productId={selectedProduct}
           isOpen={!!selectedProduct}
           onClose={() => setSelectedProduct(null)}
+          onUnimport={async () => {
+            const product = products.find((item) => item.id === selectedProduct);
+            if (!product) {
+              return {
+                type: "error",
+                message: "Product not found.",
+              };
+            }
+            return handleUnimport(product.id, product.title);
+          }}
+          isUnimporting={removingProductId === selectedProduct}
         />
       )}
     </div>

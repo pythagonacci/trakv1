@@ -261,16 +261,23 @@ export function AIPanel({
   };
 
   useEffect(() => {
-    if (initializedModeRef.current) return;
-    setMode(pendingFileIds.length > 0 ? "file" : "assistant");
-    initializedModeRef.current = true;
+    if (!initializedModeRef.current) {
+      setMode(pendingFileIds.length > 0 ? "file" : "assistant");
+      initializedModeRef.current = true;
+      return;
+    }
+
+    if (pendingFileIds.length > 0) {
+      setMode("file");
+    }
   }, [pendingFileIds.length]);
 
   useEffect(() => {
     if (mode !== "file") return;
+    if (sessionId && pendingFileIds.length === 0) return;
     loadSession();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, workspaceId, projectId, tabId]);
+  }, [mode, workspaceId, projectId, tabId, sessionId, pendingFileIds.length]);
 
   useEffect(() => {
     if (activeRouteScopeKeyRef.current === routeScopeKey) return;
@@ -812,14 +819,11 @@ export function AIPanel({
 
   const handleFileUpload = async (fileList: FileList | null) => {
     if (!fileList || !workspaceId) return;
+    const files = Array.from(fileList);
+    if (files.length === 0) return;
 
     let effectiveSessionId = sessionId;
     if (!effectiveSessionId) {
-      if (mode === "file") {
-        setToast({ message: "Open the chat before uploading files", type: "error" });
-        return;
-      }
-      // Assistant mode: lazy-create session for file analysis
       const sessionResult = await getOrCreateFileAnalysisSession({
         workspaceId,
         projectId: projectId || undefined,
@@ -833,7 +837,6 @@ export function AIPanel({
       setSessionId(effectiveSessionId);
     }
 
-    const files = Array.from(fileList);
     const supabase = createClient();
 
     let targetProjectId = projectId;
