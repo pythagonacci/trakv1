@@ -134,7 +134,7 @@ export function ShopifyProductDetail({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="relative max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="relative max-w-4xl max-h-[90vh] overflow-y-auto [&>button]:top-6">
         {toast && (
           <Toast
             message={toast.message}
@@ -143,29 +143,29 @@ export function ShopifyProductDetail({
             className="absolute right-6 top-6 z-20"
           />
         )}
-        <DialogHeader>
-          <div className="flex items-start justify-between gap-3">
+        <DialogHeader className="pr-10 sm:pr-12">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div className="flex-1 min-w-0">
               <DialogTitle className="text-2xl">{product.title}</DialogTitle>
               <p className="text-sm text-gray-500 mt-1">
                 Last synced: {new Date(product.last_synced_at).toLocaleString()}
               </p>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-1.5 shrink-0">
               {onUnimport && (
                 <Button
                   onClick={handleUnimportClick}
                   disabled={isUnimporting}
                   variant="outline"
                   size="sm"
-                  className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                  className="h-8 gap-1 px-2 text-[11px] text-red-600 hover:bg-red-50 hover:text-red-700"
                 >
                   {isUnimporting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : (
                     <>
-                      <Trash2 className="h-4 w-4" />
-                      <span className="ml-1">Unimport</span>
+                      <Trash2 className="h-3.5 w-3.5" />
+                      <span>Unimport</span>
                     </>
                   )}
                 </Button>
@@ -175,10 +175,17 @@ export function ShopifyProductDetail({
                 disabled={isCreatingProject}
                 variant="default"
                 size="sm"
+                className="h-8 px-2 text-[11px]"
               >
                 {isCreatingProject ? "Creating..." : "Create project from product"}
               </Button>
-              <Button onClick={handleRefresh} disabled={isPending} variant="outline" size="sm">
+              <Button
+                onClick={handleRefresh}
+                disabled={isPending}
+                variant="outline"
+                size="sm"
+                className="h-8 px-2 text-[11px]"
+              >
                 {isPending ? "Refreshing..." : "Refresh from Shopify"}
               </Button>
             </div>

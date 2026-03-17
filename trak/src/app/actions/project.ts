@@ -615,6 +615,19 @@ export async function createProjectFromProduct(
     return { data: { projectId: project.id, projectName, tabId: null, tabName: null } }
   }
 
+  let tabName = firstTab.name ?? null
+
+  const { error: renameTabError } = await supabase
+    .from('tabs')
+    .update({ name: 'Product' })
+    .eq('id', firstTab.id)
+
+  if (renameTabError) {
+    console.error('Failed to rename product tab:', renameTabError)
+  } else {
+    tabName = 'Product'
+  }
+
   const blockResult = await createBlock({
     tabId: firstTab.id,
     type: 'shopify_product',
@@ -626,7 +639,7 @@ export async function createProjectFromProduct(
     console.error('Failed to add product block to tab:', blockResult.error)
   }
 
-  return { data: { projectId: project.id, projectName, tabId: firstTab.id, tabName: firstTab.name ?? null } }
+  return { data: { projectId: project.id, projectName, tabId: firstTab.id, tabName } }
 }
 
 /**
