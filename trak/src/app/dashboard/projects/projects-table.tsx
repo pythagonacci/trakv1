@@ -32,6 +32,7 @@ import {
 import { cn } from "@/lib/utils";
 import { parseDateSafe } from "@/lib/due-date";
 import { buildProjectPath } from "@/lib/dashboard-routes";
+import { OPEN_CREATE_PROJECT_EVENT } from "@/lib/projects";
 
 interface Project {
   id: string;
@@ -133,6 +134,16 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
     setDialogMode("create");
     setEditingProject(null);
   };
+
+  useEffect(() => {
+    const handleOpenCreateEvent = () => {
+      setDialogMode("create");
+      setEditingProject(null);
+    };
+
+    window.addEventListener(OPEN_CREATE_PROJECT_EVENT, handleOpenCreateEvent);
+    return () => window.removeEventListener(OPEN_CREATE_PROJECT_EVENT, handleOpenCreateEvent);
+  }, []);
 
   const handleOpenEdit = (project: Project, event?: React.MouseEvent) => {
     event?.stopPropagation();

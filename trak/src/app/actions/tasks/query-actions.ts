@@ -19,11 +19,12 @@ export interface TaskBlockBundle {
 
 export interface TaskItemView {
   id: string;
+  clientKey?: string;
   text: string;
   statuses: Array<{ field_name: string; value: string }>;
   priorities: TaskItemPriority[];
   sourceTaskId?: string | null;
-  sourceEntityType?: "task" | "timeline_event" | "table_row" | null;
+  sourceEntityType?: "task" | "timeline_event" | "table_row" | "block" | null;
   sourceEntityId?: string | null;
   sourceSyncMode?: "snapshot" | "live";
   assignees?: string[];

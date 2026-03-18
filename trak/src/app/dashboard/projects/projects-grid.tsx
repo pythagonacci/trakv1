@@ -51,6 +51,7 @@ import { cn } from "@/lib/utils";
 import { parseDateSafe } from "@/lib/due-date";
 import { buildProjectPath } from "@/lib/dashboard-routes";
 import type { BlockType } from "@/app/actions/block";
+import { OPEN_CREATE_PROJECT_EVENT } from "@/lib/projects";
 
 interface Project {
   id: string;
@@ -247,6 +248,16 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
     setDialogMode("create");
     setEditingProject(null);
   };
+
+  useEffect(() => {
+    const handleOpenCreateEvent = () => {
+      setDialogMode("create");
+      setEditingProject(null);
+    };
+
+    window.addEventListener(OPEN_CREATE_PROJECT_EVENT, handleOpenCreateEvent);
+    return () => window.removeEventListener(OPEN_CREATE_PROJECT_EVENT, handleOpenCreateEvent);
+  }, []);
 
   const handleOpenEdit = (project: Project, event?: React.MouseEvent) => {
     event?.stopPropagation();

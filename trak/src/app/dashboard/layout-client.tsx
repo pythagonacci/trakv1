@@ -40,6 +40,7 @@ import { Button } from "@/components/ui/button";
 import { AICommandPalette, useAI } from "@/components/ai";
 import { useTheme } from "./theme-context";
 import NotificationBell from "@/components/notifications/notification-bell";
+import { OPEN_CREATE_PROJECT_EVENT } from "@/lib/projects";
 
 interface User {
   id: string;
@@ -779,6 +780,7 @@ function Header() {
   const isWorkflowPage = pathname?.startsWith("/dashboard/workflow");
   const isCalendarPage = pathname?.startsWith("/dashboard/calendar");
   const isDashboardHome = pathname === "/dashboard";
+  const isProjectsPage = pathname === "/dashboard/projects";
   const isProjectOrClientDetail =
     (pathname?.startsWith("/dashboard/projects/") && pathname !== "/dashboard/projects") ||
     (pathname?.startsWith("/dashboard/clients/") && pathname !== "/dashboard/clients");
@@ -810,15 +812,26 @@ function Header() {
             Configure dashboard
           </Button>
         )}
-        <Link href="/dashboard/projects">
+        {isProjectsPage ? (
           <Button
             size="sm"
             className="bg-[var(--primary)] text-[var(--primary-foreground)] hover:bg-[var(--primary-hover)]"
+            onClick={() => window.dispatchEvent(new CustomEvent(OPEN_CREATE_PROJECT_EVENT))}
           >
             <Plus className="h-3.5 w-3.5" />
             New project
           </Button>
-        </Link>
+        ) : (
+          <Link href="/dashboard/projects">
+            <Button
+              size="sm"
+              className="bg-[var(--primary)] text-[var(--primary-foreground)] hover:bg-[var(--primary-hover)]"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              New project
+            </Button>
+          </Link>
+        )}
       </div>
     </header>
   );

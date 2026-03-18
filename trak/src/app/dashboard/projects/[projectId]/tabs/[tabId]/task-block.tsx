@@ -91,11 +91,12 @@ interface Subtask {
 
 interface Task {
   id: string | number;
+  clientKey?: string;
   text: string;
   statuses: Array<{ field_name: string; value: string }>;
   priorities: TaskItemPriority[];
   sourceTaskId?: string | null;
-  sourceEntityType?: "task" | "timeline_event" | "table_row" | null;
+  sourceEntityType?: "task" | "timeline_event" | "table_row" | "block" | null;
   sourceEntityId?: string | null;
   sourceSyncMode?: "snapshot" | "live";
   assignees?: string[];
@@ -154,6 +155,10 @@ function isTaskItemId(id: string): id is `task-${string}` {
 
 function isSubtaskItemId(id: string): id is `subtask-${string}` {
   return id.startsWith("subtask-");
+}
+
+function getTaskClientKey(task: Pick<Task, "id" | "clientKey">): string {
+  return String(task.clientKey ?? task.id);
 }
 
 function extractRawId(itemId: BoardItemId): string {
@@ -816,7 +821,7 @@ export default function TaskBlock({
   const [showRollup, setShowRollup] = useState(initialShowRollup);
   const [viewMode, setViewMode] = useState<TaskViewMode>(initialViewMode);
   const [boardGroupBy, setBoardGroupBy] = useState<BoardGroupBy>(initialBoardGroupBy);
-  const [editingTaskId, setEditingTaskId] = useState<string | number | null>(null);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingTaskText, setEditingTaskText] = useState("");
   const [editingSubtaskId, setEditingSubtaskId] = useState<string | number | null>(null);
   const [editingSubtaskText, setEditingSubtaskText] = useState("");
@@ -972,7 +977,10 @@ export default function TaskBlock({
     getScrollElement: () => taskListScrollRef.current,
     estimateSize: () => 68, // estimated row height + spacing (px)
     overscan: 5, // render 5 extra rows above/below viewport
-    getItemKey: (index) => String(orderedTasks[index]?.id ?? index),
+    getItemKey: (index) => {
+      const task = orderedTasks[index];
+      return task ? getTaskClientKey(task) : index;
+    },
   });
 
   // Board view: flattened array of tasks and subtasks as independent items
@@ -3164,6 +3172,7 @@ export default function TaskBlock({
             {taskVirtualizer.getVirtualItems().map((virtualRow) => {
               const task = orderedTasks[virtualRow.index] as Task;
               if (!task) return null;
+              const taskClientKey = getTaskClientKey(task);
               const taskSections = expandedSections[task.id] || {};
               const isAttachmentsPanelExpanded = taskSections.references;
               const taskCommentCount = commentCountsByTask.get(String(task.id)) || 0;
@@ -3311,7 +3320,7 @@ export default function TaskBlock({
 
                       <div className="flex-1 space-y-1.5 min-w-0">
                         {/* Task Title */}
-                        {editingTaskId === task.id ? (
+                        {editingTaskId === taskClientKey ? (
                           <input
                             ref={editingTaskInputRef}
                             type="text"
@@ -3374,7 +3383,7 @@ export default function TaskBlock({
                                 if (target.closest('a[data-ref-link="true"]')) {
                                   return;
                                 }
-                                setEditingTaskId(task.id);
+                                setEditingTaskId(taskClientKey);
                                 setEditingTaskText(task.text);
                               }}
                               className={cn(
@@ -4337,6 +4346,7 @@ export default function TaskBlock({
                           const task = taskMapById.get(taskId);
                           if (!task) return null;
 
+                          const taskClientKey = getTaskClientKey(task);
                           const taskEntityId = typeof task.id === "string" ? task.id : null;
                           const canUseProperties = Boolean(taskEntityId) && !isTempBlock && Boolean(workspaceId);
                           const effectiveStatus = getEffectiveStatus(taskId, task);
@@ -4397,7 +4407,7 @@ export default function TaskBlock({
                           const showTags = effectiveTags.length > 0 && boardGroupBy !== "tags";
 
                           const title =
-                            editingTaskId === task.id ? (
+                            editingTaskId === taskClientKey ? (
                               <input
                                 ref={editingTaskInputRef}
                                 type="text"
@@ -4459,7 +4469,7 @@ export default function TaskBlock({
                                   if (target.closest('a[data-ref-link="true"]')) {
                                     return;
                                   }
-                                  setEditingTaskId(task.id);
+                                  setEditingTaskId(taskClientKey);
                                   setEditingTaskText(task.text);
                                 }}
                                 className={cn(
@@ -4662,7 +4672,7 @@ export default function TaskBlock({
 
                           return (
                             <BoardTaskCard
-                              key={itemId}
+                              key={taskClientKey}
                               itemType="task"
                               itemId={itemId as BoardItemId}
                               taskId={taskId}
@@ -5009,6 +5019,7 @@ export default function TaskBlock({
               <div className="w-9 flex-shrink-0" aria-hidden />
             </div>
             {orderedTasks.map((task) => {
+              const taskClientKey = getTaskClientKey(task);
               const taskEntityId = typeof task.id === "string" ? task.id : null;
               const canUseProperties = Boolean(taskEntityId) && !isTempBlock && Boolean(workspaceId);
               const statusIsDerived = task.subtasks && task.subtasks.length > 0;
@@ -5032,7 +5043,7 @@ export default function TaskBlock({
               const isCollapsed = collapsedTaskIds[String(task.id)];
 
               return (
-                <div key={task.id} className="group/task-row">
+                <div key={taskClientKey} className="group/task-row">
                   <div
                     id={`task-${task.id}`}
                     role="button"
@@ -5146,7 +5157,7 @@ export default function TaskBlock({
                           </button>
                         )}
                         <div className="min-w-0 flex-1">
-                          {editingTaskId === task.id ? (
+                          {editingTaskId === taskClientKey ? (
                             <input
                               ref={editingTaskInputRef}
                               type="text"
@@ -5207,7 +5218,7 @@ export default function TaskBlock({
                                 if (target.closest('a[data-ref-link="true"]')) {
                                   return;
                                 }
-                                setEditingTaskId(task.id);
+                                setEditingTaskId(taskClientKey);
                                 setEditingTaskText(task.text);
                               }}
                               className={cn(

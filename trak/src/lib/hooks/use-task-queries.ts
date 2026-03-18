@@ -17,6 +17,7 @@ import {
   listSubtaskReferenceSummaries,
 } from "@/app/actions/tasks/subtask-reference-actions";
 import type { TaskItemView, TaskBlockBundle } from "@/app/actions/tasks/query-actions";
+import type { TaskItem } from "@/types/task";
 
 const taskKeys = {
   items: (blockId: string) => ["taskItems", blockId] as const,
@@ -27,16 +28,53 @@ const taskKeys = {
 type TaskReferenceSummary = Extract<Awaited<ReturnType<typeof listTaskReferenceSummaries>>, { data: unknown }> extends { data: infer T } ? T : never;
 type SubtaskReferenceSummary = Extract<Awaited<ReturnType<typeof listSubtaskReferenceSummaries>>, { data: unknown }> extends { data: infer T } ? T : never;
 
+function isOptimisticTask(task: Pick<TaskItemView, "id" | "clientKey">): boolean {
+  return String(task.clientKey ?? task.id).startsWith("optimistic-");
+}
+
+function toTaskItemView(task: TaskItem): TaskItemView {
+  return {
+    id: task.id,
+    text: task.title,
+    statuses: (task.statuses ?? [])
+      .filter((status): status is { field_name: string; value: "todo" | "in_progress" | "blocked" | "done" } => Boolean(status.value))
+      .map((status) => ({
+        field_name: status.field_name,
+        value: status.value,
+      })),
+    priorities: task.priorities ?? [],
+    sourceTaskId: task.source_task_id ?? null,
+    sourceEntityType: task.source_entity_type ?? null,
+    sourceEntityId: task.source_entity_id ?? null,
+    sourceSyncMode: task.source_sync_mode ?? "live",
+    dueDate: task.due_date ?? undefined,
+    dueTime: task.due_time ?? undefined,
+    dueTimeEnd: task.due_time_end ?? undefined,
+    startDate: task.start_date ?? undefined,
+    description: task.description ?? undefined,
+    recurring: {
+      enabled: Boolean(task.recurring_enabled),
+      frequency: task.recurring_frequency ?? null,
+      interval: task.recurring_interval ?? null,
+    },
+    hideIcons: task.hide_icons,
+    subtasks: [],
+    comments: [],
+  };
+}
+
 export function useTaskItems(
   blockId: string,
   options?: { enabled?: boolean; publicToken?: string }
 ) {
+  const qc = useQueryClient();
   const publicToken = options?.publicToken;
+  const queryKey = publicToken
+    ? [...taskKeys.items(blockId), "public", publicToken]
+    : taskKeys.items(blockId);
 
   return useQuery({
-    queryKey: publicToken
-      ? [...taskKeys.items(blockId), "public", publicToken]
-      : taskKeys.items(blockId),
+    queryKey,
     queryFn: async () => {
       const basePath = publicToken ? "/api/client-task-blocks" : "/api/task-blocks";
       const url = publicToken
@@ -50,7 +88,24 @@ export function useTaskItems(
       if (!response.ok || ("error" in result && result.error)) {
         throw new Error(result?.error ?? "Failed to load tasks");
       }
-      return result.data as TaskBlockBundle;
+      const bundle = result.data as TaskBlockBundle;
+      const previous = qc.getQueryData<TaskBlockBundle>(queryKey);
+      const clientKeyByTaskId = new Map(
+        (previous?.tasks ?? []).map((task) => [task.id, task.clientKey ?? task.id])
+      );
+      const serverTasks = bundle.tasks.map((task) => ({
+        ...task,
+        clientKey: clientKeyByTaskId.get(task.id) ?? task.clientKey ?? task.id,
+      }));
+      const serverClientKeys = new Set(serverTasks.map((task) => task.clientKey ?? task.id));
+      const pendingOptimisticTasks = (previous?.tasks ?? []).filter(
+        (task) => isOptimisticTask(task) && !serverClientKeys.has(task.clientKey ?? task.id)
+      );
+
+      return {
+        ...bundle,
+        tasks: [...serverTasks, ...pendingOptimisticTasks],
+      } as TaskBlockBundle;
     },
     enabled: (options?.enabled ?? true) && Boolean(blockId),
   });
@@ -63,8 +118,10 @@ export function useCreateTaskItem(blockId: string) {
     onMutate: async (input) => {
       await qc.cancelQueries({ queryKey: taskKeys.items(blockId) });
       const previous = qc.getQueryData<TaskBlockBundle>(taskKeys.items(blockId));
+      const optimisticId = `optimistic-${Date.now()}`;
       const optimistic: TaskItemView = {
-        id: `optimistic-${Date.now()}`,
+        id: optimisticId,
+        clientKey: optimisticId,
         text: input.title ?? "New task",
         statuses: [{ field_name: "Status", value: input.status ?? "todo" }],
         priorities: [],
@@ -78,14 +135,47 @@ export function useCreateTaskItem(blockId: string) {
           tasks: [...base.tasks, optimistic],
         };
       });
-      return { previous };
+      return { previous, optimisticId };
     },
     onError: (_err, _input, ctx) => {
       if (ctx?.previous !== undefined) {
         qc.setQueryData(taskKeys.items(blockId), ctx.previous);
       }
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
+    onSuccess: (result, _input, ctx) => {
+      if ("error" in result) {
+        if (ctx?.previous !== undefined) {
+          qc.setQueryData(taskKeys.items(blockId), ctx.previous);
+        }
+        return;
+      }
+
+      qc.setQueryData<TaskBlockBundle>(taskKeys.items(blockId), (current) => {
+        const base: TaskBlockBundle = current ?? { tasks: [], entityPropertiesByTaskId: {} };
+        const optimisticIndex = base.tasks.findIndex(
+          (task) => task.id === ctx?.optimisticId || task.clientKey === ctx?.optimisticId
+        );
+        const previousTask = optimisticIndex >= 0 ? base.tasks[optimisticIndex] : undefined;
+        const nextTask: TaskItemView = {
+          ...toTaskItemView(result.data),
+          clientKey: previousTask?.clientKey ?? ctx?.optimisticId ?? result.data.id,
+        };
+
+        if (optimisticIndex === -1) {
+          return {
+            ...base,
+            tasks: [...base.tasks, nextTask],
+          };
+        }
+
+        const tasks = [...base.tasks];
+        tasks[optimisticIndex] = nextTask;
+        return {
+          ...base,
+          tasks,
+        };
+      });
+    },
   });
 }
 
