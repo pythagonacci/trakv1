@@ -14,6 +14,17 @@ const timelineKeys = {
   dependencies: (blockId: string) => ["timelineDependencies", blockId] as const,
 };
 
+let optimisticSequence = 0;
+
+function createOptimisticId(prefix: string): string {
+  optimisticSequence += 1;
+  const randomPart =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${optimisticSequence}`;
+  return `${prefix}-${randomPart}`;
+}
+
 type TimelineReferenceSummary = Extract<Awaited<ReturnType<typeof listTimelineReferenceSummaries>>, { data: unknown }> extends { data: infer T } ? T : never;
 
 function sortTimelineItems(items: TimelineItem[]): TimelineItem[] {
@@ -207,7 +218,7 @@ export function useCreateTimelineEvent(blockId: string) {
     onMutate: async (input) => {
       await qc.cancelQueries({ queryKey: timelineKeys.items(blockId) });
       const previous = qc.getQueryData<TimelineItem[]>(timelineKeys.items(blockId));
-      const tempId = `optimistic-timeline-${Date.now()}`;
+      const tempId = createOptimisticId("optimistic-timeline");
       const optimisticAssignees = buildTimelineAssignees(
         {
           assignees: input.assignees as TimelineItem["assignees"] | undefined,
@@ -282,9 +293,6 @@ export function useCreateTimelineEvent(blockId: string) {
         });
       }
     },
-    onSettled: () => {
-      qc.invalidateQueries({ queryKey: timelineKeys.items(blockId) });
-    },
   });
 }
 
@@ -325,7 +333,6 @@ export function useUpdateTimelineEvent(blockId: string) {
         );
       }
 
-      qc.invalidateQueries({ queryKey: timelineKeys.items(blockId) });
       // Invalidate entity properties to refresh the Properties section
       qc.invalidateQueries({
         queryKey: queryKeys.entityProperties("timeline_event", variables.eventId),
@@ -373,7 +380,7 @@ export function useDuplicateTimelineEvent(blockId: string) {
       await qc.cancelQueries({ queryKey: timelineKeys.items(blockId) });
       const previous = qc.getQueryData<TimelineItem[]>(timelineKeys.items(blockId));
       const source = (previous ?? []).find((item) => item.id === eventId);
-      const tempId = `optimistic-timeline-copy-${Date.now()}`;
+      const tempId = createOptimisticId("optimistic-timeline-copy");
 
       if (source) {
         const optimisticCopy: TimelineItem = {
@@ -462,7 +469,7 @@ export function useCreateTimelineReference(blockId: string) {
       await qc.cancelQueries({ queryKey: ["timelineReferences", input.eventId] });
       const previous = qc.getQueryData<TimelineReferenceSummary>(["timelineReferences", input.eventId]);
       const optimistic = {
-        id: `optimistic-timeline-ref-${Date.now()}`,
+        id: createOptimisticId("optimistic-timeline-ref"),
         workspace_id: "",
         event_id: input.eventId,
         reference_type: input.referenceType,
@@ -553,7 +560,7 @@ export function useCreateTimelineDependency(blockId: string) {
       await qc.cancelQueries({ queryKey: timelineKeys.dependencies(blockId) });
       const previous = qc.getQueryData<TimelineDependency[]>(timelineKeys.dependencies(blockId));
       const optimistic: TimelineDependency = {
-        id: `optimistic-dependency-${Date.now()}`,
+        id: createOptimisticId("optimistic-dependency"),
         timeline_block_id: input.timelineBlockId,
         workspace_id: "",
         from_id: input.fromId,

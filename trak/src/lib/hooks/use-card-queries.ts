@@ -9,6 +9,37 @@ const cardKeys = {
   items: (blockId: string) => ["cardItems", blockId] as const,
 };
 
+let optimisticSequence = 0;
+
+function createOptimisticId(prefix: string): string {
+  optimisticSequence += 1;
+  const randomPart =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${optimisticSequence}`;
+  return `${prefix}-${randomPart}`;
+}
+
+function isOptimisticCard(card: Pick<CardItemView, "id" | "clientKey">): boolean {
+  return String(card.clientKey ?? card.id).startsWith("optimistic-card-");
+}
+
+function getCardViewClientKey(card: Pick<CardItemView, "id" | "clientKey">): string {
+  return String(card.clientKey ?? card.id);
+}
+
+function dedupeCardViews(cards: CardItemView[]): CardItemView[] {
+  const seen = new Set<string>();
+  const deduped: CardItemView[] = [];
+  for (const card of cards) {
+    const key = getCardViewClientKey(card);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(card);
+  }
+  return deduped;
+}
+
 function createEmptyEntityProperties(cardId: string): EntityProperties {
   const now = new Date().toISOString();
   return {
@@ -204,15 +235,47 @@ function toCardItemView(card: CardItem): CardItemView {
 }
 
 export function useCards(blockId: string, options?: { enabled?: boolean }) {
+  const qc = useQueryClient();
+  const queryKey = cardKeys.items(blockId);
   return useQuery({
-    queryKey: cardKeys.items(blockId),
+    queryKey,
     queryFn: async () => {
       const response = await fetch(`/api/card-blocks/${blockId}/items`, { cache: "no-store" });
       const result = await response.json();
       if (!response.ok || ("error" in result && result.error)) {
         throw new Error(result?.error ?? "Failed to load cards");
       }
-      return result.data as CardsBlockBundle;
+      const bundle = result.data as CardsBlockBundle;
+      const previous = qc.getQueryData<CardsBlockBundle>(queryKey);
+      const clientKeyByCardId = new Map(
+        (previous?.cards ?? []).map((card) => [card.id, card.clientKey ?? card.id])
+      );
+      const serverCards = bundle.cards.map((card) => ({
+        ...card,
+        clientKey: clientKeyByCardId.get(card.id) ?? card.clientKey ?? card.id,
+      }));
+      const serverClientKeys = new Set(serverCards.map((card) => card.clientKey ?? card.id));
+      const pendingOptimisticCards = (previous?.cards ?? []).filter(
+        (card) => isOptimisticCard(card) && !serverClientKeys.has(card.clientKey ?? card.id)
+      );
+      const pendingOptimisticProps = Object.fromEntries(
+        pendingOptimisticCards
+          .map((card) => {
+            const key = String(card.id);
+            const props = previous?.entityPropertiesByCardId?.[key];
+            return props ? [key, props] : null;
+          })
+          .filter((entry): entry is [string, EntityProperties] => entry !== null)
+      );
+
+      return {
+        ...bundle,
+        cards: dedupeCardViews([...serverCards, ...pendingOptimisticCards]),
+        entityPropertiesByCardId: {
+          ...bundle.entityPropertiesByCardId,
+          ...pendingOptimisticProps,
+        },
+      } as CardsBlockBundle;
     },
     enabled: (options?.enabled ?? true) && Boolean(blockId),
   });
@@ -220,15 +283,17 @@ export function useCards(blockId: string, options?: { enabled?: boolean }) {
 
 export function useCreateCard(blockId: string) {
   const qc = useQueryClient();
+  type CreateCardInput = Parameters<typeof createCard>[0] & { clientKey?: string };
   return useMutation({
-    mutationFn: (input: Parameters<typeof createCard>[0]) => createCard(input),
+    mutationFn: ({ clientKey: _clientKey, ...input }: CreateCardInput) => createCard(input),
     onMutate: async (input) => {
       await qc.cancelQueries({ queryKey: cardKeys.items(blockId) });
       const previous = qc.getQueryData<CardsBlockBundle>(cardKeys.items(blockId));
-      const tempId = `optimistic-card-${Date.now()}`;
+      const tempId = input.clientKey ?? createOptimisticId("optimistic-card");
       const now = new Date().toISOString();
       const optimisticCard: CardItemView = {
         id: tempId,
+        clientKey: tempId,
         title: input.title?.trim() || "Untitled card",
         notes: input.notes ?? null,
         assetFileId: input.assetFileId ?? (input.assetFileIds?.[0] ?? null),
@@ -252,7 +317,7 @@ export function useCreateCard(blockId: string) {
       };
 
       qc.setQueryData<CardsBlockBundle>(cardKeys.items(blockId), (current) => ({
-        cards: [...(current?.cards ?? []), optimisticCard],
+        cards: dedupeCardViews([...(current?.cards ?? []), optimisticCard]),
         entityPropertiesByCardId: {
           ...(current?.entityPropertiesByCardId ?? {}),
           [tempId]: mergeCardEntityProperties(tempId, undefined, input),
@@ -278,8 +343,35 @@ export function useCreateCard(blockId: string) {
         qc.setQueryData<CardsBlockBundle>(cardKeys.items(blockId), (current) => {
           if (!current) return current;
           const { [context.tempId]: optimisticProps, ...restProps } = current.entityPropertiesByCardId;
+          const matchingCards = current.cards.filter(
+            (card) => card.id === context.tempId || card.clientKey === context.tempId
+          );
+          const nextCard = {
+            ...toCardItemView(result.data),
+            title: matchingCards[matchingCards.length - 1]?.title ?? toCardItemView(result.data).title,
+            notes: matchingCards[matchingCards.length - 1]?.notes ?? toCardItemView(result.data).notes,
+            clientKey:
+              matchingCards[matchingCards.length - 1]?.clientKey
+              ?? context.tempId
+              ?? result.data.id,
+          };
+          const cards: CardItemView[] = [];
+          let inserted = false;
+          for (const card of current.cards) {
+            if (card.id === context.tempId || card.clientKey === context.tempId) {
+              if (!inserted) {
+                cards.push(nextCard);
+                inserted = true;
+              }
+              continue;
+            }
+            cards.push(card);
+          }
+          if (!inserted) {
+            cards.push(nextCard);
+          }
           return {
-            cards: current.cards.map((card) => (card.id === context.tempId ? toCardItemView(result.data) : card)),
+            cards: dedupeCardViews(cards),
             entityPropertiesByCardId: optimisticProps
               ? { ...restProps, [result.data.id]: { ...optimisticProps, entity_id: result.data.id } }
               : restProps,
@@ -287,7 +379,6 @@ export function useCreateCard(blockId: string) {
         });
       }
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: cardKeys.items(blockId) }),
   });
 }
 
@@ -333,7 +424,16 @@ export function useUpdateCard(blockId: string) {
       qc.setQueryData<CardsBlockBundle>(cardKeys.items(blockId), (current) => {
         if (!current) return current;
         return {
-          cards: current.cards.map((card) => (card.id === input.cardId ? toCardItemView(result.data) : card)),
+          cards: current.cards.map((card) =>
+            card.id === input.cardId
+              ? {
+                  ...card,
+                  ...toCardItemView(result.data),
+                  clientKey: card.clientKey ?? card.id,
+                  comments: card.comments ?? [],
+                }
+              : card
+          ),
           entityPropertiesByCardId: {
             ...current.entityPropertiesByCardId,
             [input.cardId]: mergeCardEntityProperties(
@@ -346,7 +446,6 @@ export function useUpdateCard(blockId: string) {
       });
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: cardKeys.items(blockId) });
       qc.invalidateQueries({ queryKey: ["tableRows"] });
       qc.invalidateQueries({ queryKey: ["tableBootstrap"] });
     },
@@ -393,7 +492,7 @@ export function useCardComments(blockId: string) {
       onMutate: async (input) => {
         await qc.cancelQueries({ queryKey: cardKeys.items(blockId) });
         const previous = qc.getQueryData<CardsBlockBundle>(cardKeys.items(blockId));
-        const tempId = `optimistic-card-comment-${Date.now()}`;
+        const tempId = createOptimisticId("optimistic-card-comment");
         const optimisticComment: CardCommentView = {
           id: tempId,
           author: "You",

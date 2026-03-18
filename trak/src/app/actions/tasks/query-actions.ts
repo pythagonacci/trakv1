@@ -34,7 +34,7 @@ export interface TaskItemView {
   startDate?: string;
   tags?: string[];
   description?: string;
-  subtasks?: { id: string; text: string; description?: string | null; completed: boolean }[];
+  subtasks?: { id: string; clientKey?: string; text: string; description?: string | null; completed: boolean }[];
   comments?: { id: string; author: string; text: string; timestamp: string; parentId?: string | null }[];
   recurring?: {
     enabled: boolean;

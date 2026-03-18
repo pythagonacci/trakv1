@@ -27,6 +27,8 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import type { CardsBlockBundle } from "@/app/actions/cards/query-actions";
 
 interface CardsBlockProps {
   block: Block;
@@ -53,6 +55,20 @@ function getInitials(name?: string | null) {
   if (!safe) return "?";
   const parts = safe.split(/\s+/).slice(0, 2);
   return parts.map((part) => part[0]?.toUpperCase() ?? "").join("");
+}
+
+function getCardClientKey(card: { id: string; clientKey?: string }) {
+  return card.clientKey ?? card.id;
+}
+
+function isPersistedCardId(cardId: string | null | undefined) {
+  return Boolean(cardId) && !String(cardId).startsWith("optimistic-card-");
+}
+
+function createOptimisticCardClientKey() {
+  return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? `optimistic-card-${crypto.randomUUID()}`
+    : `optimistic-card-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function UploadPlaceholder({ large = false, onClick }: { large?: boolean; onClick?: () => void }) {
@@ -114,6 +130,8 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
   const updateCardMutation = useUpdateCard(cardsBlockId);
   const deleteCardMutation = useDeleteCard(cardsBlockId);
   const cardComments = useCardComments(cardsBlockId);
+  const queryClient = useQueryClient();
+  const cardsQueryKey = ["cardItems", cardsBlockId] as const;
 
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [renamingBlock, setRenamingBlock] = useState(false);
@@ -126,7 +144,11 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
   const [commentDraft, setCommentDraft] = useState("");
   const [uploadTargetCardId, setUploadTargetCardId] = useState<string | null>(null);
   const [slideIndexByCardId, setSlideIndexByCardId] = useState<Record<string, number>>({});
+  const [pendingCardUpdatesByClientKey, setPendingCardUpdatesByClientKey] = useState<
+    Record<string, Partial<{ title: string; notes: string }>>
+  >({});
   const notesTimeoutRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const pendingCardUpdatePersistingRef = useRef<Set<string>>(new Set());
   const blockTitleInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -142,12 +164,79 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
   }, [renamingBlock]);
 
   useEffect(() => {
-    if (selectedCardId && !cards.some((card) => card.id === selectedCardId)) {
+    if (
+      selectedCardId &&
+      !cards.some((card) => getCardClientKey(card) === selectedCardId || card.id === selectedCardId)
+    ) {
       setSelectedCardId(null);
     }
   }, [cards, selectedCardId]);
 
-  const selectedCard = cards.find((card) => card.id === selectedCardId) ?? null;
+  const selectedCard = cards.find((card) => getCardClientKey(card) === selectedCardId || card.id === selectedCardId) ?? null;
+  const selectedCardClientKey = selectedCard ? getCardClientKey(selectedCard) : null;
+
+  const patchCardInCache = (cardClientKey: string, updates: Partial<{ title: string; notes: string }>) => {
+    queryClient.setQueryData<CardsBlockBundle>(cardsQueryKey, (current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        cards: current.cards.map((card) =>
+          getCardClientKey(card) === cardClientKey
+            ? {
+                ...card,
+                ...(updates.title !== undefined ? { title: updates.title } : {}),
+                ...(updates.notes !== undefined ? { notes: updates.notes } : {}),
+              }
+            : card
+        ),
+      };
+    });
+  };
+
+  useEffect(() => {
+    const pendingEntries = Object.entries(pendingCardUpdatesByClientKey);
+    if (pendingEntries.length === 0) return;
+
+    pendingEntries.forEach(([cardClientKey, pendingUpdates]) => {
+      if (pendingCardUpdatePersistingRef.current.has(cardClientKey)) return;
+      const resolvedCard = cards.find((card) => getCardClientKey(card) === cardClientKey);
+      if (!resolvedCard || !isPersistedCardId(resolvedCard.id)) return;
+
+      const updates: Partial<{ title: string; notes: string }> = {};
+      if (pendingUpdates.title !== undefined && pendingUpdates.title !== resolvedCard.title) {
+        updates.title = pendingUpdates.title;
+      }
+      if (pendingUpdates.notes !== undefined && pendingUpdates.notes !== (resolvedCard.notes ?? "")) {
+        updates.notes = pendingUpdates.notes;
+      }
+
+      if (Object.keys(updates).length === 0) {
+        setPendingCardUpdatesByClientKey((prev) => {
+          if (!(cardClientKey in prev)) return prev;
+          const next = { ...prev };
+          delete next[cardClientKey];
+          return next;
+        });
+        return;
+      }
+
+      pendingCardUpdatePersistingRef.current.add(cardClientKey);
+      void updateCardMutation
+        .mutateAsync({
+          cardId: resolvedCard.id,
+          updates,
+        })
+        .finally(() => {
+          pendingCardUpdatePersistingRef.current.delete(cardClientKey);
+          setPendingCardUpdatesByClientKey((prev) => {
+            if (!(cardClientKey in prev)) return prev;
+            const next = { ...prev };
+            delete next[cardClientKey];
+            return next;
+          });
+        });
+    });
+  }, [cards, pendingCardUpdatesByClientKey, updateCardMutation]);
 
   const assetFileIds = useMemo(
     () =>
@@ -492,16 +581,16 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
   const handleCreateCard = async () => {
     // Optimistically expand block to full width when adding second card
     setCardCount?.(cardsBlockId, cards.length + 1);
-    const result = await createCardMutation.mutateAsync({
+    const clientKey = createOptimisticCardClientKey();
+    setSelectedCardId(clientKey);
+    await createCardMutation.mutateAsync({
       cardsBlockId,
+      clientKey,
       title: "Untitled card",
       status: "todo",
       width: "half",
       height: "tall",
     });
-    if ("data" in result && result.data) {
-      setSelectedCardId(result.data.id);
-    }
   };
 
   const [uploadMode, setUploadMode] = useState<"replace" | "add">("replace");
@@ -590,16 +679,39 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
     }
   };
 
-  const handleNotesChange = (cardId: string, value: string) => {
-    setNotesDraft((prev) => ({ ...prev, [cardId]: value }));
-    const existing = notesTimeoutRef.current[cardId];
+  const handleNotesChange = (cardId: string, draftKey: string, value: string) => {
+    setNotesDraft((prev) => ({ ...prev, [draftKey]: value }));
+    patchCardInCache(draftKey, { notes: value });
+    const existing = notesTimeoutRef.current[draftKey];
     if (existing) clearTimeout(existing);
-    notesTimeoutRef.current[cardId] = setTimeout(() => {
+    notesTimeoutRef.current[draftKey] = setTimeout(() => {
+      if (!isPersistedCardId(cardId)) {
+        setPendingCardUpdatesByClientKey((prev) => ({
+          ...prev,
+          [draftKey]: { ...(prev[draftKey] ?? {}), notes: value },
+        }));
+        return;
+      }
       void updateCardMutation.mutateAsync({
         cardId,
         updates: { notes: value },
       });
     }, 400);
+  };
+
+  const commitCardTitle = (cardId: string, cardClientKey: string, nextTitle: string) => {
+    patchCardInCache(cardClientKey, { title: nextTitle });
+    if (!isPersistedCardId(cardId)) {
+      setPendingCardUpdatesByClientKey((prev) => ({
+        ...prev,
+        [cardClientKey]: { ...(prev[cardClientKey] ?? {}), title: nextTitle },
+      }));
+      return;
+    }
+    void updateCardMutation.mutateAsync({
+      cardId,
+      updates: { title: nextTitle },
+    });
   };
 
   const handleResizeMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -647,19 +759,20 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
   };
 
   const handleCreateComment = async () => {
-    if (!selectedCardId || !commentDraft.trim()) return;
+    if (!selectedCard || !commentDraft.trim()) return;
     await cardComments.create.mutateAsync({
-      cardId: selectedCardId,
+      cardId: selectedCard.id,
       text: commentDraft.trim(),
     });
     setCommentDraft("");
   };
 
   const renderAsset = (card: (typeof cards)[number], large = false) => {
+    const cardClientKey = getCardClientKey(card);
     const ids = getCardAssetIds(card);
-    const currentIndex = Math.min(slideIndexByCardId[card.id] ?? 0, Math.max(0, ids.length - 1));
+    const currentIndex = Math.min(slideIndexByCardId[cardClientKey] ?? 0, Math.max(0, ids.length - 1));
     const setSlideIndex = (i: number) =>
-      setSlideIndexByCardId((prev) => ({ ...prev, [card.id]: Math.max(0, Math.min(ids.length - 1, i)) }));
+      setSlideIndexByCardId((prev) => ({ ...prev, [cardClientKey]: Math.max(0, Math.min(ids.length - 1, i)) }));
 
     const fileId = ids[currentIndex] ?? null;
     const url = fileId ? fileUrls[fileId] : null;
@@ -815,25 +928,26 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
           {viewMode === "grid" ? (
             <div className="grid grid-cols-2 gap-3">
               {cards.map((card) => {
-                const selected = selectedCardId === card.id;
+                const cardClientKey = getCardClientKey(card);
+                const selected = selectedCardId === cardClientKey || selectedCardId === card.id;
                 const statusFields = getEffectiveStatusFields(card);
                 const priorityFields = getEffectivePriorityFields(card);
                 const tags = getEffectiveTags(card);
                 const assigneeName = getPrimaryAssigneeName(card);
                 const dueDate = getPrimaryDueDate(card);
-                const isDetailsExpanded = Boolean(expandedGridCardDetails[card.id]);
+                const isDetailsExpanded = Boolean(expandedGridCardDetails[cardClientKey]);
                 const showDetailsToggle = hasGridDetails(card);
                 const cardWidth = card.width ?? "half";
                 const cardHeight = card.height ?? "tall";
                 const assetHeight = cardHeight === "tall" ? "h-[320px]" : "h-[220px]";
                 return (
                   <div
-                    key={card.id}
-                    onClick={() => setSelectedCardId(card.id)}
+                    key={cardClientKey}
+                    onClick={() => setSelectedCardId(cardClientKey)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
-                        setSelectedCardId(card.id);
+                        setSelectedCardId(cardClientKey);
                       }
                     }}
                     role="button"
@@ -850,7 +964,7 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
                         <div className="min-w-0 flex-1 text-[12px] font-semibold leading-[1.3] tracking-[-0.01em] text-[#1a1814]">{card.title}</div>
                         {getCardAssetIds(card).length > 1 ? (
                           <span className="flex-shrink-0 text-[11px] text-[#8e857c]">
-                            {(slideIndexByCardId[card.id] ?? 0) + 1}/{getCardAssetIds(card).length} image
+                            {(slideIndexByCardId[cardClientKey] ?? 0) + 1}/{getCardAssetIds(card).length} image
                           </span>
                         ) : null}
                       </div>
@@ -861,7 +975,7 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
                             event.stopPropagation();
                             setExpandedGridCardDetails((prev) => ({
                               ...prev,
-                              [card.id]: !prev[card.id],
+                              [cardClientKey]: !prev[cardClientKey],
                             }));
                           }}
                           onKeyDown={(event) => event.stopPropagation()}
@@ -918,23 +1032,24 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
                 <div className="w-3" />
               </div>
               {cards.map((card, index) => {
-                const selected = selectedCardId === card.id;
+                const cardClientKey = getCardClientKey(card);
+                const selected = selectedCardId === cardClientKey || selectedCardId === card.id;
                 const assigneeName = getPrimaryAssigneeName(card);
                 const dueDate = getPrimaryDueDate(card);
                 const statusFields = getEffectiveStatusFields(card);
                 const priorityFields = getEffectivePriorityFields(card);
                 const tags = getEffectiveTags(card);
                 const ids = getCardAssetIds(card);
-                const thumbIndex = Math.min(slideIndexByCardId[card.id] ?? 0, ids.length - 1);
+                const thumbIndex = Math.min(slideIndexByCardId[cardClientKey] ?? 0, ids.length - 1);
                 const url = ids[thumbIndex] ? fileUrls[ids[thumbIndex]] : null;
                 return (
                   <div
-                    key={card.id}
-                    onClick={() => setSelectedCardId(card.id)}
+                    key={cardClientKey}
+                    onClick={() => setSelectedCardId(cardClientKey)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
-                        setSelectedCardId(card.id);
+                        setSelectedCardId(cardClientKey);
                       }
                     }}
                     role="button"
@@ -955,12 +1070,12 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
                         if (x < rect.width / 2) {
                           setSlideIndexByCardId((prev) => ({
                             ...prev,
-                            [card.id]: Math.max(0, (prev[card.id] ?? 0) - 1),
+                            [cardClientKey]: Math.max(0, (prev[cardClientKey] ?? 0) - 1),
                           }));
                         } else {
                           setSlideIndexByCardId((prev) => ({
                             ...prev,
-                            [card.id]: Math.min(ids.length - 1, (prev[card.id] ?? 0) + 1),
+                            [cardClientKey]: Math.min(ids.length - 1, (prev[cardClientKey] ?? 0) + 1),
                           }));
                         }
                       }}
@@ -977,7 +1092,7 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
                       )}
                       {ids.length > 1 ? (
                         <span className="absolute bottom-0.5 right-0.5 rounded bg-black/60 px-1 text-[9px] text-white">
-                          {(slideIndexByCardId[card.id] ?? 0) + 1}/{ids.length}
+                          {(slideIndexByCardId[cardClientKey] ?? 0) + 1}/{ids.length}
                         </span>
                       ) : null}
                     </div>
@@ -1041,21 +1156,21 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
                 <>
             <div className="flex items-center justify-between border-b border-[#f0ebe4] px-5 py-4">
               <input
-                value={titleDrafts[selectedCard.id] ?? selectedCard.title}
+                value={titleDrafts[selectedCardClientKey ?? selectedCard.id] ?? selectedCard.title}
                 onFocus={() => {
-                  setTitleDrafts((prev) => ({ ...prev, [selectedCard.id]: prev[selectedCard.id] ?? selectedCard.title }));
+                  if (!selectedCardClientKey) return;
+                  setTitleDrafts((prev) => ({ ...prev, [selectedCardClientKey]: prev[selectedCardClientKey] ?? selectedCard.title }));
                 }}
                 onChange={(event) => {
                   const value = event.target.value;
-                  setTitleDrafts((prev) => ({ ...prev, [selectedCard.id]: value }));
+                  if (!selectedCardClientKey) return;
+                  setTitleDrafts((prev) => ({ ...prev, [selectedCardClientKey]: value }));
                 }}
                 onBlur={() => {
-                  const nextTitle = (titleDrafts[selectedCard.id] ?? selectedCard.title).trim() || "Untitled card";
+                  const draftKey = selectedCardClientKey ?? selectedCard.id;
+                  const nextTitle = (titleDrafts[draftKey] ?? selectedCard.title).trim() || "Untitled card";
                   if (nextTitle !== selectedCard.title) {
-                    void updateCardMutation.mutateAsync({
-                      cardId: selectedCard.id,
-                      updates: { title: nextTitle },
-                    });
+                    commitCardTitle(selectedCard.id, draftKey, nextTitle);
                   }
                 }}
                 className="min-w-0 flex-1 bg-transparent text-[13px] font-semibold tracking-[-0.01em] text-[#1a1814] outline-none"
@@ -1070,7 +1185,7 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
                 <div className="flex w-full items-center gap-4 border-b border-[#f5f1ec] py-2.5">
                   <span className="w-[90px] flex-shrink-0 text-[12px] font-medium text-[#aaa]">Image</span>
                   <span className="text-[12px] text-[#1a1814]">
-                    {(slideIndexByCardId[selectedCard.id] ?? 0) + 1} / {getCardAssetIds(selectedCard).length} image
+                    {(slideIndexByCardId[selectedCardClientKey ?? selectedCard.id] ?? 0) + 1} / {getCardAssetIds(selectedCard).length} image
                   </span>
                 </div>
               ) : null}
@@ -1203,8 +1318,11 @@ export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: 
               <div className="mt-5">
                 <div className="mb-2 text-[12px] font-medium text-[#aaa]">Notes</div>
                 <textarea
-                  value={notesDraft[selectedCard.id] ?? selectedCard.notes ?? ""}
-                  onChange={(event) => handleNotesChange(selectedCard.id, event.target.value)}
+                  value={notesDraft[selectedCardClientKey ?? selectedCard.id] ?? selectedCard.notes ?? ""}
+                  onChange={(event) => {
+                    if (!selectedCardClientKey) return;
+                    handleNotesChange(selectedCard.id, selectedCardClientKey, event.target.value);
+                  }}
                   placeholder="Add notes…"
                   className="min-h-[76px] w-full rounded-[6px] border border-[#ede8e0] bg-[#faf8f5] px-3 py-2.5 text-[12px] text-[#1a1814] outline-none placeholder:text-[#ccc]"
                 />

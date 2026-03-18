@@ -17,7 +17,7 @@ import {
   listSubtaskReferenceSummaries,
 } from "@/app/actions/tasks/subtask-reference-actions";
 import type { TaskItemView, TaskBlockBundle } from "@/app/actions/tasks/query-actions";
-import type { TaskItem } from "@/types/task";
+import type { TaskItem, TaskSubtask } from "@/types/task";
 
 const taskKeys = {
   items: (blockId: string) => ["taskItems", blockId] as const,
@@ -25,11 +25,51 @@ const taskKeys = {
   subtaskReferences: (subtaskId: string) => ["subtaskReferences", subtaskId] as const,
 };
 
+let optimisticSequence = 0;
+
+function createOptimisticId(prefix: string): string {
+  optimisticSequence += 1;
+  const randomPart =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${optimisticSequence}`;
+  return `${prefix}-${randomPart}`;
+}
+
+function getTaskViewClientKey(task: Pick<TaskItemView, "id" | "clientKey">): string {
+  return String(task.clientKey ?? task.id);
+}
+
+function dedupeTaskViews(tasks: TaskItemView[]): TaskItemView[] {
+  const seen = new Set<string>();
+  const deduped: TaskItemView[] = [];
+  for (const task of tasks) {
+    const key = getTaskViewClientKey(task);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(task);
+  }
+  return deduped;
+}
+
 type TaskReferenceSummary = Extract<Awaited<ReturnType<typeof listTaskReferenceSummaries>>, { data: unknown }> extends { data: infer T } ? T : never;
 type SubtaskReferenceSummary = Extract<Awaited<ReturnType<typeof listSubtaskReferenceSummaries>>, { data: unknown }> extends { data: infer T } ? T : never;
 
 function isOptimisticTask(task: Pick<TaskItemView, "id" | "clientKey">): boolean {
   return String(task.clientKey ?? task.id).startsWith("optimistic-");
+}
+
+function isOptimisticSubtask(subtask: NonNullable<TaskItemView["subtasks"]>[number]): boolean {
+  return String(subtask.clientKey ?? subtask.id).startsWith("optimistic-subtask-");
+}
+
+function toTaskSubtaskView(subtask: TaskSubtask): NonNullable<TaskItemView["subtasks"]>[number] {
+  return {
+    id: subtask.id,
+    text: subtask.title,
+    description: subtask.description ?? undefined,
+    completed: subtask.completed,
+  };
 }
 
 function toTaskItemView(task: TaskItem): TaskItemView {
@@ -91,11 +131,30 @@ export function useTaskItems(
       const bundle = result.data as TaskBlockBundle;
       const previous = qc.getQueryData<TaskBlockBundle>(queryKey);
       const clientKeyByTaskId = new Map(
-        (previous?.tasks ?? []).map((task) => [task.id, task.clientKey ?? task.id])
+        (previous?.tasks ?? []).map((task) => [task.id, getTaskViewClientKey(task)])
+      );
+      const previousTasksById = new Map(
+        (previous?.tasks ?? []).map((task) => [task.id, task])
       );
       const serverTasks = bundle.tasks.map((task) => ({
         ...task,
         clientKey: clientKeyByTaskId.get(task.id) ?? task.clientKey ?? task.id,
+        subtasks: (() => {
+          const previousTask = previousTasksById.get(task.id);
+          const previousSubtasks = previousTask?.subtasks ?? [];
+          const clientKeyBySubtaskId = new Map(previousSubtasks.map((subtask) => [subtask.id, String(subtask.clientKey ?? subtask.id)]));
+          const serverSubtasks = (task.subtasks ?? []).map((subtask) => ({
+            ...subtask,
+            clientKey: clientKeyBySubtaskId.get(subtask.id) ?? subtask.clientKey ?? subtask.id,
+          }));
+          const serverSubtaskClientKeys = new Set(
+            serverSubtasks.map((subtask) => subtask.clientKey ?? subtask.id)
+          );
+          const pendingOptimisticSubtasks = previousSubtasks.filter(
+            (subtask) => isOptimisticSubtask(subtask) && !serverSubtaskClientKeys.has(subtask.clientKey ?? subtask.id)
+          );
+          return [...serverSubtasks, ...pendingOptimisticSubtasks];
+        })(),
       }));
       const serverClientKeys = new Set(serverTasks.map((task) => task.clientKey ?? task.id));
       const pendingOptimisticTasks = (previous?.tasks ?? []).filter(
@@ -104,7 +163,7 @@ export function useTaskItems(
 
       return {
         ...bundle,
-        tasks: [...serverTasks, ...pendingOptimisticTasks],
+        tasks: dedupeTaskViews([...serverTasks, ...pendingOptimisticTasks]),
       } as TaskBlockBundle;
     },
     enabled: (options?.enabled ?? true) && Boolean(blockId),
@@ -118,7 +177,7 @@ export function useCreateTaskItem(blockId: string) {
     onMutate: async (input) => {
       await qc.cancelQueries({ queryKey: taskKeys.items(blockId) });
       const previous = qc.getQueryData<TaskBlockBundle>(taskKeys.items(blockId));
-      const optimisticId = `optimistic-${Date.now()}`;
+      const optimisticId = createOptimisticId("optimistic");
       const optimistic: TaskItemView = {
         id: optimisticId,
         clientKey: optimisticId,
@@ -132,7 +191,7 @@ export function useCreateTaskItem(blockId: string) {
         const base: TaskBlockBundle = old ?? { tasks: [], entityPropertiesByTaskId: {} };
         return {
           ...base,
-          tasks: [...base.tasks, optimistic],
+          tasks: dedupeTaskViews([...base.tasks, optimistic]),
         };
       });
       return { previous, optimisticId };
@@ -152,27 +211,35 @@ export function useCreateTaskItem(blockId: string) {
 
       qc.setQueryData<TaskBlockBundle>(taskKeys.items(blockId), (current) => {
         const base: TaskBlockBundle = current ?? { tasks: [], entityPropertiesByTaskId: {} };
-        const optimisticIndex = base.tasks.findIndex(
+        const matchingTasks = base.tasks.filter(
           (task) => task.id === ctx?.optimisticId || task.clientKey === ctx?.optimisticId
         );
-        const previousTask = optimisticIndex >= 0 ? base.tasks[optimisticIndex] : undefined;
+        const previousTask = matchingTasks[matchingTasks.length - 1];
+        const serverTask = toTaskItemView(result.data);
         const nextTask: TaskItemView = {
-          ...toTaskItemView(result.data),
+          ...serverTask,
+          text: previousTask?.text ?? serverTask.text,
+          description: previousTask?.description ?? serverTask.description,
           clientKey: previousTask?.clientKey ?? ctx?.optimisticId ?? result.data.id,
         };
-
-        if (optimisticIndex === -1) {
-          return {
-            ...base,
-            tasks: [...base.tasks, nextTask],
-          };
+        const tasks: TaskItemView[] = [];
+        let inserted = false;
+        for (const task of base.tasks) {
+          if (task.id === ctx?.optimisticId || task.clientKey === ctx?.optimisticId) {
+            if (!inserted) {
+              tasks.push(nextTask);
+              inserted = true;
+            }
+            continue;
+          }
+          tasks.push(task);
         }
-
-        const tasks = [...base.tasks];
-        tasks[optimisticIndex] = nextTask;
+        if (!inserted) {
+          tasks.push(nextTask);
+        }
         return {
           ...base,
-          tasks,
+          tasks: dedupeTaskViews(tasks),
         };
       });
     },
@@ -212,8 +279,33 @@ export function useUpdateTaskItem(blockId: string) {
         qc.setQueryData(taskKeys.items(blockId), ctx.previous);
       }
     },
+    onSuccess: (result, input, ctx) => {
+      if ("error" in result) {
+        if (ctx?.previous !== undefined) {
+          qc.setQueryData(taskKeys.items(blockId), ctx.previous);
+        }
+        return;
+      }
+
+      qc.setQueryData<TaskBlockBundle>(taskKeys.items(blockId), (current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          tasks: current.tasks.map((task) => {
+            if (task.id !== input.taskId) return task;
+            const serverTask = toTaskItemView(result.data);
+            return {
+              ...task,
+              ...serverTask,
+              clientKey: task.clientKey ?? task.id,
+              subtasks: task.subtasks ?? serverTask.subtasks ?? [],
+              comments: task.comments ?? serverTask.comments ?? [],
+            };
+          }),
+        };
+      });
+    },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: taskKeys.items(blockId) });
       // Source-linked table rows: when task is updated, derived rows are synced server-side; refetch tables so UI updates
       qc.invalidateQueries({ queryKey: ["tableRows"] });
       qc.invalidateQueries({ queryKey: ["tableBootstrap"] });
@@ -271,8 +363,10 @@ export function useTaskSubtasks(blockId: string) {
       onMutate: async (input) => {
         await qc.cancelQueries({ queryKey: taskKeys.items(blockId) });
         const previous = qc.getQueryData<TaskBlockBundle>(taskKeys.items(blockId));
-        const optimisticSubtask: { id: string; text: string; description?: string | null; completed: boolean } = {
-          id: `optimistic-subtask-${Date.now()}`,
+        const tempId = createOptimisticId("optimistic-subtask");
+        const optimisticSubtask: NonNullable<TaskItemView["subtasks"]>[number] = {
+          id: tempId,
+          clientKey: tempId,
           text: input.title,
           description: input.description ?? null,
           completed: Boolean(input.completed),
@@ -287,12 +381,51 @@ export function useTaskSubtasks(blockId: string) {
             ),
           });
         }
-        return { previous };
+        return { previous, tempId, taskId: input.taskId };
       },
       onError: (_err, _input, ctx) => {
         if (ctx?.previous) qc.setQueryData(taskKeys.items(blockId), ctx.previous);
       },
-      onSettled: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
+      onSuccess: (result, _input, ctx) => {
+        if ("error" in result) {
+          if (ctx?.previous) qc.setQueryData(taskKeys.items(blockId), ctx.previous);
+          return;
+        }
+        qc.setQueryData<TaskBlockBundle>(taskKeys.items(blockId), (current) => {
+          if (!current) return current;
+          return {
+            ...current,
+            tasks: current.tasks.map((task) => {
+              if (task.id !== ctx?.taskId) return task;
+              const subtasks = task.subtasks ?? [];
+              const matchingSubtasks = subtasks.filter(
+                (subtask) => subtask.id === ctx?.tempId || subtask.clientKey === ctx?.tempId
+              );
+              const previousSubtask = matchingSubtasks[matchingSubtasks.length - 1];
+              const nextSubtask = {
+                ...toTaskSubtaskView(result.data),
+                clientKey: previousSubtask?.clientKey ?? ctx?.tempId ?? result.data.id,
+              };
+              const nextSubtasks: NonNullable<TaskItemView["subtasks"]> = [];
+              let inserted = false;
+              for (const subtask of subtasks) {
+                if (subtask.id === ctx?.tempId || subtask.clientKey === ctx?.tempId) {
+                  if (!inserted) {
+                    nextSubtasks.push(nextSubtask);
+                    inserted = true;
+                  }
+                  continue;
+                }
+                nextSubtasks.push(subtask);
+              }
+              if (!inserted) {
+                nextSubtasks.push(nextSubtask);
+              }
+              return { ...task, subtasks: nextSubtasks };
+            }),
+          };
+        });
+      },
     }),
     update: useMutation({
       mutationFn: (input: { subtaskId: string; updates: Parameters<typeof updateTaskSubtask>[1] }) =>
@@ -313,6 +446,29 @@ export function useTaskSubtasks(blockId: string) {
       },
       onError: (_err, _input, ctx) => {
         if (ctx?.previous) qc.setQueryData(taskKeys.items(blockId), ctx.previous);
+      },
+      onSuccess: (result, input, ctx) => {
+        if ("error" in result) {
+          if (ctx?.previous) qc.setQueryData(taskKeys.items(blockId), ctx.previous);
+          return;
+        }
+        qc.setQueryData<TaskBlockBundle>(taskKeys.items(blockId), (current) => {
+          if (!current) return current;
+          return {
+            ...current,
+            tasks: current.tasks.map((task) => ({
+              ...task,
+              subtasks: task.subtasks?.map((subtask) =>
+                subtask.id === input.subtaskId
+                  ? {
+                    ...toTaskSubtaskView(result.data),
+                    clientKey: subtask.clientKey ?? subtask.id,
+                  }
+                  : subtask
+              ),
+            })),
+          };
+        });
       },
     }),
     remove: useMutation({
@@ -371,7 +527,7 @@ export function useTaskComments(blockId: string) {
         await qc.cancelQueries({ queryKey: taskKeys.items(blockId) });
         const previous = qc.getQueryData<TaskBlockBundle>(taskKeys.items(blockId));
         const optimisticComment = {
-          id: `optimistic-comment-${Date.now()}`,
+          id: createOptimisticId("optimistic-comment"),
           author: "You",
           text: input.text,
           timestamp: new Date().toISOString(),
@@ -519,7 +675,7 @@ export function useCreateSubtaskReference(subtaskId?: string) {
       await qc.cancelQueries({ queryKey: taskKeys.subtaskReferences(subtaskId) });
       const previous = qc.getQueryData<SubtaskReferenceSummary>(taskKeys.subtaskReferences(subtaskId));
       const optimistic = {
-        id: `optimistic-subtask-ref-${Date.now()}`,
+          id: createOptimisticId("optimistic-subtask-ref"),
         workspace_id: "",
         subtask_id: input.subtaskId,
         reference_type: input.referenceType,
@@ -581,7 +737,7 @@ export function useCreateTaskReference(taskId?: string) {
       await qc.cancelQueries({ queryKey: taskKeys.references(taskId) });
       const previous = qc.getQueryData<TaskReferenceSummary>(taskKeys.references(taskId));
       const optimistic = {
-        id: `optimistic-task-ref-${Date.now()}`,
+          id: createOptimisticId("optimistic-task-ref"),
         workspace_id: "",
         task_id: input.taskId,
         reference_type: input.referenceType,

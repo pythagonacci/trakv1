@@ -6,6 +6,12 @@ import type { EntityProperties, EntityType } from "@/types/properties";
 
 export const dynamic = "force-dynamic";
 
+function isQueryableEntityId(id: string): boolean {
+  if (!id) return false;
+  if (id.startsWith("optimistic-")) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
+
 export async function GET(request: NextRequest) {
   try {
     const url = new URL(request.url);
@@ -23,13 +29,10 @@ export async function GET(request: NextRequest) {
     const entityIds = idsParam
       .split(",")
       .map((id) => id.trim())
-      .filter(Boolean);
+      .filter((id) => isQueryableEntityId(id));
 
     if (entityIds.length === 0) {
-      return NextResponse.json(
-        { error: "Missing ids" },
-        { status: 400 }
-      );
+      return NextResponse.json({ data: {} });
     }
 
     const t0 = process.env.PERF_DEBUG === "1" ? Date.now() : 0;

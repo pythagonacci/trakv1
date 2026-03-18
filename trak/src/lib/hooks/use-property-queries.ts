@@ -29,6 +29,12 @@ import type {
 // Entity Properties
 // ============================================================================
 
+function isQueryableEntityId(id: string): boolean {
+  if (!id) return false;
+  if (id.startsWith("optimistic-")) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
+
 /**
  * Fetch direct properties on an entity
  */
@@ -56,7 +62,7 @@ export function useEntitiesProperties(
   workspaceId?: string
 ) {
   const normalizedIds = Array.from(
-    new Set(entityIds.filter((id) => id))
+    new Set(entityIds.filter((id) => isQueryableEntityId(id)))
   ).sort();
   const idsKey = normalizedIds.join(",");
 

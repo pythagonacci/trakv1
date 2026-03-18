@@ -19,6 +19,7 @@ export interface CardCommentView {
 
 export interface CardItemView {
   id: string;
+  clientKey?: string;
   title: string;
   notes?: string | null;
   assetFileId?: string | null;

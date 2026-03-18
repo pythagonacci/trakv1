@@ -68,6 +68,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/react-query/query-client";
 import { PRIORITY_COLORS, PRIORITY_OPTIONS, STATUS_COLORS, STATUS_OPTIONS, type EntityProperties, type EntityType, type Priority, type Status } from "@/types/properties";
 import { type TaskBlockContent, type TaskItemPriority } from "@/types/task";
+import type { TaskBlockBundle } from "@/app/actions/tasks/query-actions";
 import { DndContext, DragEndEvent, DragStartEvent, PointerSensor, useSensor, useSensors, DragOverlay, useDroppable, closestCenter } from "@dnd-kit/core";
 import { SortableContext, useSortable, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -84,6 +85,7 @@ import { Switch } from "@/components/ui/switch";
 
 interface Subtask {
   id: string | number;
+  clientKey?: string;
   text: string;
   description?: string | null;
   completed: boolean;
@@ -159,6 +161,28 @@ function isSubtaskItemId(id: string): id is `subtask-${string}` {
 
 function getTaskClientKey(task: Pick<Task, "id" | "clientKey">): string {
   return String(task.clientKey ?? task.id);
+}
+
+function getSubtaskClientKey(subtask: Pick<Subtask, "id" | "clientKey">): string {
+  return String(subtask.clientKey ?? subtask.id);
+}
+
+function dedupeTasksByClientKey<T extends Pick<Task, "id" | "clientKey">>(items: T[]): T[] {
+  const seen = new Set<string>();
+  const deduped: T[] = [];
+  for (const item of items) {
+    const key = getTaskClientKey(item);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(item);
+  }
+  return deduped;
+}
+
+function getPersistedEntityId(id: string | number | null | undefined): string | null {
+  if (typeof id !== "string") return null;
+  if (id.startsWith("optimistic-")) return null;
+  return id;
 }
 
 function extractRawId(itemId: BoardItemId): string {
@@ -823,7 +847,8 @@ export default function TaskBlock({
   const [boardGroupBy, setBoardGroupBy] = useState<BoardGroupBy>(initialBoardGroupBy);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingTaskText, setEditingTaskText] = useState("");
-  const [editingSubtaskId, setEditingSubtaskId] = useState<string | number | null>(null);
+  const [pendingTaskTitleByClientKey, setPendingTaskTitleByClientKey] = useState<Record<string, string>>({});
+  const [editingSubtaskId, setEditingSubtaskId] = useState<string | null>(null);
   const [editingSubtaskText, setEditingSubtaskText] = useState("");
   const [expandedSections, setExpandedSections] = useState<Record<string | number, { description?: boolean; subtasks?: boolean; comments?: boolean; references?: boolean }>>({});
   const [expandedSubtasks, setExpandedSubtasks] = useState<Record<string, { description?: boolean; references?: boolean }>>({});
@@ -938,25 +963,48 @@ export default function TaskBlock({
   const createSubtaskReferenceMutation = useCreateSubtaskReference(referenceSubtaskId || undefined);
 
   // Universal properties for tasks (status/priority/assignee/due/tags)
-  const taskIds = tasks.map((t) => String(t.id));
+  const taskIds = useMemo(
+    () => tasks.map((t) => getPersistedEntityId(t.id)).filter((id): id is string => Boolean(id)),
+    [tasks]
+  );
   const { data: taskPropertiesById = {} } = useEntitiesProperties("task", taskIds, workspaceId);
   const setTaskProperties = useSetEntityPropertiesForType("task", workspaceId);
   const subtaskIds = useMemo(
     () =>
       tasks.flatMap((task) =>
-        (task.subtasks || []).map((subtask) => String(subtask.id))
+        (task.subtasks || [])
+          .map((subtask) => getPersistedEntityId(subtask.id))
+          .filter((id): id is string => Boolean(id))
       ),
     [tasks]
   );
   const { data: subtaskPropertiesById = {} } = useEntitiesProperties("subtask", subtaskIds, workspaceId);
   const setSubtaskProperties = useSetEntityPropertiesForType("subtask", workspaceId);
   const queryClient = useQueryClient();
+  const pendingTaskTitlePersistingRef = useRef<Set<string>>(new Set());
+  const taskItemsQueryKey = publicToken
+    ? (["taskItems", block.id, "public", publicToken] as const)
+    : (["taskItems", block.id] as const);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 6 },
     })
   );
+
+  const patchTaskTitleInCache = useCallback((taskClientKey: string, nextTitle: string) => {
+    queryClient.setQueryData<TaskBlockBundle>(taskItemsQueryKey, (current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        tasks: current.tasks.map((task) =>
+          getTaskClientKey(task as Task) === taskClientKey
+            ? { ...task, text: nextTitle }
+            : task
+        ),
+      };
+    });
+  }, [queryClient, taskItemsQueryKey]);
 
   useEffect(() => {
     if (typeof content.heightPx === "number" && content.heightPx > 0) {
@@ -966,9 +1014,11 @@ export default function TaskBlock({
   }, [content.heightPx]);
 
   const orderedTasks = useMemo(() => {
-    if (taskOrder.length === 0) return tasks;
+    if (taskOrder.length === 0) return dedupeTasksByClientKey(tasks);
     const taskMap = new Map(tasks.map((task) => [String(task.id), task]));
-    return taskOrder.map((id) => taskMap.get(id)).filter(Boolean) as Task[];
+    return dedupeTasksByClientKey(
+      taskOrder.map((id) => taskMap.get(id)).filter(Boolean) as Task[]
+    );
   }, [tasks, taskOrder]);
 
   // Virtual scrolling for list view — only render visible task rows
@@ -1398,12 +1448,47 @@ export default function TaskBlock({
 
   // Keep a stable task order for drag + drop
   useEffect(() => {
-    const ids = tasks.map((task) => String(task.id));
-    const sameSet = ids.length === taskOrder.length && ids.every((id) => taskOrder.includes(id));
-    if (!sameSet) {
+    const ids = dedupeTasksByClientKey(tasks).map((task) => String(task.id));
+    const sameOrder = ids.length === taskOrder.length && ids.every((id, index) => taskOrder[index] === id);
+    if (!sameOrder) {
       setTaskOrder(ids);
     }
   }, [tasks, taskOrder]);
+
+  useEffect(() => {
+    const pendingEntries = Object.entries(pendingTaskTitleByClientKey);
+    if (pendingEntries.length === 0 || isTempBlock) return;
+
+    pendingEntries.forEach(([taskClientKey, nextTitle]) => {
+      if (pendingTaskTitlePersistingRef.current.has(taskClientKey)) return;
+      const resolvedTask = tasks.find((task) => getTaskClientKey(task) === taskClientKey);
+      if (!resolvedTask) return;
+      if (String(resolvedTask.id).startsWith("optimistic-")) return;
+      if ((resolvedTask.text || "New task") === nextTitle) {
+        setPendingTaskTitleByClientKey((prev) => {
+          if (!(taskClientKey in prev)) return prev;
+          const next = { ...prev };
+          delete next[taskClientKey];
+          return next;
+        });
+        return;
+      }
+
+      pendingTaskTitlePersistingRef.current.add(taskClientKey);
+      void updateTaskMutation.mutateAsync({
+        taskId: String(resolvedTask.id),
+        updates: { title: nextTitle },
+      }).finally(() => {
+        pendingTaskTitlePersistingRef.current.delete(taskClientKey);
+        setPendingTaskTitleByClientKey((prev) => {
+          if (prev[taskClientKey] !== nextTitle) return prev;
+          const next = { ...prev };
+          delete next[taskClientKey];
+          return next;
+        });
+      });
+    });
+  }, [isTempBlock, pendingTaskTitleByClientKey, tasks, updateTaskMutation]);
 
   // Scroll to task when scrollToTaskId matches. Accept both `${block.id}-${task.id}` and raw task IDs.
   useEffect(() => {
@@ -1648,6 +1733,37 @@ export default function TaskBlock({
     const result = await updateTaskMutation.mutateAsync({
       taskId: String(taskId),
       updates: payload,
+    });
+    if ("error" in result) {
+      console.error("Failed to update task:", result.error);
+    }
+  };
+
+  const commitTaskTitle = async (
+    taskClientKey: string,
+    taskId: string | number,
+    nextTitle: string
+  ) => {
+    const resolvedTask =
+      tasks.find((task) => getTaskClientKey(task) === taskClientKey) ??
+      tasks.find((task) => String(task.id) === String(taskId));
+
+    const resolvedTaskId = resolvedTask?.id ?? taskId;
+    patchTaskTitleInCache(taskClientKey, nextTitle);
+
+    if (isTempBlock) {
+      await updateTask(resolvedTaskId, { text: nextTitle });
+      return;
+    }
+
+    if (String(resolvedTaskId).startsWith("optimistic-")) {
+      setPendingTaskTitleByClientKey((prev) => ({ ...prev, [taskClientKey]: nextTitle }));
+      return;
+    }
+
+    const result = await updateTaskMutation.mutateAsync({
+      taskId: String(resolvedTaskId),
+      updates: { title: nextTitle },
     });
     if ("error" in result) {
       console.error("Failed to update task:", result.error);
@@ -3179,7 +3295,7 @@ export default function TaskBlock({
               const hasSubtasks = task.subtasks && task.subtasks.length > 0;
               const showSubtasksPanel = hasSubtasks;
               const statusIsDerived = hasSubtasks;
-              const taskEntityId = typeof task.id === "string" ? task.id : null;
+              const taskEntityId = getPersistedEntityId(task.id);
               const canUseProperties = Boolean(taskEntityId) && !isTempBlock && Boolean(workspaceId);
               const showReadOnlyProperties = Boolean(taskEntityId) && !isTempBlock;
               const effectiveStatus = getEffectiveStatus(String(task.id), task);
@@ -3327,7 +3443,7 @@ export default function TaskBlock({
                             value={editingTaskText}
                             onBlur={() => {
                               const finalText = (editingTaskText || "").trim() || "New task";
-                              updateTask(task.id, { text: finalText });
+                              void commitTaskTitle(taskClientKey, task.id, finalText);
                               setEditingTaskId(null);
                             }}
                             onKeyDown={(e) => {
@@ -3350,7 +3466,7 @@ export default function TaskBlock({
                               }
                               if (e.key === "Enter") {
                                 const finalText = (editingTaskText || "").trim() || "New task";
-                                updateTask(task.id, { text: finalText });
+                                void commitTaskTitle(taskClientKey, task.id, finalText);
                                 setEditingTaskId(null);
                               }
                               if (e.key === "Escape") {
@@ -3453,7 +3569,7 @@ export default function TaskBlock({
                                 <div className="mt-1.5 space-y-1.5">
                             {(task.subtasks || []).map((subtask) => {
                               const subtaskId = String(subtask.id);
-                              const subtaskEntityId = typeof subtask.id === "string" ? subtask.id : null;
+                              const subtaskEntityId = getPersistedEntityId(subtask.id);
                               const canUseSubtaskProperties = Boolean(subtaskEntityId) && !isTempBlock && Boolean(workspaceId);
                               const subtaskProps = getSubtaskEffectiveProperties(subtaskId);
                               const subtaskStatus = getSubtaskEffectiveStatus(subtaskId, subtask);
@@ -4347,7 +4463,7 @@ export default function TaskBlock({
                           if (!task) return null;
 
                           const taskClientKey = getTaskClientKey(task);
-                          const taskEntityId = typeof task.id === "string" ? task.id : null;
+                          const taskEntityId = getPersistedEntityId(task.id);
                           const canUseProperties = Boolean(taskEntityId) && !isTempBlock && Boolean(workspaceId);
                           const effectiveStatus = getEffectiveStatus(taskId, task);
                           const effectiveStatusFields = getEffectiveStatusFields(taskId, task);
@@ -4426,7 +4542,7 @@ export default function TaskBlock({
                                 }}
                                 onBlur={() => {
                                   const finalText = (editingTaskText || "").trim() || "New task";
-                                  updateTask(task.id, { text: finalText });
+                                  void commitTaskTitle(taskClientKey, task.id, finalText);
                                   setEditingTaskId(null);
                                 }}
                                 onKeyDown={(e) => {
@@ -4449,7 +4565,7 @@ export default function TaskBlock({
                                   }
                                   if (e.key === "Enter") {
                                     const finalText = (editingTaskText || "").trim() || "New task";
-                                    updateTask(task.id, { text: finalText });
+                                    void commitTaskTitle(taskClientKey, task.id, finalText);
                                     setEditingTaskId(null);
                                   }
                                   if (e.key === "Escape") {
@@ -4714,7 +4830,7 @@ export default function TaskBlock({
                         } else {
                           // subtask rendering
                           const { subtaskId, subtask, parentTaskId, parentTask } = item;
-                          const subtaskEntityId = typeof subtask.id === "string" ? subtask.id : null;
+                          const subtaskEntityId = getPersistedEntityId(subtask.id);
                           const canUseSubtaskProperties = Boolean(subtaskEntityId) && !isTempBlock && Boolean(workspaceId);
                           const subtaskStatus = getSubtaskEffectiveStatus(subtaskId, subtask);
                           const subtaskProps = getSubtaskEffectiveProperties(subtaskId);
@@ -4751,9 +4867,10 @@ export default function TaskBlock({
                           const showSubtaskDueDate = hasSubtaskDueDateValue && boardGroupBy !== "dueDate";
                           const showSubtaskTags = subtaskTags.length > 0 && boardGroupBy !== "tags";
                           const subtaskCommentCount = subtaskCommentCountsById.get(subtaskId) || 0;
+                          const subtaskClientKey = getSubtaskClientKey(subtask);
 
                           const subtaskTitle =
-                            editingSubtaskId === subtask.id ? (
+                            editingSubtaskId === subtaskClientKey ? (
                               <input
                                 ref={editingSubtaskInputRef}
                                 type="text"
@@ -4784,7 +4901,7 @@ export default function TaskBlock({
                                   if (target.closest('a[data-ref-link="true"]')) {
                                     return;
                                   }
-                                  setEditingSubtaskId(subtask.id);
+                                  setEditingSubtaskId(subtaskClientKey);
                                   setEditingSubtaskText(subtask.text);
                                 }}
                                 className={cn(
@@ -5020,7 +5137,7 @@ export default function TaskBlock({
             </div>
             {orderedTasks.map((task) => {
               const taskClientKey = getTaskClientKey(task);
-              const taskEntityId = typeof task.id === "string" ? task.id : null;
+              const taskEntityId = getPersistedEntityId(task.id);
               const canUseProperties = Boolean(taskEntityId) && !isTempBlock && Boolean(workspaceId);
               const statusIsDerived = task.subtasks && task.subtasks.length > 0;
               const effectiveStatus = getEffectiveStatus(String(task.id), task);
@@ -5175,7 +5292,7 @@ export default function TaskBlock({
                               }}
                               onBlur={() => {
                                 const finalText = (editingTaskText || "").trim() || "New task";
-                                updateTask(task.id, { text: finalText });
+                                void commitTaskTitle(taskClientKey, task.id, finalText);
                                 setEditingTaskId(null);
                               }}
                               onKeyDown={(e) => {
@@ -5198,7 +5315,7 @@ export default function TaskBlock({
                                 }
                                 if (e.key === "Enter") {
                                   const finalText = (editingTaskText || "").trim() || "New task";
-                                  updateTask(task.id, { text: finalText });
+                                  void commitTaskTitle(taskClientKey, task.id, finalText);
                                   setEditingTaskId(null);
                                 }
                                 if (e.key === "Escape") {
@@ -5523,7 +5640,7 @@ export default function TaskBlock({
                   {hasSubtasks && !isCollapsed &&
                     (task.subtasks || []).map((subtask) => {
                       const subtaskId = String(subtask.id);
-                      const subtaskEntityId = typeof subtask.id === "string" ? subtask.id : null;
+                      const subtaskEntityId = getPersistedEntityId(subtask.id);
                       const canUseSubtaskProperties = Boolean(subtaskEntityId) && !isTempBlock && Boolean(workspaceId);
                       const subtaskProps = getSubtaskEffectiveProperties(subtaskId);
                       const subtaskStatus = getSubtaskEffectiveStatus(subtaskId, subtask);
