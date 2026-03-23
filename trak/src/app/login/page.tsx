@@ -1,11 +1,14 @@
 import React from "react";
+import { redirect } from "next/navigation";
 import { Mail, Lock, LogIn } from "lucide-react";
 import { AuthShell } from "@/components/auth/AuthShell";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { login } from "@/lib/auth/actions";
-import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+
+export const dynamic = "force-dynamic";
 
 interface PageProps {
   searchParams: Promise<{ redirectedFrom?: string; error?: string; message?: string; email?: string }>;
@@ -34,6 +37,19 @@ export default async function LoginPage({ searchParams }: PageProps) {
       redirect(`/login?redirectedFrom=${encodeURIComponent(params.redirectedFrom)}`);
     }
     redirect("/login");
+  }
+
+  // If user is already authenticated, route them appropriately
+  const supabase = await createClient();
+  const { data: { session } } = await supabase.auth.getSession();
+
+  if (session) {
+    const stage = session.user?.user_metadata?.signup_stage;
+    if (!stage || stage === "complete") {
+      redirect(params?.redirectedFrom || "/dashboard");
+    }
+    if (stage === "otp_sent" || stage === "email_verified") redirect("/signup/password");
+    if (stage === "password_set") redirect("/signup/account-setup");
   }
 
   const redirectTo = params?.redirectedFrom || "/dashboard";

@@ -12,6 +12,23 @@ const PUBLIC_PATHS = new Set([
   "/client",
 ]);
 
+/**
+ * Given an incomplete signup_stage value, return the path the user should be on.
+ * Returns null for complete / legacy / invite users (no redirect needed).
+ */
+function signupStageRedirect(stage: string | undefined | null): string | null {
+  if (!stage || stage === "complete") return null;
+  switch (stage) {
+    case "otp_sent":
+    case "email_verified":
+      return "/signup/password";
+    case "password_set":
+      return "/signup/account-setup";
+    default:
+      return "/signup";
+  }
+}
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
@@ -37,10 +54,17 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  // Allow explicitly public pages
-  if ([...PUBLIC_PATHS].some((p) => pathname === p || pathname.startsWith(p + "/"))) {
+  // Check if this is a public path
+  const isPublicPath = [...PUBLIC_PATHS].some(
+    (p) => pathname === p || pathname.startsWith(p + "/"),
+  );
+
+  // Public paths pass through without a session check
+  if (isPublicPath) {
     return NextResponse.next();
   }
+
+  // --- Protected routes below: require session ---
 
   // Mutable response so we can set cookies
   const res = NextResponse.next({ request: { headers: req.headers } });
@@ -88,6 +112,18 @@ export async function middleware(req: NextRequest) {
       "redirectedFrom",
       req.nextUrl.pathname + req.nextUrl.search
     );
+    return NextResponse.redirect(redirectUrl);
+  }
+
+  // --- Signup stage enforcement ---
+  // If user has an incomplete standard signup, redirect them to the correct step
+  // instead of allowing access to protected routes like /dashboard.
+  // Invite-created and legacy users have no signup_stage → passes through normally.
+  const targetPath = signupStageRedirect(session.user?.user_metadata?.signup_stage);
+  if (targetPath && !pathname.startsWith(targetPath)) {
+    const redirectUrl = req.nextUrl.clone();
+    redirectUrl.pathname = targetPath;
+    redirectUrl.search = "";
     return NextResponse.redirect(redirectUrl);
   }
 

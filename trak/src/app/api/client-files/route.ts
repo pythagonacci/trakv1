@@ -81,7 +81,7 @@ function validateFileType(file: File): string | null {
   const allowedExtensions =
     ALLOWED_FILE_TYPES[fileType as keyof typeof ALLOWED_FILE_TYPES];
   if (!allowedExtensions) {
-    const allAllowedExtensions = Object.values(ALLOWED_FILE_TYPES).flat();
+    const allAllowedExtensions: string[] = Object.values(ALLOWED_FILE_TYPES).flat();
     if (!allAllowedExtensions.includes(extension)) {
       return `File type not supported: ${extension}. Please upload images, documents, videos, or archives only.`;
     }

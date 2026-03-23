@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { createServiceClient } from '@/lib/supabase/service'
 import { setCurrentWorkspaceAfterInvite } from '@/app/actions/workspace'
+import { cookies } from 'next/headers'
 
 const AUTH_REQUEST_TIMEOUT_MS = 12000
 
@@ -62,49 +63,6 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
   }
 }
 
-export async function signup(formData: FormData) {
-  const supabase = await createClient()
-
-  const data = {
-    email: formData.get('email') as string,
-    password: formData.get('password') as string,
-    options: {
-      data: {
-        first_name: formData.get('firstName') as string,
-        last_name: formData.get('lastName') as string,
-      },
-    },
-  }
-
-  let signupErrorMessage: string | null = null
-
-  try {
-    const { error } = await withTimeout(
-      supabase.auth.signUp(data),
-      AUTH_REQUEST_TIMEOUT_MS,
-      "Supabase auth request",
-    )
-    if (error) {
-      console.error('Signup error:', error.message)
-      signupErrorMessage = normalizeAuthErrorMessage(error.message)
-    }
-  } catch (error) {
-    if (isNextRedirectControlFlow(error)) {
-      throw error
-    }
-    const message = error instanceof Error ? error.message : "Signup failed";
-    console.error('Signup request failed:', message)
-    signupErrorMessage = normalizeAuthErrorMessage(message)
-  }
-
-  if (signupErrorMessage) {
-    redirect('/signup?error=' + encodeURIComponent(signupErrorMessage))
-  }
-
-  // Redirect to login page with success message
-  redirect('/login?message=Check your email to confirm your account')
-}
-
 export async function login(formData: FormData) {
   const supabase = await createClient()
 
@@ -135,13 +93,66 @@ export async function login(formData: FormData) {
   }
 
   if (loginErrorMessage) {
+    // Before showing a generic error, check if this email belongs to an
+    // incomplete standard signup user (verified email but no password set).
+    // If so, resend them an OTP and redirect to the verify step.
+    try {
+      const service = await createServiceClient()
+      const { data: profile } = await service
+        .from('profiles')
+        .select('id')
+        .eq('email', data.email?.toLowerCase()?.trim())
+        .maybeSingle()
+
+      if (profile) {
+        const { data: { user: existingUser } } = await service.auth.admin.getUserById(profile.id)
+        const stage = existingUser?.user_metadata?.signup_stage
+
+        if (stage && stage !== 'complete' && stage !== 'password_set') {
+          // Incomplete signup without password — resend OTP so they can continue
+          await supabase.auth.signInWithOtp({ email: data.email })
+          const cookieStore = await cookies()
+          cookieStore.set('signup_email', data.email.toLowerCase().trim(), {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: 3600,
+            path: '/',
+          })
+          redirect(
+            '/signup/verify?message=' +
+              encodeURIComponent('Please complete your signup. A new verification code has been sent.'),
+          )
+        }
+      }
+    } catch (e) {
+      if (isNextRedirectControlFlow(e)) throw e
+      // If the incomplete-signup check itself fails, fall through to normal error
+    }
+
     redirect('/login?error=' + encodeURIComponent(loginErrorMessage))
+  }
+
+  // Login succeeded — check if the user has an incomplete signup stage
+  try {
+    const { data: { user } } = await supabase.auth.getUser()
+    const stage = user?.user_metadata?.signup_stage
+    if (stage && stage !== 'complete') {
+      if (stage === 'password_set') {
+        redirect('/signup/account-setup')
+      }
+      // otp_sent/email_verified with a working password is unusual,
+      // but route them to password step just in case
+      redirect('/signup/password')
+    }
+  } catch (e) {
+    if (isNextRedirectControlFlow(e)) throw e
   }
 
   // Get the redirect URL from the search params
   const redirectTo = formData.get('redirectTo') as string
   const redirectUrl = redirectTo ? decodeURIComponent(redirectTo) : '/'
-  
+
   redirect(redirectUrl)
 }
 
