@@ -33,7 +33,7 @@ export default async function ProjectDrivePage({ params }: { params: Promise<{ p
 
   if (!project) notFound();
 
-  if (!isCanonicalReadableParam(projectIdParam, project.name)) {
+  if (!isCanonicalReadableParam(projectIdParam, project.name, project.id)) {
     redirect(buildProjectDrivePath(project.id, project.name));
   }
 

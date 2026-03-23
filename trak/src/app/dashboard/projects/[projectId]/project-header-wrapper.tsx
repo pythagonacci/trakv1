@@ -23,7 +23,7 @@ export default function ProjectHeaderWrapper({
     while (stack.length > 0) {
       const current = stack.shift();
       if (!current) continue;
-      if (matchesReadableEntity(tabParam, current.name)) {
+      if (matchesReadableEntity(tabParam, current.name, current.id)) {
         return current.id;
       }
       if (current.children && current.children.length > 0) {

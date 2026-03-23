@@ -1,3 +1,9 @@
+const READABLE_ENTITY_ID_DELIMITER = "~";
+const LEGACY_READABLE_ENTITY_ID_DELIMITER = "--";
+const DEFAULT_READABLE_ENTITY_SLUG = "item";
+const DEFAULT_UNTITLED_SLUG = "untitled";
+const SHORT_READABLE_ID_LENGTH = 8;
+
 export function slugifyUrlSegment(value: string): string {
   const normalized = value
     .normalize("NFKD")
@@ -8,27 +14,105 @@ export function slugifyUrlSegment(value: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 
-  return normalized.slice(0, 60) || "item";
+  return normalized.slice(0, 60) || DEFAULT_READABLE_ENTITY_SLUG;
 }
 
-export function encodeReadableId(label?: string | null): string {
+function normalizeReadableEntityId(entityId: string): string {
+  return entityId.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+export function getShortReadableId(entityId?: string | null): string | null {
+  if (!entityId) return null;
+
+  const normalizedId = normalizeReadableEntityId(entityId);
+  if (!normalizedId) return null;
+
+  return normalizedId.slice(0, SHORT_READABLE_ID_LENGTH) || null;
+}
+
+export function decodeReadableEntityParam(param: string): {
+  slug: string;
+  shortId: string | null;
+} {
+  const trimmedParam = param.trim();
+  const legacyDelimiterIndex = trimmedParam.lastIndexOf(LEGACY_READABLE_ENTITY_ID_DELIMITER);
+
+  if (legacyDelimiterIndex > 0) {
+    const slugPart = trimmedParam.slice(0, legacyDelimiterIndex);
+    const shortIdPart = normalizeReadableEntityId(
+      trimmedParam.slice(legacyDelimiterIndex + LEGACY_READABLE_ENTITY_ID_DELIMITER.length)
+    );
+
+    if (shortIdPart) {
+      return {
+        slug: slugifyUrlSegment(slugPart),
+        shortId: shortIdPart,
+      };
+    }
+  }
+
+  const delimiterIndex = trimmedParam.lastIndexOf(READABLE_ENTITY_ID_DELIMITER);
+  if (delimiterIndex > 0) {
+    const slugPart = trimmedParam.slice(0, delimiterIndex);
+    const shortIdPart = normalizeReadableEntityId(
+      trimmedParam.slice(delimiterIndex + READABLE_ENTITY_ID_DELIMITER.length)
+    );
+
+    if (shortIdPart) {
+      return {
+        slug: slugifyUrlSegment(slugPart),
+        shortId: shortIdPart,
+      };
+    }
+  }
+
+  return {
+    slug: slugifyUrlSegment(trimmedParam),
+    shortId: null,
+  };
+}
+
+export function encodeReadableId(label?: string | null, entityId?: string | null): string {
   const trimmedLabel = label?.trim();
-  if (!trimmedLabel) return slugifyUrlSegment("untitled");
-  return slugifyUrlSegment(trimmedLabel);
+  const slug = trimmedLabel
+    ? slugifyUrlSegment(trimmedLabel)
+    : slugifyUrlSegment(DEFAULT_UNTITLED_SLUG);
+  const shortId = getShortReadableId(entityId);
+
+  return shortId ? `${slug}${READABLE_ENTITY_ID_DELIMITER}${shortId}` : slug;
 }
 
-export function matchesReadableEntity(param: string, label?: string | null): boolean {
+function readableEntityIdMatchesShortId(shortId: string, entityId?: string | null): boolean {
+  if (!entityId) return false;
+  return normalizeReadableEntityId(entityId).startsWith(shortId);
+}
+
+export function matchesReadableEntity(
+  param: string,
+  label?: string | null,
+  entityId?: string | null
+): boolean {
   if (!label) return false;
-  return slugifyUrlSegment(param.trim()) === slugifyUrlSegment(label);
+
+  const decodedParam = decodeReadableEntityParam(param);
+  if (decodedParam.shortId && entityId) {
+    return readableEntityIdMatchesShortId(decodedParam.shortId, entityId);
+  }
+
+  return decodedParam.slug === slugifyUrlSegment(label);
 }
 
-export function isCanonicalReadableParam(param: string, label?: string | null): boolean {
+export function isCanonicalReadableParam(
+  param: string,
+  label?: string | null,
+  entityId?: string | null
+): boolean {
   if (!label) return true;
-  return param.trim() === slugifyUrlSegment(label);
+  return param.trim() === encodeReadableId(label, entityId);
 }
 
 export function buildProjectPath(projectId: string, projectName: string): string {
-  return `/dashboard/projects/${encodeReadableId(projectName)}`;
+  return `/dashboard/projects/${encodeReadableId(projectName, projectId)}`;
 }
 
 export function buildProjectOverviewPath(projectId: string, projectName: string): string {
@@ -49,5 +133,5 @@ export function buildProjectTabPath(
   projectName: string,
   tabName: string
 ): string {
-  return `${buildProjectPath(projectId, projectName)}/tabs/${encodeReadableId(tabName)}`;
+  return `${buildProjectPath(projectId, projectName)}/tabs/${encodeReadableId(tabName, tabId)}`;
 }

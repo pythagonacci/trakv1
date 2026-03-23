@@ -63,7 +63,7 @@ export default async function ProjectPage({
   const hierarchicalTabs = tabsResult.data || [];
   const projectWithTags = { ...project, tags: project.tags ?? [] };
 
-  if (!isCanonicalReadableParam(projectIdParam, project.name)) {
+  if (!isCanonicalReadableParam(projectIdParam, project.name, project.id)) {
     redirect(buildProjectPath(projectId, project.name));
   }
 

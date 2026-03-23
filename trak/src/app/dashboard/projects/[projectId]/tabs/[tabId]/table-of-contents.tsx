@@ -131,7 +131,7 @@ export default function TableOfContents({
   const pathname = usePathname();
   const activeTabParam = pathname.split("/tabs/")[1]?.split("/")[0];
   const isActiveTab = (tabId: string, tabName: string) =>
-    !!activeTabParam && matchesReadableEntity(activeTabParam, tabName);
+    !!activeTabParam && matchesReadableEntity(activeTabParam, tabName, tabId);
   const tabContents = useTabContents();
   const subtabConfig = tabContents?.subtabConfig ?? null;
 

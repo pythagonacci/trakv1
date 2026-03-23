@@ -36,7 +36,7 @@ export default async function ProjectGoogleDriveSettingsPage({
 
   if (!project) notFound();
 
-  if (!isCanonicalReadableParam(projectIdParam, project.name)) {
+  if (!isCanonicalReadableParam(projectIdParam, project.name, project.id)) {
     redirect(buildProjectGoogleDrivePath(project.id, project.name));
   }
 

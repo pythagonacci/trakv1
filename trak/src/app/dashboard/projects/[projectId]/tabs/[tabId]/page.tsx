@@ -128,8 +128,8 @@ export default async function TabPage({
   const blocks = blocksData as Block[];
   const isWorkflowTab = Boolean(tab?.is_workflow_page);
 
-  const isCanonicalProjectParam = isCanonicalReadableParam(projectIdParam, project.name);
-  const isCanonicalTabParam = isCanonicalReadableParam(tabIdParam, tab.name);
+  const isCanonicalProjectParam = isCanonicalReadableParam(projectIdParam, project.name, project.id);
+  const isCanonicalTabParam = isCanonicalReadableParam(tabIdParam, tab.name, tab.id);
   if (!isCanonicalProjectParam || !isCanonicalTabParam) {
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries(searchParamsData)) {

@@ -35,7 +35,7 @@ export default function SubtabSidebar({
   const pathname = usePathname();
   const activeTabParam = pathname.split("/tabs/")[1]?.split("/")[0];
   const isActiveTab = (tabId: string, tabName: string) =>
-    !!activeTabParam && matchesReadableEntity(activeTabParam, tabName);
+    !!activeTabParam && matchesReadableEntity(activeTabParam, tabName, tabId);
 
   const handleTabClick = (tabId: string, tabName: string) => {
     router.push(buildProjectTabPath(projectId, tabId, projectName, tabName));

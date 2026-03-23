@@ -47,7 +47,7 @@ export default async function ProjectOverviewPage({
     tags: projectRow.tags ?? [],
   };
 
-  if (!isCanonicalReadableParam(projectIdParam, project.name)) {
+  if (!isCanonicalReadableParam(projectIdParam, project.name, project.id)) {
     redirect(buildProjectOverviewPath(project.id, project.name));
   }
 

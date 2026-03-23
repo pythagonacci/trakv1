@@ -41,6 +41,12 @@ import { AICommandPalette, useAI } from "@/components/ai";
 import { useTheme } from "./theme-context";
 import NotificationBell from "@/components/notifications/notification-bell";
 import { OPEN_CREATE_PROJECT_EVENT } from "@/lib/projects";
+import {
+  createUnavailableSplashWeather,
+  resolveSplashWeather,
+  SPLASH_FADE_DURATION_MS,
+  SPLASH_HIDE_DELAY_MS,
+} from "./splash-screen";
 
 interface User {
   id: string;
@@ -169,85 +175,48 @@ function SplashScreen({ onFinish }: { onFinish: () => void }) {
 
   useEffect(() => {
     let cancelled = false;
+    void resolveSplashWeather({
+      geolocation: navigator.geolocation,
+      loadWeather: async ({ latitude, longitude }) => {
+        try {
+          const weatherRes = await fetch(
+            `/api/weather?lat=${encodeURIComponent(String(latitude))}&lon=${encodeURIComponent(String(longitude))}`
+          );
+          if (!weatherRes.ok) {
+            throw new Error("Weather lookup failed");
+          }
+          const weatherJson = await weatherRes.json();
 
-    const resolveWeather = async (latitude: number, longitude: number) => {
-      try {
-        const weatherRes = await fetch(
-          `/api/weather?lat=${encodeURIComponent(String(latitude))}&lon=${encodeURIComponent(String(longitude))}`
-        );
-        if (!weatherRes.ok) {
-          throw new Error("Weather lookup failed");
-        }
-        const weatherJson = await weatherRes.json();
+          const temp = typeof weatherJson?.tempF === "number"
+            ? Math.round(weatherJson.tempF)
+            : null;
+          const wind = typeof weatherJson?.windMph === "number"
+            ? weatherJson.windMph
+            : null;
+          const code = typeof weatherJson?.code === "number"
+            ? weatherJson.code
+            : null;
 
-        const temp = typeof weatherJson?.tempF === "number"
-          ? Math.round(weatherJson.tempF)
-          : null;
-        const wind = typeof weatherJson?.windMph === "number"
-          ? weatherJson.windMph
-          : null;
-        const code = typeof weatherJson?.code === "number"
-          ? weatherJson.code
-          : null;
-
-        const summary = describeWeather(code, wind);
-        const location =
-          typeof weatherJson?.location === "string" && weatherJson.location.trim().length > 0
-            ? weatherJson.location
-            : "Location unavailable";
-
-        if (!cancelled) {
-          setWeather({
+          return {
             tempF: temp,
-            location,
-            summary,
-            resolved: true,
-          });
+            location:
+              typeof weatherJson?.location === "string" && weatherJson.location.trim().length > 0
+                ? weatherJson.location
+                : "Location unavailable",
+            summary: describeWeather(code, wind),
+          };
+        } catch {
+          return createUnavailableSplashWeather("Weather unavailable");
         }
-      } catch {
-        if (!cancelled) {
-          setWeather({
-            tempF: null,
-            location: "Location unavailable",
-            summary: "Weather unavailable",
-            resolved: true,
-          });
-        }
-      }
-    };
-
-    if (!("geolocation" in navigator)) {
+      },
+      mapGeolocationError: geolocationErrorSummary,
+    }).then((nextWeather) => {
+      if (cancelled) return;
       setWeather({
-        tempF: null,
-        location: "Location unavailable",
-        summary: "Geolocation unavailable",
+        ...nextWeather,
         resolved: true,
       });
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        void resolveWeather(position.coords.latitude, position.coords.longitude);
-      },
-      (error) => {
-        if (!cancelled) {
-          setWeather({
-            tempF: null,
-            location: "Location unavailable",
-            summary: geolocationErrorSummary(error),
-            resolved: true,
-          });
-        }
-      },
-      {
-        enableHighAccuracy: false,
-        timeout: 8000,
-        maximumAge: 5 * 60 * 1000,
-      }
-    );
+    });
 
     return () => {
       cancelled = true;
@@ -262,8 +231,8 @@ function SplashScreen({ onFinish }: { onFinish: () => void }) {
       setIsHiding(true);
       finalizeTimer = setTimeout(() => {
         onFinish();
-      }, 300);
-    }, 800);
+      }, SPLASH_FADE_DURATION_MS);
+    }, SPLASH_HIDE_DELAY_MS);
 
     return () => {
       clearTimeout(hideTimer);
