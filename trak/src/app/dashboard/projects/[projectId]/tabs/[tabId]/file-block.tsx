@@ -1,16 +1,21 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { Document, Page, pdfjs } from "react-pdf";
+import "react-pdf/dist/Page/AnnotationLayer.css";
+import "react-pdf/dist/Page/TextLayer.css";
 import { type Block, updateBlock } from "@/app/actions/block";
 import { detachFileFromBlock } from "@/app/actions/file";
 import { deleteFileAnalysisComment } from "@/app/actions/file-analysis";
 import type { ClientCommentIdentity } from "@/app/client/[publicToken]/use-client-comment-identity";
 import { useFileUrls } from "./tab-canvas";
-import { FileText, Image, Video, Music, Archive, File, Download, Trash2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Sparkles } from "lucide-react";
+import { FileText, Image, Video, Music, Archive, File, Download, Trash2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Sparkles, Loader2, PanelLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatBlockText } from "@/lib/format-block-text";
 import FileUploadZone from "./file-upload-zone";
 import { useAI } from "@/components/ai";
+
+pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 interface FileBlockProps {
   block: Block;
@@ -126,11 +131,15 @@ function PdfAttachment({
   onResizeHeightStart,
 }: PdfAttachmentProps) {
   const [currentPage, setCurrentPage] = useState(1);
-  const totalPages = 0;
+  const [totalPages, setTotalPages] = useState(0);
   const [zoom, setZoom] = useState(100);
-  const [iframeError, setIframeError] = useState(false);
   const [isExpanded, setIsExpanded] = useState(true);
-  const pdfViewerRef = useRef<HTMLDivElement>(null);
+  const [showSidebar, setShowSidebar] = useState(false);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+
+  const onDocumentLoadSuccess = useCallback(({ numPages }: { numPages: number }) => {
+    setTotalPages(numPages);
+  }, []);
 
   const handlePreviousPage = () => {
     if (currentPage > 1) {
@@ -248,6 +257,19 @@ function PdfAttachment({
         <div className="flex items-center justify-between p-2 bg-neutral-100 dark:bg-neutral-800 rounded-lg">
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setShowSidebar((prev) => !prev)}
+              className={cn(
+                "p-1.5 rounded transition-colors",
+                showSidebar
+                  ? "bg-neutral-200 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200"
+                  : "hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-600 dark:text-neutral-400"
+              )}
+              title={showSidebar ? "Hide page sidebar" : "Show page sidebar"}
+            >
+              <PanelLeft className="w-5 h-5" />
+            </button>
+            <div className="w-px h-5 bg-neutral-300 dark:bg-neutral-600" />
+            <button
               onClick={handlePreviousPage}
               disabled={currentPage === 1}
               className="p-1.5 hover:bg-neutral-200 dark:hover:bg-neutral-700 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -302,55 +324,102 @@ function PdfAttachment({
       )}
 
       {isExpanded && pdfUrl ? (
-        iframeError ? (
-          <div className="p-8 text-center border rounded-lg bg-neutral-100 dark:bg-neutral-800">
-            <FileText className="w-12 h-12 mx-auto mb-4 text-neutral-400" />
-            <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-2">
-              Your browser does not support embedded PDF viewing
-            </p>
-            <button
-              onClick={() => onDownload(file.id, file.file_name)}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Download className="w-4 h-4" />
-              Download PDF
-            </button>
-          </div>
-        ) : (
-          <>
+        <>
+          <Document
+            file={pdfUrl}
+            onLoadSuccess={onDocumentLoadSuccess}
+            loading={
+              <div className="flex items-center justify-center p-12">
+                <Loader2 className="w-8 h-8 animate-spin text-neutral-400" />
+              </div>
+            }
+            error={
+              <div className="p-8 text-center">
+                <FileText className="w-12 h-12 mx-auto mb-4 text-neutral-400" />
+                <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-2">
+                  Failed to load PDF
+                </p>
+                <button
+                  onClick={() => onDownload(file.id, file.file_name)}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  <Download className="w-4 h-4" />
+                  Download PDF
+                </button>
+              </div>
+            }
+          >
             <div
-              className="w-full border rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800"
+              className="flex w-full border rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800"
               style={{
-                maxHeight: previewHeightPx && previewHeightPx > 0 ? `${previewHeightPx}px` : "600px",
-                overflowY: "auto",
+                height: previewHeightPx && previewHeightPx > 0 ? `${previewHeightPx}px` : "700px",
               }}
             >
-              <div
-                ref={pdfViewerRef}
-                style={{ transform: `scale(${zoom / 100})`, transformOrigin: "top center", minHeight: "800px" }}
-              >
-                <iframe
-                  src={`${pdfUrl}#page=${currentPage}`}
-                  className="w-full border-0"
-                  style={{ minHeight: "800px" }}
-                  title={`PDF Viewer - ${file.file_name}`}
-                  loading="lazy"
-                  onError={() => {
-                    setIframeError(true);
-                  }}
-                />
+              {/* Thumbnail sidebar */}
+              {showSidebar && totalPages > 0 && (
+                <div
+                  ref={sidebarRef}
+                  className="w-[200px] min-w-[200px] overflow-y-auto border-r border-neutral-300 dark:border-neutral-600 bg-neutral-200/50 dark:bg-neutral-900/50 p-2 space-y-2"
+                >
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
+                    <button
+                      key={pageNum}
+                      onClick={() => setCurrentPage(pageNum)}
+                      className={cn(
+                        "w-full rounded-md overflow-hidden border-2 transition-colors cursor-pointer",
+                        currentPage === pageNum
+                          ? "border-blue-500 dark:border-blue-400"
+                          : "border-transparent hover:border-neutral-400 dark:hover:border-neutral-500"
+                      )}
+                    >
+                      <div className="bg-white dark:bg-neutral-800">
+                        <Page
+                          pageNumber={pageNum}
+                          width={180}
+                          renderTextLayer={false}
+                          renderAnnotationLayer={false}
+                        />
+                      </div>
+                      <div className={cn(
+                        "text-[10px] py-0.5 text-center",
+                        currentPage === pageNum
+                          ? "text-blue-600 dark:text-blue-400 font-medium"
+                          : "text-neutral-500 dark:text-neutral-400"
+                      )}>
+                        {pageNum}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Main page view */}
+              <div className="flex-1 overflow-auto">
+                <div className="flex justify-center p-4">
+                  <Page
+                    pageNumber={currentPage}
+                    scale={zoom / 100}
+                    renderTextLayer={true}
+                    renderAnnotationLayer={true}
+                    loading={
+                      <div className="flex items-center justify-center p-12">
+                        <Loader2 className="w-6 h-6 animate-spin text-neutral-400" />
+                      </div>
+                    }
+                  />
+                </div>
               </div>
             </div>
-            {onResizeHeightStart && (
-              <div
-                className="mt-1 flex justify-end cursor-row-resize select-none"
-                onMouseDown={onResizeHeightStart}
-              >
-                <div className="h-1 w-8 rounded-full bg-neutral-300 dark:bg-neutral-600 hover:bg-neutral-500 dark:hover:bg-neutral-400" />
-              </div>
-            )}
-          </>
-        )
+          </Document>
+          {onResizeHeightStart && (
+            <div
+              className="mt-1 flex justify-end cursor-row-resize select-none"
+              onMouseDown={onResizeHeightStart}
+            >
+              <div className="h-1 w-8 rounded-full bg-neutral-300 dark:bg-neutral-600 hover:bg-neutral-500 dark:hover:bg-neutral-400" />
+            </div>
+          )}
+        </>
       ) : isExpanded ? (
         <div className="p-8 text-center border rounded-lg bg-neutral-100 dark:bg-neutral-800">
           <p className="text-sm text-[var(--muted-foreground)]">
