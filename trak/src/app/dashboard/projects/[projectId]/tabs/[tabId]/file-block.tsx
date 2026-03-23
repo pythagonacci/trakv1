@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { type Block, updateBlock } from "@/app/actions/block";
 import { detachFileFromBlock } from "@/app/actions/file";
 import { deleteFileAnalysisComment } from "@/app/actions/file-analysis";
+import type { ClientCommentIdentity } from "@/app/client/[publicToken]/use-client-comment-identity";
 import { useFileUrls } from "./tab-canvas";
 import { FileText, Image, Video, Music, Archive, File, Download, Trash2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -16,6 +17,12 @@ interface FileBlockProps {
   workspaceId: string;
   projectId: string;
   onUpdate?: () => void;
+  readOnly?: boolean;
+  publicToken?: string;
+  initialFiles?: BlockFile[];
+  allowPublicUploads?: boolean;
+  clientIdentity?: ClientCommentIdentity | null;
+  setClientIdentityName?: (name: string) => void;
 }
 
 interface BlockFile {
@@ -37,6 +44,16 @@ interface FileComment {
   text: string;
   created_at: string;
   user_id: string | null;
+}
+
+interface PublicBlockFilesResponse {
+  data?: Array<{
+    id: string;
+    display_mode: string;
+    file: BlockFile["file"] | BlockFile["file"][] | null;
+  }>;
+  urls?: Record<string, string>;
+  error?: string;
 }
 
 const getFileIcon = (fileType: string) => {
@@ -75,6 +92,8 @@ interface PdfAttachmentProps {
   onDownload: (fileId: string, fileName: string) => void;
   onDelete: (attachmentId: string) => void;
   onAnalyze: (fileId: string) => void;
+  canDelete?: boolean;
+  canAnalyze?: boolean;
   comments?: FileComment[];
   commentsExpanded?: boolean;
   onToggleComments?: () => void;
@@ -95,6 +114,8 @@ function PdfAttachment({
   onDownload,
   onDelete,
   onAnalyze,
+  canDelete = true,
+  canAnalyze = true,
   comments = [],
   commentsExpanded = false,
   onToggleComments,
@@ -105,18 +126,11 @@ function PdfAttachment({
   onResizeHeightStart,
 }: PdfAttachmentProps) {
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(0);
+  const totalPages = 0;
   const [zoom, setZoom] = useState(100);
   const [iframeError, setIframeError] = useState(false);
   const [isExpanded, setIsExpanded] = useState(true);
   const pdfViewerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    setCurrentPage(1);
-    setTotalPages(0);
-    setZoom(100);
-    setIframeError(false);
-  }, [file.id, pdfUrl]);
 
   const handlePreviousPage = () => {
     if (currentPage > 1) {
@@ -192,13 +206,15 @@ function PdfAttachment({
           )}
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => onAnalyze(file.id)}
-            className="rounded-[4px] border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
-            title="Analyze file"
-          >
-            Analyze
-          </button>
+          {canAnalyze && (
+            <button
+              onClick={() => onAnalyze(file.id)}
+              className="rounded-[4px] border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+              title="Analyze file"
+            >
+              Analyze
+            </button>
+          )}
           {!isExpanded && (
             <button
               onClick={() => onDownload(file.id, file.file_name)}
@@ -216,13 +232,15 @@ function PdfAttachment({
           >
             {isExpanded ? "Hide preview" : "Show preview"}
           </button>
-          <button
-            onClick={() => onDelete(attachmentId)}
-            className="rounded-[4px] p-2 text-red-600 transition-colors hover:bg-red-50"
-            title="Delete"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
+          {canDelete && (
+            <button
+              onClick={() => onDelete(attachmentId)}
+              className="rounded-[4px] p-2 text-red-600 transition-colors hover:bg-red-50"
+              title="Delete"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -288,7 +306,7 @@ function PdfAttachment({
           <div className="p-8 text-center border rounded-lg bg-neutral-100 dark:bg-neutral-800">
             <FileText className="w-12 h-12 mx-auto mb-4 text-neutral-400" />
             <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-2">
-              Your browser doesn't support embedded PDF viewing
+              Your browser does not support embedded PDF viewing
             </p>
             <button
               onClick={() => onDownload(file.id, file.file_name)}
@@ -344,17 +362,33 @@ function PdfAttachment({
   );
 }
 
-export default function FileBlock({ block, workspaceId, projectId, onUpdate }: FileBlockProps) {
+export default function FileBlock({
+  block,
+  workspaceId,
+  projectId,
+  onUpdate,
+  readOnly = false,
+  publicToken,
+  initialFiles,
+  allowPublicUploads = false,
+  clientIdentity,
+  setClientIdentityName,
+}: FileBlockProps) {
   const { openCommandPalette, queueFileIds } = useAI();
   // Get file URLs from context (prefetched at page level)
   const fileUrls = useFileUrls();
+  const isPublicClientPage = Boolean(publicToken);
+  const hasInitialPublicFiles = isPublicClientPage && Array.isArray(initialFiles);
+  const canUploadFiles = isPublicClientPage ? allowPublicUploads : !readOnly;
+  const canManageFiles = !isPublicClientPage && !readOnly;
+  const canAnalyzeFiles = !isPublicClientPage;
   
   const content = (block.content || {}) as { heightPx?: number };
   const initialPreviewHeight =
     typeof content.heightPx === "number" && content.heightPx > 0 ? content.heightPx : null;
 
-  const [files, setFiles] = useState<BlockFile[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [files, setFiles] = useState<BlockFile[]>(() => initialFiles ?? []);
+  const [loading, setLoading] = useState(() => !hasInitialPublicFiles);
   const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
   const [showUploadZone, setShowUploadZone] = useState(false);
   const [resolvedFileUrls, setResolvedFileUrls] = useState<Record<string, string>>({});
@@ -370,7 +404,14 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
     previewHeightRef.current = previewHeightPx;
   }, [previewHeightPx]);
 
+  useEffect(() => {
+    if (!hasInitialPublicFiles) return;
+    setFiles(initialFiles ?? []);
+    setLoading(false);
+  }, [hasInitialPublicFiles, initialFiles]);
+
   const loadComments = useCallback(async (fileIds: string[]) => {
+    if (isPublicClientPage) return;
     const uniqueIds = Array.from(new Set(fileIds.filter(Boolean)));
     if (uniqueIds.length === 0) return;
     const params = new URLSearchParams({ fileIds: uniqueIds.join(",") });
@@ -393,13 +434,10 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
         return next;
       });
     }
-  }, []);
+  }, [isPublicClientPage]);
 
   useEffect(() => {
-    loadFiles();
-  }, [block.id]);
-
-  useEffect(() => {
+    if (isPublicClientPage) return;
     let isMounted = true;
     if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log("[PERF] client file-block getCurrentUser");
     fetch("/api/auth/current-user", { cache: "no-store" })
@@ -413,7 +451,7 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [isPublicClientPage]);
 
   useEffect(() => {
     const handleCommentSaved = (event: Event) => {
@@ -438,7 +476,8 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
     };
   }, [files, loadComments]);
 
-  const ensureFileUrls = async (blockFiles: BlockFile[]) => {
+  const ensureFileUrls = useCallback(async (blockFiles: BlockFile[]) => {
+    if (isPublicClientPage) return;
     const combinedUrls = { ...fileUrls, ...resolvedFileUrls };
     const missingIds = blockFiles
       .map((blockFile) => blockFile.file?.id)
@@ -473,9 +512,9 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
       missingIds.forEach((id) => next.delete(id));
       return next;
     });
-  };
+  }, [fileUrls, isPublicClientPage, resolvedFileUrls]);
 
-  const loadFiles = async () => {
+  const loadFiles = useCallback(async () => {
     // Skip loading if this is a temporary block (not yet saved to database)
     if (block.id.startsWith('temp-')) {
       setLoading(false);
@@ -484,31 +523,69 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
     }
     
     setLoading(true);
-    if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log(`[PERF] client file-block getBlockFiles blockId=${block.id}`);
-    const response = await fetch(`/api/files/block?blockId=${encodeURIComponent(block.id)}`, {
-      cache: "no-store",
-    });
-    const result = await response.json();
-    
-    if (response.ok && result.data) {
-      // Handle Supabase foreign key returning array vs object
-      const normalizedFiles = result.data.map((item: any) => ({
-        ...item,
-        file: Array.isArray(item.file) ? item.file[0] : item.file
-      }));
-      setFiles(normalizedFiles);
-      // URLs are already loaded from context - no need to fetch them
-      await ensureFileUrls(normalizedFiles);
+    try {
+      if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log(`[PERF] client file-block getBlockFiles blockId=${block.id}`);
+      const response = await fetch(
+        isPublicClientPage
+          ? `/api/client-files/block?blockId=${encodeURIComponent(block.id)}&publicToken=${encodeURIComponent(publicToken || "")}`
+          : `/api/files/block?blockId=${encodeURIComponent(block.id)}`,
+        {
+          cache: "no-store",
+        }
+      );
+      const result = (await response.json()) as PublicBlockFilesResponse;
+      
+      if (response.ok && result.data) {
+        const normalizedFiles = result.data.map((item) => ({
+          ...item,
+          file: Array.isArray(item.file) ? item.file[0] : item.file
+        })) as BlockFile[];
+        setFiles(normalizedFiles);
+        if (isPublicClientPage) {
+          setResolvedFileUrls((prev) => ({
+            ...prev,
+            ...(result.urls || {}),
+          }));
+        } else {
+          await ensureFileUrls(normalizedFiles);
+        }
 
-      const fileIds = normalizedFiles
-        .map((item: BlockFile) => item.file?.id)
-        .filter((id: string | null | undefined): id is string => Boolean(id));
-      await loadComments(fileIds);
+        const fileIds = normalizedFiles
+          .map((item: BlockFile) => item.file?.id)
+          .filter((id: string | null | undefined): id is string => Boolean(id));
+        if (!isPublicClientPage) {
+          await loadComments(fileIds);
+        }
+        return;
+      }
+    } catch (error) {
+      console.error("Failed to load block files:", error);
+      setFiles([]);
     }
-    setLoading(false);
-  };
+    finally {
+      setLoading(false);
+    }
+  }, [
+    block.id,
+    ensureFileUrls,
+    isPublicClientPage,
+    loadComments,
+    publicToken,
+  ]);
+
+  useEffect(() => {
+    if (hasInitialPublicFiles) return;
+    const timeoutId = window.setTimeout(() => {
+      void loadFiles();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [hasInitialPublicFiles, loadFiles]);
 
   const handleDeleteFile = async (attachmentId: string) => {
+    if (!canManageFiles) return;
     const result = await detachFileFromBlock(attachmentId);
     if (!result.error) {
       await loadFiles();
@@ -530,6 +607,7 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
   };
 
   const handleAnalyzeFile = (fileId: string) => {
+    if (!canAnalyzeFiles) return;
     queueFileIds([fileId]);
     openCommandPalette();
   };
@@ -622,7 +700,7 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
   if (block.id.startsWith('temp-')) {
     return (
       <div className="rounded-[6px] border border-dashed border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-center text-sm text-[var(--muted-foreground)]">
-        Saving block... You can upload files once it's ready.
+        Saving block... You can upload files once it&apos;s ready.
       </div>
     );
   }
@@ -633,6 +711,14 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
 
   // Show empty state if no files
   if (files.length === 0) {
+    if (!canUploadFiles) {
+      return (
+        <div className="rounded-[6px] border border-dashed border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-center text-sm text-[var(--muted-foreground)]">
+          No files attached yet.
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-3">
         <FileUploadZone
@@ -641,6 +727,15 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
           blockId={block.id}
           onUploadComplete={handleUploadComplete}
           compact={true}
+          publicUpload={
+            isPublicClientPage && publicToken && setClientIdentityName
+              ? {
+                  publicToken,
+                  identity: clientIdentity ?? null,
+                  setIdentityName: setClientIdentityName,
+                }
+              : undefined
+          }
         />
       </div>
     );
@@ -661,7 +756,7 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
             const isLoadingUrl = loadingFileIds.has(file.id);
             return (
               <PdfAttachment
-                key={blockFile.id}
+                key={`${blockFile.id}:${pdfUrl || "pending"}`}
                 attachmentId={blockFile.id}
                 file={file}
                 pdfUrl={pdfUrl}
@@ -669,6 +764,8 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
                 onDownload={handleDownloadFile}
                 onDelete={handleDeleteFile}
                 onAnalyze={handleAnalyzeFile}
+                canDelete={canManageFiles}
+                canAnalyze={canAnalyzeFiles}
                 comments={fileComments[file.id] || []}
                 commentsExpanded={Boolean(expandedComments[file.id])}
                 onToggleComments={() => toggleComments(file.id)}
@@ -774,13 +871,15 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
  
                 {/* Hover Actions */}
                 <div className="absolute right-2 top-2 z-10 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
-                  <button
-                    onClick={() => handleAnalyzeFile(file.id)}
-                    className="rounded-[4px] bg-white/90 p-2 text-neutral-700 transition-colors hover:bg-white"
-                    title="Analyze"
-                  >
-                    <Sparkles className="h-4 w-4" />
-                  </button>
+                  {canAnalyzeFiles && (
+                    <button
+                      onClick={() => handleAnalyzeFile(file.id)}
+                      className="rounded-[4px] bg-white/90 p-2 text-neutral-700 transition-colors hover:bg-white"
+                      title="Analyze"
+                    >
+                      <Sparkles className="h-4 w-4" />
+                    </button>
+                  )}
                   <button
                     onClick={() => handleDownloadFile(file.id, file.file_name)}
                     className="rounded-[4px] bg-white/90 p-2 text-neutral-700 transition-colors hover:bg-white"
@@ -788,13 +887,15 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
                   >
                     <Download className="h-4 w-4" />
                   </button>
-                  <button
-                    onClick={() => handleDeleteFile(blockFile.id)}
-                    className="rounded-[4px] bg-white/90 p-2 text-red-600 transition-colors hover:bg-white"
-                    title="Delete"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  {canManageFiles && (
+                    <button
+                      onClick={() => handleDeleteFile(blockFile.id)}
+                      className="rounded-[4px] bg-white/90 p-2 text-red-600 transition-colors hover:bg-white"
+                      title="Delete"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -802,14 +903,14 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
         </div>
       )}
 
-      {!showUploadZone ? (
+      {canUploadFiles && !showUploadZone ? (
         <button
           onClick={() => setShowUploadZone(true)}
           className="w-full rounded-[6px] border border-[var(--border)] px-3 py-2 text-sm text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
         >
           + Add files
         </button>
-      ) : (
+      ) : canUploadFiles ? (
         <div className="space-y-2">
           <FileUploadZone
             workspaceId={workspaceId}
@@ -817,6 +918,15 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
             blockId={block.id}
             onUploadComplete={handleUploadComplete}
             compact={true}
+            publicUpload={
+              isPublicClientPage && publicToken && setClientIdentityName
+                ? {
+                    publicToken,
+                    identity: clientIdentity ?? null,
+                    setIdentityName: setClientIdentityName,
+                  }
+                : undefined
+            }
           />
           <button
             onClick={() => setShowUploadZone(false)}
@@ -825,7 +935,7 @@ export default function FileBlock({ block, workspaceId, projectId, onUpdate }: F
             Cancel
           </button>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

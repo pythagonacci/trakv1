@@ -1,6 +1,7 @@
 "use client";
 
 import { type Block } from "@/app/actions/block";
+import type { ClientCommentIdentity } from "@/app/client/[publicToken]/use-client-comment-identity";
 import type { EntityProperties } from "@/types/properties";
 import dynamic from "next/dynamic";
 import BlockWrapper from "./block-wrapper";
@@ -118,6 +119,21 @@ interface BlockRendererProps {
   scrollToTaskId?: string | null;
   readOnly?: boolean;
   publicToken?: string;
+  initialFiles?: Array<{
+    id: string;
+    display_mode: string;
+    file: {
+      id: string;
+      file_name: string;
+      file_size: number;
+      file_type: string;
+      storage_path: string;
+      created_at: string;
+    };
+  }>;
+  allowPublicEditing?: boolean;
+  clientIdentity?: ClientCommentIdentity | null;
+  setClientIdentityName?: (name: string) => void;
 }
 
 export default function BlockRenderer({
@@ -137,6 +153,10 @@ export default function BlockRenderer({
   scrollToTaskId,
   readOnly = false,
   publicToken,
+  initialFiles,
+  allowPublicEditing = false,
+  clientIdentity,
+  setClientIdentityName,
 }: BlockRendererProps) {
   // Ensure block type exists - critical validation
   if (!block.type) {
@@ -181,7 +201,15 @@ export default function BlockRenderer({
   const renderBlockContent = () => {
     switch (block.type) {
       case "text":
-        return <TextBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
+        return (
+          <TextBlock
+            block={block}
+            workspaceId={workspaceId}
+            projectId={projectId}
+            onUpdate={onUpdate}
+            readOnly={readOnly}
+          />
+        );
       case "task":
         return (
           <TaskBlock
@@ -190,14 +218,14 @@ export default function BlockRenderer({
             projectId={projectId}
             onUpdate={onUpdate}
             scrollToTaskId={scrollToTaskId}
-            locked={readOnly || Boolean((block as any).locked)}
+            locked={readOnly || Boolean(block.locked)}
             publicToken={readOnly ? publicToken : undefined}
           />
         );
       case "cards":
         return <CardsBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
       case "link":
-        return <LinkBlock block={block} onUpdate={onUpdate} />;
+        return <LinkBlock block={block} onUpdate={onUpdate} readOnly={readOnly} />;
       case "divider":
         return <DividerBlock block={block} />;
       case "section_header":
@@ -213,7 +241,20 @@ export default function BlockRenderer({
       case "timeline":
         return <TimelineBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
       case "file":
-        return <FileBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
+        return (
+          <FileBlock
+            block={block}
+            workspaceId={workspaceId}
+            projectId={projectId}
+            onUpdate={onUpdate}
+            readOnly={readOnly}
+            publicToken={publicToken}
+            initialFiles={initialFiles}
+            allowPublicUploads={allowPublicEditing}
+            clientIdentity={clientIdentity}
+            setClientIdentityName={setClientIdentityName}
+          />
+        );
       case "image":
         return <ImageBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
       case "gallery":

@@ -30,6 +30,7 @@ interface TextBlockProps {
   projectId?: string;
   onUpdate?: () => void;
   autoFocus?: boolean;
+  readOnly?: boolean;
 }
 
 type SaveStatus = "idle" | "saving" | "saved";
@@ -147,11 +148,18 @@ const formatText = (text: string): string => {
   return sanitizeHtml(html);
 };
 
-export default function TextBlock({ block, workspaceId, projectId, onUpdate, autoFocus = false }: TextBlockProps) {
+export default function TextBlock({
+  block,
+  workspaceId,
+  projectId,
+  onUpdate,
+  autoFocus = false,
+  readOnly = false,
+}: TextBlockProps) {
   const blockContent = (block.content || {}) as { text?: string; borderless?: boolean };
   const initialContent = blockContent.text || "";
   const isEmpty = !initialContent || initialContent.trim() === "";
-  const [isEditing, setIsEditing] = useState(autoFocus || isEmpty);
+  const [isEditing, setIsEditing] = useState(!readOnly && (autoFocus || isEmpty));
   const [content, setContent] = useState(initialContent);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [isBorderless, setIsBorderless] = useState(Boolean(blockContent.borderless));
@@ -1351,13 +1359,17 @@ export default function TextBlock({ block, workspaceId, projectId, onUpdate, aut
     <div className="space-y-2">
       <div
         onClick={(e) => {
+          if (readOnly) return;
           const target = e.target as HTMLElement;
           if (target.closest('a[data-ref-link=\"true\"]')) {
             return;
           }
           setIsEditing(true);
         }}
-        className="cursor-text text-sm leading-normal text-[var(--foreground)]"
+        className={cn(
+          "text-sm leading-normal text-[var(--foreground)]",
+          readOnly ? "" : "cursor-text"
+        )}
         dangerouslySetInnerHTML={{ __html: formatted }}
       />
       {workspaceId && projectId && <AttachedFilesList blockId={block.id} onUpdate={onUpdate} />}

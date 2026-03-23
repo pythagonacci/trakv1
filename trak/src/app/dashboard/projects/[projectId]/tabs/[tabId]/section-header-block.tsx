@@ -40,7 +40,7 @@ export default function SectionHeaderBlock({ block, className, onUpdate, readOnl
   const editingSubtitle = editingField === "subtitle";
   const canEdit = !readOnly;
   const hasSubtitle = subtitleValue.trim() !== "";
-  const showSubtitleSlot = hasSubtitle || (canEdit && (editingField === "title" || editingField === "subtitle"));
+  const showSubtitleSlot = hasSubtitle || (canEdit && editingField !== null);
 
   useEffect(() => {
     setTitleValue(typeof content.title === "string" ? content.title : "");
@@ -94,7 +94,9 @@ export default function SectionHeaderBlock({ block, className, onUpdate, readOnl
     setEditingField("title");
   };
 
-  const startSubtitleEdit = () => {
+  const startSubtitleEdit = (e?: React.MouseEvent<HTMLElement>) => {
+    e?.preventDefault();
+    e?.stopPropagation();
     if (!canEdit) return;
     if (titleValue.trim() === "") {
       setEditingField("title");
@@ -105,102 +107,87 @@ export default function SectionHeaderBlock({ block, className, onUpdate, readOnl
 
   return (
     <div className={cn("min-w-0", className)}>
-      {/* A) Thin horizontal divider line above */}
-      <div
-        className="h-px bg-neutral-200/90 dark:bg-neutral-700/80"
-        aria-hidden
-      />
-      {/* ~8px gap then compact container */}
-      <div className="mt-2">
-        {/* B) Container with optional C) left accent rail */}
+      <div className="my-2 min-w-0">
         <div
-          className={cn(
-            "relative flex min-w-0 rounded-xl border border-neutral-200/80 dark:border-neutral-700/80",
-            "bg-white dark:bg-neutral-900/60",
-            "shadow-[0_1px_0_rgba(0,0,0,0.03)] dark:shadow-none",
-            "pt-3 pb-2 pl-3 pr-3",
-            // C) 3px left accent rail
-            "before:absolute before:left-0 before:top-0 before:bottom-0 before:w-[3px] before:rounded-l-xl before:bg-neutral-900/5 dark:before:bg-neutral-100/5",
-            // D) Thin top accent line for stronger section separation
-            "after:absolute after:left-0 after:right-0 after:top-0 after:h-px after:rounded-t-xl after:bg-neutral-900/10 dark:after:bg-neutral-100/10"
-          )}
+          className="min-w-0"
+          onClick={(e) => {
+            if (!canEdit || editingField !== null) return;
+            const target = e.target as HTMLElement;
+            if (target.closest("input, textarea, button, a, [role='button'], [data-subtitle-click='true']")) {
+              return;
+            }
+            startTitleEdit();
+          }}
         >
-          <div
-            className="min-w-0 flex-1"
-            onClick={(e) => {
-              if (!canEdit || editingField !== null) return;
-              const target = e.target as HTMLElement;
-              if (target.closest("input, textarea, button, a, [role='button'], [data-subtitle-click='true']")) {
-                return;
-              }
-              startTitleEdit();
-            }}
-          >
-            {/* Title: single line, truncate; click to edit when canEdit */}
-            {editingTitle && canEdit ? (
-              <input
-                ref={titleInputRef}
-                type="text"
-                value={titleValue}
-                onChange={(e) => setTitleValue(e.target.value)}
-                onBlur={saveTitle}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    void saveTitle();
-                  }
-                }}
-                className={cn(
-                  "w-full text-3xl font-normal tracking-[-0.02em] text-neutral-800/90 dark:text-neutral-200",
-                  "bg-transparent border-none outline-none focus:ring-0 p-0"
-                )}
-                aria-label="Section title"
-              />
-            ) : (
-              <h3
-                className={cn(
-                  "text-3xl font-normal tracking-[-0.02em] text-neutral-800/90 dark:text-neutral-200",
-                  "truncate",
-                  canEdit && "cursor-text"
-                )}
-                title={titleValue || undefined}
-                onClick={startTitleEdit}
-              >
-                {titleValue || " "}
-              </h3>
-            )}
-            {/* Subtitle: wrap, max 2 lines; click to edit when canEdit */}
-            {editingSubtitle && canEdit ? (
-              <textarea
-                ref={subtitleInputRef}
-                value={subtitleValue}
-                onChange={(e) => setSubtitleValue(e.target.value)}
-                onBlur={saveSubtitle}
-                rows={2}
-                className={cn(
-                  "mt-0.5 w-full resize-none text-sm text-neutral-500 dark:text-neutral-400 leading-5",
-                  "bg-transparent border-none outline-none focus:ring-0 p-0"
-                )}
-                aria-label="Section subtitle"
-              />
-            ) : showSubtitleSlot ? (
-              <p
-                data-subtitle-click="true"
-                className={cn(
-                  "mt-0.5 text-sm leading-5",
-                  hasSubtitle
-                    ? "line-clamp-2 text-neutral-500 dark:text-neutral-400"
-                    : "text-neutral-400 dark:text-neutral-500",
-                  canEdit && "cursor-text"
-                )}
-                onClick={startSubtitleEdit}
-              >
-                {hasSubtitle ? subtitleValue : "Add subtitle"}
-              </p>
-            ) : null}
-          </div>
+          {/* Title: match project-name typography */}
+          {editingTitle && canEdit ? (
+            <input
+              ref={titleInputRef}
+              type="text"
+              value={titleValue}
+              onChange={(e) => setTitleValue(e.target.value)}
+              onBlur={saveTitle}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void saveTitle();
+                }
+              }}
+              className={cn(
+                "w-full text-xl font-bold tracking-normal text-[var(--foreground)]",
+                "bg-transparent border-none outline-none focus:ring-0 p-0"
+              )}
+              aria-label="Section title"
+            />
+          ) : (
+            <h3
+              className={cn(
+                "text-xl font-bold tracking-normal text-[var(--foreground)]",
+                "truncate",
+                canEdit && "cursor-text"
+              )}
+              title={titleValue || undefined}
+              onClick={startTitleEdit}
+            >
+              {titleValue || " "}
+            </h3>
+          )}
+          {/* Subtitle: wrap, max 2 lines; click to edit when canEdit */}
+          {editingSubtitle && canEdit ? (
+            <textarea
+              ref={subtitleInputRef}
+              value={subtitleValue}
+              onChange={(e) => setSubtitleValue(e.target.value)}
+              onBlur={saveSubtitle}
+              rows={2}
+              className={cn(
+                "mt-0.5 w-full resize-none text-sm leading-5 text-[var(--muted-foreground)]",
+                "bg-transparent border-none outline-none focus:ring-0 p-0"
+              )}
+              aria-label="Section subtitle"
+            />
+          ) : showSubtitleSlot ? (
+            <p
+              data-subtitle-click="true"
+              className={cn(
+                "mt-0.5 text-sm leading-5",
+                hasSubtitle
+                  ? "line-clamp-2 text-[var(--muted-foreground)]"
+                  : "text-[var(--tertiary-foreground)]",
+                canEdit && "cursor-text"
+              )}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onClick={(e) => startSubtitleEdit(e)}
+            >
+              {hasSubtitle ? subtitleValue : "Add subtitle"}
+            </p>
+          ) : null}
         </div>
       </div>
+      <div className="h-px bg-[var(--border)]/45" aria-hidden />
     </div>
   );
 }

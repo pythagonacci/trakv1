@@ -54,6 +54,7 @@ export default async function ClientTabPage({
 
   // Extract all file IDs from all blocks for prefetching
   const fileIds: string[] = [];
+  const initialFilesByBlockId: Record<string, any[]> = {};
 
   blocks.forEach(block => {
     // Image blocks
@@ -89,11 +90,32 @@ export default async function ClientTabPage({
     
     const { data: fileAttachments } = await serviceSupabase
       .from('file_attachments')
-      .select('file:files(id)')
+      .select(`
+        id,
+        block_id,
+        display_mode,
+        file:files(
+          id,
+          file_name,
+          file_size,
+          file_type,
+          storage_path,
+          created_at
+        )
+      `)
       .in('block_id', fileBlockIds);
 
     if (fileAttachments) {
       fileAttachments.forEach((attachment: any) => {
+        if (!initialFilesByBlockId[attachment.block_id]) {
+          initialFilesByBlockId[attachment.block_id] = [];
+        }
+        initialFilesByBlockId[attachment.block_id].push({
+          id: attachment.id,
+          display_mode: attachment.display_mode,
+          file: Array.isArray(attachment.file) ? attachment.file[0] : attachment.file,
+        });
+
         const file = Array.isArray(attachment.file) ? attachment.file[0] : attachment.file;
         if (file?.id) {
           fileIds.push(file.id);
@@ -101,6 +123,12 @@ export default async function ClientTabPage({
       });
     }
   }
+
+  fileBlockIds.forEach((blockId) => {
+    if (!initialFilesByBlockId[blockId]) {
+      initialFilesByBlockId[blockId] = [];
+    }
+  });
 
   // Batch fetch all file URLs in ONE call (public access)
   const fileUrlsResult = fileIds.length > 0 
@@ -143,7 +171,9 @@ export default async function ClientTabPage({
             blocks={blocks}
             publicToken={publicToken}
             allowComments={project.client_comments_enabled ?? false}
+            allowEditing={project.client_editing_enabled ?? false}
             initialFileUrls={initialFileUrls}
+            initialFilesByBlockId={initialFilesByBlockId}
             blockPropertiesById={blockPropertiesById}
           />
         </div>

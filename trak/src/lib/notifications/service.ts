@@ -489,10 +489,51 @@ export async function createClientCommentNotification(input: {
     commentId: input.commentId,
     payload: {
       actor_name: input.authorName,
+      activity_type: "comment",
       project_name: block.projectName,
       tab_name: block.tabName,
       block_type: block.type,
       comment_excerpt: excerpt(input.text),
+    },
+  });
+}
+
+export async function createClientEditNotification(input: {
+  activityId: string;
+  workspaceId: string;
+  projectId: string;
+  tabId: string;
+  blockId: string;
+  visitorName: string;
+  summary: string;
+}): Promise<void> {
+  const supabase = await createServiceClient();
+  const block = await getBlockContext(supabase, input.blockId);
+  if (!block?.workspaceId) return;
+
+  const recipients = await getProjectAccessibleUserIds(
+    supabase,
+    input.workspaceId,
+    input.projectId
+  );
+  await writeNotification({
+    workspaceId: input.workspaceId,
+    eventType: "client_comment",
+    actorType: "client",
+    recipientIds: recipients,
+    dedupeKey: `client-edit:${input.activityId}`,
+    sourceType: "client_edit",
+    sourceId: input.blockId,
+    projectId: input.projectId,
+    tabId: input.tabId,
+    blockId: input.blockId,
+    payload: {
+      actor_name: input.visitorName,
+      activity_type: "edit",
+      project_name: block.projectName,
+      tab_name: block.tabName,
+      block_type: block.type,
+      comment_excerpt: excerpt(input.summary),
     },
   });
 }
@@ -532,6 +573,47 @@ export async function createFileUploadNotification(input: {
       project_name: block?.projectName ?? null,
       tab_name: block?.tabName ?? null,
       block_type: block?.type ?? null,
+    },
+  });
+}
+
+export async function createClientFileUploadNotification(input: {
+  workspaceId: string;
+  projectId: string;
+  tabId: string;
+  blockId: string;
+  fileId: string;
+  fileName: string;
+  visitorName: string;
+}): Promise<void> {
+  const supabase = await createServiceClient();
+  const block = await getBlockContext(supabase, input.blockId);
+  if (!block?.workspaceId) return;
+
+  const recipients = await getProjectAccessibleUserIds(
+    supabase,
+    input.workspaceId,
+    input.projectId
+  );
+
+  await writeNotification({
+    workspaceId: input.workspaceId,
+    eventType: "file_upload",
+    actorType: "client",
+    recipientIds: recipients,
+    dedupeKey: `client-file-upload:${input.fileId}`,
+    sourceType: "file",
+    sourceId: input.fileId,
+    projectId: input.projectId,
+    tabId: input.tabId,
+    blockId: input.blockId,
+    fileId: input.fileId,
+    payload: {
+      actor_name: input.visitorName,
+      file_name: input.fileName,
+      project_name: block.projectName,
+      tab_name: block.tabName,
+      block_type: block.type,
     },
   });
 }

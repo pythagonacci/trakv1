@@ -8,9 +8,14 @@ import { updateBlock } from "@/app/actions/block";
 interface LinkBlockProps {
   block: Block;
   onUpdate?: (updatedBlock?: Block) => void;
+  readOnly?: boolean;
 }
 
-export default function LinkBlock({ block, onUpdate }: LinkBlockProps) {
+export default function LinkBlock({
+  block,
+  onUpdate,
+  readOnly = false,
+}: LinkBlockProps) {
   const content = (block.content || {}) as {
     title?: string;
     url?: string;
@@ -20,18 +25,13 @@ export default function LinkBlock({ block, onUpdate }: LinkBlockProps) {
   const [title, setTitle] = useState(content.title || "");
   const [url, setUrl] = useState(content.url || "");
   const [caption, setCaption] = useState(content.caption || "");
-  const [isEditing, setIsEditing] = useState(false);
+  const [isEditing, setIsEditing] = useState(
+    !readOnly && !content.title && !content.url
+  );
   const [isCaptionEditing, setIsCaptionEditing] = useState(false);
   const [savingCaption, setSavingCaption] = useState(false);
   const captionInputRef = useRef<HTMLInputElement>(null);
   const captionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Auto-open editing mode for empty links
-  useEffect(() => {
-    if (!content.title && !content.url && !isEditing) {
-      setIsEditing(true);
-    }
-  }, [content.title, content.url, isEditing]);
 
   const handleCaptionChange = (value: string) => {
     setCaption(value);
@@ -186,7 +186,9 @@ export default function LinkBlock({ block, onUpdate }: LinkBlockProps) {
           onClick={(e) => {
             if (!isValidUrl) {
               e.preventDefault();
-              setIsEditing(true);
+              if (!readOnly) {
+                setIsEditing(true);
+              }
             }
           }}
           className="flex items-start gap-3 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 transition-colors hover:border-[var(--foreground)]/20 hover:text-[var(--foreground)]"
@@ -210,13 +212,15 @@ export default function LinkBlock({ block, onUpdate }: LinkBlockProps) {
         </a>
 
         {/* Edit button */}
-        <button
-          onClick={() => setIsEditing(true)}
-          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-[3px] hover:bg-[var(--surface-hover)]"
-          title="Edit link"
-        >
-          <Edit3 className="h-3 w-3 text-[var(--muted-foreground)]" />
-        </button>
+        {!readOnly && (
+          <button
+            onClick={() => setIsEditing(true)}
+            className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-[3px] hover:bg-[var(--surface-hover)]"
+            title="Edit link"
+          >
+            <Edit3 className="h-3 w-3 text-[var(--muted-foreground)]" />
+          </button>
+        )}
       </div>
 
       <div className="group px-1">
@@ -239,19 +243,23 @@ export default function LinkBlock({ block, onUpdate }: LinkBlockProps) {
         ) : caption ? (
           <button
             type="button"
-            onClick={() => setIsCaptionEditing(true)}
+            onClick={() => {
+              if (!readOnly) setIsCaptionEditing(true);
+            }}
             className="w-full text-left rounded-[4px] border border-transparent px-2 py-1 text-sm text-[var(--muted-foreground)] transition-colors hover:border-[var(--border)] hover:text-[var(--foreground)]"
           >
             {caption}
           </button>
         ) : (
-          <button
-            type="button"
-            onClick={() => setIsCaptionEditing(true)}
-            className="opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto w-full text-left rounded-[4px] border border-transparent px-2 py-1 text-sm text-[var(--muted-foreground)] transition-opacity hover:border-[var(--border)]"
-          >
-            Add caption
-          </button>
+          !readOnly && (
+            <button
+              type="button"
+              onClick={() => setIsCaptionEditing(true)}
+              className="opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto w-full text-left rounded-[4px] border border-transparent px-2 py-1 text-sm text-[var(--muted-foreground)] transition-opacity hover:border-[var(--border)]"
+            >
+              Add caption
+            </button>
+          )
         )}
       </div>
     </div>

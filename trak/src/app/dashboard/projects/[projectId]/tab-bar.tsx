@@ -9,6 +9,7 @@ import DeleteTabDialog from "./delete-tab-dialog";
 import { updateTab } from "@/app/actions/tab";
 import { toggleTabVisibility, updateTabClientTitle } from "@/app/actions/client-page";
 import { useWorkspace } from "@/app/dashboard/workspace-context";
+import { dispatchProjectClientTabVisibilityChanged } from "@/lib/client-page-events";
 import {
   buildProjectOverviewPath,
   buildProjectPath,
@@ -166,9 +167,19 @@ export default function TabBar({
 
   const handleToggleClientVisibility = async (tab: Tab) => {
     const newVisibility = !tab.is_client_visible;
+    dispatchProjectClientTabVisibilityChanged({
+      projectId,
+      tabId: tab.id,
+      isClientVisible: newVisibility,
+    });
     const result = await toggleTabVisibility(tab.id, newVisibility);
     
     if (result.error) {
+      dispatchProjectClientTabVisibilityChanged({
+        projectId,
+        tabId: tab.id,
+        isClientVisible: !!tab.is_client_visible,
+      });
       alert(`Error: ${result.error}`);
       return;
     }

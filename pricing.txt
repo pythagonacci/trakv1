@@ -1,0 +1,17 @@
+figuring out pricing 
+
+tier 1 (free)
+One workspace, up to 3 projects, v limited ai (view only, with limited creates)
+limit on tabs per project and blocks per tab
+
+tier 2 (standard) = 15 dollars per user per month
+One workspace, unlimited projects, more ai
+No everything page, no configurable dashboard, charts scoped to a single project, ai only talks in context of the project
+
+tier 3 (Business) 25 dollars per user per month
+Unlimited workspaces, unlimited projects, a lot more ai
+Cross project AI and analytics (so they get the everything page, configure dashboard, and cross project AI) 
+
+
+
+

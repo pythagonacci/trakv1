@@ -115,6 +115,7 @@ export async function getDashboardData(
         docsResult,
         tasksResult,
         commentBlocksResult,
+        clientEditsResult,
         aiInsightsResult,
         everythingResult,
     ] = await Promise.allSettled([
@@ -186,7 +187,31 @@ export async function getDashboardData(
             .order("updated_at", { ascending: false })
             .limit(40),
 
-        // 5. AI insights (cached from DB)
+        // 5. Client edit activity from magic-link pages
+        supabase
+            .from("client_page_edits")
+            .select(`
+        id,
+        summary,
+        visitor_name,
+        created_at,
+        block_id,
+        tab_id,
+        project_id,
+        tab:tabs(
+          id,
+          name
+        ),
+        project:projects(
+          id,
+          name
+        )
+      `)
+            .eq("workspace_id", workspaceId)
+            .order("created_at", { ascending: false })
+            .limit(20),
+
+        // 6. AI insights (cached from DB)
         (async () => {
             const { getDashboardInsights } = await import(
                 "@/app/actions/dashboard-insights"
@@ -194,7 +219,7 @@ export async function getDashboardData(
             return getDashboardInsights(workspaceId);
         })(),
 
-        // 6. Everything view — NOW IN PARALLEL instead of serial
+        // 7. Everything view — NOW IN PARALLEL instead of serial
         getWorkspaceEverything(workspaceId, { limit: 500 }),
     ]);
 
@@ -219,6 +244,12 @@ export async function getDashboardData(
         commentBlocksResult.status === "fulfilled" &&
             !commentBlocksResult.value.error
             ? commentBlocksResult.value.data || []
+            : [];
+
+    const clientEdits =
+        clientEditsResult.status === "fulfilled" &&
+            !clientEditsResult.value.error
+            ? clientEditsResult.value.data || []
             : [];
 
     const aiInsights =
@@ -314,7 +345,7 @@ export async function getDashboardData(
         })
         .slice(0, 6);
 
-    const clientFeedback: DashboardClientFeedback[] = commentBlocks
+    const clientCommentFeedback: DashboardClientFeedback[] = commentBlocks
         .flatMap((block: any) => {
             const comments: BlockComment[] = Array.isArray(
                 block.content?._blockComments
@@ -338,6 +369,32 @@ export async function getDashboardData(
                     timestamp: comment.timestamp,
                 }));
         })
+        .sort((a, b) => {
+            const aTime = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+            const bTime = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+            return bTime - aTime;
+        });
+
+    const clientEditFeedback: DashboardClientFeedback[] = clientEdits.map((edit: any) => {
+        const project = Array.isArray(edit.project) ? edit.project[0] : edit.project;
+        const tab = Array.isArray(edit.tab) ? edit.tab[0] : edit.tab;
+        return {
+            id: edit.id,
+            text: edit.summary,
+            author: edit.visitor_name || "Client",
+            projectName: project?.name || "Unknown project",
+            tabName: tab?.name || "Untitled tab",
+            projectId: edit.project_id || null,
+            tabId: edit.tab_id || null,
+            blockId: edit.block_id || "",
+            timestamp: edit.created_at,
+        };
+    });
+
+    const clientFeedback: DashboardClientFeedback[] = [
+        ...clientCommentFeedback,
+        ...clientEditFeedback,
+    ]
         .sort((a, b) => {
             const aTime = a.timestamp ? new Date(a.timestamp).getTime() : 0;
             const bTime = b.timestamp ? new Date(b.timestamp).getTime() : 0;

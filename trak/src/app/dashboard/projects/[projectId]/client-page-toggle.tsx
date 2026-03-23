@@ -1,17 +1,39 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
-import { Link2, Copy, Check, BarChart3, MessageCircle, Edit3, Eye, EyeOff } from "lucide-react";
-import { enableClientPage, disableClientPage, updateClientPageSettings, toggleTabVisibility } from "@/app/actions/client-page";
+import { useEffect, useMemo, useState } from "react";
+import {
+  BarChart3,
+  Check,
+  Copy,
+  Edit3,
+  ExternalLink,
+  Eye,
+  Link2,
+  Loader2,
+  MessageCircle,
+} from "lucide-react";
+import {
+  disableClientPage,
+  enableClientPage,
+  toggleTabVisibility,
+  updateClientPageSettings,
+} from "@/app/actions/client-page";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import {
+  dispatchProjectClientTabVisibilityChanged,
+  PROJECT_CLIENT_TAB_VISIBILITY_EVENT,
+  type ProjectClientTabVisibilityDetail,
+} from "@/lib/client-page-events";
 
 interface Tab {
   id: string;
@@ -19,6 +41,16 @@ interface Tab {
   position: number;
   is_client_visible?: boolean;
   client_title?: string | null;
+  children?: Tab[];
+}
+
+interface FlatTab {
+  id: string;
+  name: string;
+  position: number;
+  is_client_visible?: boolean;
+  client_title?: string | null;
+  depth: number;
 }
 
 interface ClientPageToggleProps {
@@ -30,6 +62,24 @@ interface ClientPageToggleProps {
   tabs?: Tab[];
 }
 
+function flattenTabs(tabs: Tab[], depth = 0): FlatTab[] {
+  return tabs.flatMap((tab) => [
+    {
+      id: tab.id,
+      name: tab.name,
+      position: tab.position,
+      is_client_visible: tab.is_client_visible,
+      client_title: tab.client_title ?? null,
+      depth,
+    },
+    ...flattenTabs(tab.children ?? [], depth + 1),
+  ]);
+}
+
+function formatVisibleTabCount(count: number) {
+  return `${count} tab${count === 1 ? "" : "s"} visible to clients`;
+}
+
 export default function ClientPageToggle({
   projectId,
   clientPageEnabled,
@@ -39,6 +89,7 @@ export default function ClientPageToggle({
   tabs = [],
 }: ClientPageToggleProps) {
   const router = useRouter();
+  const flattenedTabs = useMemo(() => flattenTabs(tabs), [tabs]);
   const [isEnabled, setIsEnabled] = useState(clientPageEnabled);
   const [token, setToken] = useState(publicToken);
   const [isLoading, setIsLoading] = useState(false);
@@ -46,8 +97,19 @@ export default function ClientPageToggle({
   const [copied, setCopied] = useState(false);
   const [allowComments, setAllowComments] = useState(clientCommentsEnabled);
   const [allowEditing, setAllowEditing] = useState(clientEditingEnabled);
-  const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
-  const [localTabs, setLocalTabs] = useState<Tab[]>(tabs);
+  const [updatingSetting, setUpdatingSetting] = useState<
+    "comments" | "editing" | null
+  >(null);
+  const [localTabs, setLocalTabs] = useState<FlatTab[]>(flattenedTabs);
+  const [pendingTabIds, setPendingTabIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    setIsEnabled(clientPageEnabled);
+  }, [clientPageEnabled]);
+
+  useEffect(() => {
+    setToken(publicToken);
+  }, [publicToken]);
 
   useEffect(() => {
     setAllowComments(clientCommentsEnabled);
@@ -58,20 +120,56 @@ export default function ClientPageToggle({
   }, [clientEditingEnabled]);
 
   useEffect(() => {
-    setLocalTabs(tabs);
-  }, [tabs]);
+    setLocalTabs(flattenedTabs);
+  }, [flattenedTabs]);
+
+  useEffect(() => {
+    const handleVisibilityChange = (event: Event) => {
+      const detail = (
+        event as CustomEvent<ProjectClientTabVisibilityDetail>
+      ).detail;
+      if (!detail || detail.projectId !== projectId) return;
+
+      setLocalTabs((prevTabs) =>
+        prevTabs.map((tab) =>
+          tab.id === detail.tabId
+            ? { ...tab, is_client_visible: detail.isClientVisible }
+            : tab
+        )
+      );
+    };
+
+    window.addEventListener(
+      PROJECT_CLIENT_TAB_VISIBILITY_EVENT,
+      handleVisibilityChange as EventListener
+    );
+
+    return () => {
+      window.removeEventListener(
+        PROJECT_CLIENT_TAB_VISIBILITY_EVENT,
+        handleVisibilityChange as EventListener
+      );
+    };
+  }, [projectId]);
 
   const clientPageUrl = useMemo(() => {
-    if (!token) return "";
-    if (typeof window === "undefined") return "";
+    if (!token || typeof window === "undefined") return "";
     return `${window.location.origin}/client/${token}`;
   }, [token]);
+
+  const visibleTabCount = useMemo(
+    () =>
+      localTabs.reduce(
+        (count, tab) => count + (tab.is_client_visible ? 1 : 0),
+        0
+      ),
+    [localTabs]
+  );
 
   const handleToggle = async () => {
     setIsLoading(true);
 
     if (isEnabled) {
-      // Disable
       const result = await disableClientPage(projectId);
 
       if (result.error) {
@@ -83,7 +181,6 @@ export default function ClientPageToggle({
       setIsEnabled(false);
       setDialogOpen(false);
     } else {
-      // Enable
       const result = await enableClientPage(projectId);
 
       if (result.error) {
@@ -103,11 +200,16 @@ export default function ClientPageToggle({
     router.refresh();
   };
 
-  const handleCopy = () => {
-    if (clientPageUrl) {
-      navigator.clipboard.writeText(clientPageUrl);
+  const handleCopy = async () => {
+    if (!clientPageUrl) return;
+
+    try {
+      await navigator.clipboard.writeText(clientPageUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      console.error("Failed to copy client page URL:", error);
+      alert("Failed to copy the public link.");
     }
   };
 
@@ -118,7 +220,7 @@ export default function ClientPageToggle({
     }
 
     setAllowComments(nextValue);
-    setIsUpdatingSettings(true);
+    setUpdatingSetting("comments");
 
     const result = await updateClientPageSettings(projectId, {
       clientCommentsEnabled: nextValue,
@@ -127,12 +229,12 @@ export default function ClientPageToggle({
     if (result?.error) {
       console.error("Failed to update client comment settings:", result.error);
       alert(`Failed to update comment settings: ${result.error}`);
-      setAllowComments((prev) => !nextValue);
+      setAllowComments(!nextValue);
     } else {
       router.refresh();
     }
 
-    setIsUpdatingSettings(false);
+    setUpdatingSetting(null);
   };
 
   const handleEditingToggle = async (nextValue: boolean) => {
@@ -142,7 +244,7 @@ export default function ClientPageToggle({
     }
 
     setAllowEditing(nextValue);
-    setIsUpdatingSettings(true);
+    setUpdatingSetting("editing");
 
     const result = await updateClientPageSettings(projectId, {
       clientEditingEnabled: nextValue,
@@ -151,31 +253,56 @@ export default function ClientPageToggle({
     if (result?.error) {
       console.error("Failed to update client editing settings:", result.error);
       alert(`Failed to update editing settings: ${result.error}`);
-      setAllowEditing((prev) => !nextValue);
+      setAllowEditing(!nextValue);
     } else {
       router.refresh();
     }
 
-    setIsUpdatingSettings(false);
+    setUpdatingSetting(null);
   };
 
-  const handleTabVisibilityToggle = async (tabId: string, currentVisibility: boolean) => {
-    const newVisibility = !currentVisibility;
-    const result = await toggleTabVisibility(tabId, newVisibility);
+  const handleTabVisibilityToggle = async (
+    tabId: string,
+    nextVisibility: boolean
+  ) => {
+    const currentTab = localTabs.find((tab) => tab.id === tabId);
+    if (!currentTab || currentTab.is_client_visible === nextVisibility) return;
 
-    if (result.error) {
-      alert(`Error: ${result.error}`);
-      return;
-    }
-
-    // Update local state
-    setLocalTabs(prevTabs =>
-      prevTabs.map(tab =>
-        tab.id === tabId ? { ...tab, is_client_visible: newVisibility } : tab
+    setPendingTabIds((prev) =>
+      prev.includes(tabId) ? prev : [...prev, tabId]
+    );
+    setLocalTabs((prevTabs) =>
+      prevTabs.map((tab) =>
+        tab.id === tabId ? { ...tab, is_client_visible: nextVisibility } : tab
       )
     );
+    dispatchProjectClientTabVisibilityChanged({
+      projectId,
+      tabId,
+      isClientVisible: nextVisibility,
+    });
 
-    router.refresh();
+    const result = await toggleTabVisibility(tabId, nextVisibility);
+
+    if (result.error) {
+      setLocalTabs((prevTabs) =>
+        prevTabs.map((tab) =>
+          tab.id === tabId
+            ? { ...tab, is_client_visible: !nextVisibility }
+            : tab
+        )
+      );
+      dispatchProjectClientTabVisibilityChanged({
+        projectId,
+        tabId,
+        isClientVisible: !nextVisibility,
+      });
+      alert(`Error: ${result.error}`);
+    } else {
+      router.refresh();
+    }
+
+    setPendingTabIds((prev) => prev.filter((id) => id !== tabId));
   };
 
   return (
@@ -190,211 +317,238 @@ export default function ClientPageToggle({
         }}
         disabled={isLoading}
         className={cn(
-          "inline-flex h-7 items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-medium transition-all duration-150 shadow-sm",
+          "inline-flex h-7 items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-medium shadow-sm transition-all duration-150",
           isEnabled
-            ? "bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200"
-            : "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)]",
-          isLoading && "opacity-50 cursor-not-allowed"
+            ? "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+            : "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)]",
+          isLoading && "cursor-not-allowed opacity-50"
         )}
       >
         <Link2 className="h-3 w-3 shrink-0" />
-        <span>{isEnabled ? "Public Link" : "Enable Public Link"}</span>
+        <span>{isEnabled ? "Client Sharing" : "Enable Public Link"}</span>
       </button>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-[520px] max-h-[90vh] flex flex-col p-4">
-          <DialogHeader className="mb-3">
-            <DialogTitle className="text-base">Public Link</DialogTitle>
+        <DialogContent className="flex max-h-[80vh] max-w-[500px] flex-col overflow-hidden p-0">
+          <DialogHeader className="mb-0 space-y-0 border-b border-[var(--border)] px-4 py-2.5 pr-10">
+            <div className="flex items-center gap-2">
+              <DialogTitle className="text-[18px] font-semibold tracking-[-0.02em] text-[var(--foreground)] sm:text-[19px]">
+                Client Sharing
+              </DialogTitle>
+              <Badge
+                variant="secondary"
+                className="h-4 rounded-full px-1.5 text-[9px] font-semibold uppercase tracking-[0.14em]"
+              >
+                Active
+              </Badge>
+            </div>
+            <DialogDescription className="mt-0.5 text-[11px] text-[var(--muted-foreground)]">
+              Share selected tabs with anyone who has the link.
+            </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-2 overflow-y-auto min-h-0 flex-1 pr-6">
-            <p className="text-[11px] text-[var(--muted-foreground)]">
-              Share this link to give access to this project.
-              Anyone with the link can view it without logging in.
-            </p>
-
-            {/* Shareable Link */}
-            <div className="flex gap-1.5">
-              <input
-                type="text"
-                value={clientPageUrl}
-                readOnly
-                className="flex-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs text-black"
-              />
-              <button
-                onClick={handleCopy}
-                className="flex items-center gap-1.5 rounded-md border border-[var(--primary)]/30 bg-[var(--primary)]/10 px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--primary)]/15 transition-colors"
+          <div className="flex flex-col gap-2 px-4 py-2.5">
+            <section className="space-y-1">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
+                Share Link
+              </p>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  value={clientPageUrl}
+                  readOnly
+                  className="h-7 flex-1 rounded-[10px] border border-[var(--border)] bg-[var(--background)] px-2.5 text-[11px] text-[var(--foreground)] outline-none"
+                />
+                <button
+                  onClick={handleCopy}
+                  className="inline-flex h-7 min-w-[64px] items-center justify-center gap-1 rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-2.5 text-[11px] font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)]"
+                >
+                  {copied ? (
+                    <>
+                      <Check className="h-3.5 w-3.5" />
+                      Copied
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-3.5 w-3.5" />
+                      Copy
+                    </>
+                  )}
+                </button>
+              </div>
+              <a
+                href={clientPageUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-[12px] font-medium text-[var(--foreground)] transition-colors hover:text-[var(--foreground)]/75"
               >
-                {copied ? (
-                  <>
-                    <Check className="h-4 w-4" />
-                    Copied
-                  </>
-                ) : (
-                  <>
-                    <Copy className="h-4 w-4" />
-                    Copy
-                  </>
-                )}
-              </button>
-            </div>
+                Open public page
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            </section>
 
-            {/* Preview Link */}
-            <a
-              href={clientPageUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block text-xs text-black hover:text-black/80 hover:underline font-medium"
-            >
-              Open public page in new tab →
-            </a>
+            <section className="space-y-1.5">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
+                Visible Tabs
+              </p>
+              <div className="overflow-hidden rounded-[12px] border border-[var(--border)] bg-[var(--surface)]">
+                <div className="max-h-[200px] overflow-y-auto">
+                  {localTabs.length > 0 ? (
+                    localTabs.map((tab) => {
+                      const isPending = pendingTabIds.includes(tab.id);
+                      return (
+                        <div
+                          key={tab.id}
+                          className="flex min-h-[42px] items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-1 last:border-b-0"
+                        >
+                          <div
+                            className="min-w-0 flex-1"
+                            style={{
+                              paddingLeft:
+                                tab.depth > 0 ? `${tab.depth * 16}px` : undefined,
+                            }}
+                          >
+                            <p className="truncate text-[12px] font-medium text-[var(--foreground)]">
+                              {tab.name}
+                            </p>
+                            {tab.client_title &&
+                              tab.client_title !== tab.name && (
+                                <p className="mt-0.5 truncate text-[10px] text-[var(--muted-foreground)]">
+                                  Public title: {tab.client_title}
+                                </p>
+                              )}
+                          </div>
 
-            {/* Tab Visibility Section */}
-            {localTabs.length > 0 && (
-              <div className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] shadow-[0_1px_2px_rgba(0,0,0,0.02)] p-2">
-                <div className="flex items-center gap-1 text-xs font-medium text-black mb-0.5">
-                  <Eye className="h-3.5 w-3.5" />
-                  Public Tabs
-                </div>
-                <p className="text-[11px] text-[var(--muted-foreground)] mb-1">
-                  Select which tabs are visible to visitors with the public link.
-                </p>
-                <div className="space-y-0.5 max-h-28 overflow-y-auto">
-                  {localTabs.map((tab) => (
-                    <div
-                      key={tab.id}
-                      className="flex items-center justify-between gap-2 py-0.5 px-1 rounded hover:bg-[var(--surface-hover)] transition-colors"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-black truncate">
-                          {tab.name}
-                        </p>
-                        {tab.client_title && (
-                          <p className="text-[11px] text-[var(--muted-foreground)] truncate">
-                            Public title: {tab.client_title}
-                          </p>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => handleTabVisibilityToggle(tab.id, tab.is_client_visible || false)}
-                        disabled={isUpdatingSettings}
-                        className={cn(
-                          "flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors",
-                          tab.is_client_visible
-                            ? "border border-[var(--primary)]/30 bg-[var(--primary)]/10 text-white hover:bg-[var(--primary)]/15"
-                            : "bg-[var(--surface)] text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] border border-[var(--border)]"
-                        )}
-                      >
-                        {tab.is_client_visible ? (
-                          <>
-                            <Eye className="h-3 w-3" />
-                            Public
-                          </>
-                        ) : (
-                          <>
-                            <EyeOff className="h-3 w-3" />
-                            Private
-                          </>
-                        )}
-                      </button>
+                          <div className="flex items-center gap-1.5">
+                            {isPending && (
+                              <Loader2 className="h-3 w-3 animate-spin text-[var(--muted-foreground)]" />
+                            )}
+                            <div className="flex rounded-[8px] border border-[var(--border)] bg-[var(--background)] p-0.5">
+                              <button
+                                onClick={() =>
+                                  handleTabVisibilityToggle(tab.id, false)
+                                }
+                                disabled={isPending}
+                                className={cn(
+                                  "rounded-[6px] px-2 py-0.5 text-[10px] font-medium transition-colors",
+                                  !tab.is_client_visible
+                                    ? "bg-[var(--surface)] text-[var(--foreground)] shadow-sm"
+                                    : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
+                                  isPending && "cursor-not-allowed opacity-60"
+                                )}
+                              >
+                                Private
+                              </button>
+                              <button
+                                onClick={() =>
+                                  handleTabVisibilityToggle(tab.id, true)
+                                }
+                                disabled={isPending}
+                                className={cn(
+                                  "rounded-[6px] px-2 py-0.5 text-[10px] font-medium transition-colors",
+                                  tab.is_client_visible
+                                    ? "bg-blue-50 text-blue-700 shadow-sm"
+                                    : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
+                                  isPending && "cursor-not-allowed opacity-60"
+                                )}
+                              >
+                                Public
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="px-3 py-4 text-[12px] text-[var(--muted-foreground)]">
+                      No tabs in this project yet.
                     </div>
-                  ))}
+                  )}
                 </div>
               </div>
-            )}
 
-            {/* Comments + Editing permissions side by side */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] shadow-[0_1px_2px_rgba(0,0,0,0.02)] p-2 flex flex-col gap-1">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="space-y-0.5 flex-1 min-w-0">
-                    <div className="flex items-center gap-1 text-xs font-medium text-black">
-                      <MessageCircle className="h-3.5 w-3.5 shrink-0" />
+              <div className="flex items-center justify-between gap-2 rounded-[10px] border border-[var(--border)] bg-[var(--background)] px-3 py-1.5">
+                <div className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--foreground)]">
+                  <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-blue-50 text-blue-700">
+                    <Eye className="h-3.5 w-3.5" />
+                  </span>
+                  <span>{formatVisibleTabCount(visibleTabCount)}</span>
+                </div>
+                <a
+                  href={clientPageUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[12px] font-medium text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+                >
+                  Review public page
+                </a>
+              </div>
+            </section>
+
+            <div className="grid gap-1.5 sm:grid-cols-2">
+              <div className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] p-1.5">
+                <div className="flex items-center justify-between gap-1.5">
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex items-center gap-1 text-[11px] font-medium text-[var(--foreground)]">
+                      <MessageCircle className="h-2.5 w-2.5 shrink-0" />
                       Allow public comments
                     </div>
-                    <p className="text-[11px] text-[var(--muted-foreground)]">
-                      Let visitors leave comments. Comments sync back to the dashboard.
+                    <p className="text-[9px] leading-3.5 text-[var(--muted-foreground)]">
+                      Visitors can leave comments that sync back to the project.
                     </p>
                   </div>
-                  <div className="flex items-center pt-0.5 shrink-0">
-                    <Switch
-                      checked={allowComments}
-                      disabled={!token || isUpdatingSettings}
-                      onCheckedChange={handleCommentsToggle}
-                    />
-                  </div>
+                  <Switch
+                    checked={allowComments}
+                    disabled={!token || updatingSetting === "comments"}
+                    onCheckedChange={handleCommentsToggle}
+                    className="shrink-0"
+                  />
                 </div>
-                {!token && (
-                  <p className="text-[10px] text-[var(--warning)]">
-                    Generate a URL first to enable comments.
-                  </p>
-                )}
               </div>
-              <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] shadow-[0_1px_2px_rgba(0,0,0,0.02)] p-2 flex flex-col gap-1">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="space-y-0.5 flex-1 min-w-0">
-                    <div className="flex items-center gap-1 text-xs font-medium text-black">
-                      <Edit3 className="h-3.5 w-3.5 shrink-0" />
+
+              <div className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] p-1.5">
+                <div className="flex items-center justify-between gap-1.5">
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex items-center gap-1 text-[11px] font-medium text-[var(--foreground)]">
+                      <Edit3 className="h-2.5 w-2.5 shrink-0" />
                       Allow public editing
                     </div>
-                    <p className="text-[11px] text-[var(--muted-foreground)]">
-                      Let visitors edit blocks. Use with caution.
+                    <p className="text-[9px] leading-3.5 text-[var(--muted-foreground)]">
+                      Visitors can edit text, links, section headers, and upload files in file blocks. Other block types stay read-only.
                     </p>
                   </div>
-                  <div className="flex items-center pt-0.5 shrink-0">
-                    <Switch
-                      checked={allowEditing}
-                      disabled={!token || isUpdatingSettings}
-                      onCheckedChange={handleEditingToggle}
-                    />
-                  </div>
+                  <Switch
+                    checked={allowEditing}
+                    disabled={!token || updatingSetting === "editing"}
+                    onCheckedChange={handleEditingToggle}
+                    className="shrink-0"
+                  />
                 </div>
-                {!token && (
-                  <p className="text-[10px] text-[var(--warning)]">
-                    Generate a URL first to enable editing.
-                  </p>
-                )}
               </div>
             </div>
+          </div>
 
-            {/* Instructions */}
-            <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] shadow-[0_1px_2px_rgba(0,0,0,0.02)] p-2">
-              <p className="text-xs font-medium text-black mb-1">
-                Next steps:
-              </p>
-              <ol className="list-decimal list-inside text-[11px] text-[var(--muted-foreground)] space-y-0.5">
-                <li>Select tabs to make public using the tab selector above</li>
-                <li>Share this link with anyone who needs access</li>
-                <li>They can view updates in real-time</li>
-                <li>If enabled, visitors can leave comments or make edits</li>
-              </ol>
-            </div>
+          <div className="flex items-center justify-between border-t border-[var(--border)] px-4 py-2">
+            <button
+              onClick={() => {
+                alert("Analytics view coming soon!");
+              }}
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+            >
+              <BarChart3 className="h-3.5 w-3.5" />
+              View analytics
+            </button>
 
-            {/* Analytics & Settings */}
-            <div className="flex items-center justify-between pt-0.5">
-              <button
-                onClick={() => {
-                  // TODO: Open analytics modal
-                  alert("Analytics view coming soon!");
-                }}
-                className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)] hover:text-black transition-colors"
-              >
-                <BarChart3 className="h-3.5 w-3.5" />
-                View Analytics
-              </button>
-
-              <button
-                onClick={handleToggle}
-                disabled={isLoading}
-                className="px-3 py-1.5 rounded-md bg-red-600 text-white hover:bg-red-700 font-medium disabled:opacity-50 transition-colors text-xs"
-              >
-                {isLoading ? "Disabling..." : "Disable Public Link"}
-              </button>
-            </div>
+            <button
+              onClick={handleToggle}
+              disabled={isLoading}
+              className="inline-flex h-7 items-center justify-center rounded-[10px] border border-red-200 bg-red-50 px-2.5 text-[11px] font-medium text-red-600 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isLoading ? "Disabling..." : "Disable public link"}
+            </button>
           </div>
         </DialogContent>
       </Dialog>
     </>
   );
 }
-

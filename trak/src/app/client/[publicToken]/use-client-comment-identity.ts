@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 export interface ClientCommentIdentity {
   id: string;
@@ -14,40 +14,45 @@ function generateVisitorId() {
   return `client-${Math.random().toString(36).slice(2)}${Date.now()}`;
 }
 
+function readStoredIdentity(
+  storageKey: string,
+  enabled: boolean
+): ClientCommentIdentity | null {
+  if (!enabled || typeof window === "undefined") return null;
+
+  const saved =
+    window.sessionStorage.getItem(storageKey) ??
+    window.localStorage.getItem(storageKey);
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved) as ClientCommentIdentity;
+      if (parsed?.id) {
+        return {
+          id: parsed.id,
+          name: parsed.name ?? null,
+        };
+      }
+    } catch {
+      // ignore corrupted state
+    }
+  }
+
+  const fallback = {
+    id: generateVisitorId(),
+    name: null,
+  };
+  window.sessionStorage.setItem(storageKey, JSON.stringify(fallback));
+  return fallback;
+}
+
 export function useClientCommentIdentity(publicToken: string, enabled = true) {
   const storageKey = useMemo(
     () => `trak-client-comment-identity-${publicToken}`,
     [publicToken]
   );
-  const [identity, setIdentity] = useState<ClientCommentIdentity | null>(null);
-
-  useEffect(() => {
-    if (!enabled || typeof window === "undefined") return;
-    const saved = window.localStorage.getItem(storageKey);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as ClientCommentIdentity;
-        if (parsed?.id) {
-          setIdentity({
-            id: parsed.id,
-            name: parsed.name ?? null,
-          });
-          return;
-        }
-      } catch {
-        // ignore corrupted state
-      }
-    }
-
-    const fallback = {
-      id: generateVisitorId(),
-      name: null,
-    };
-    if (enabled) {
-      window.localStorage.setItem(storageKey, JSON.stringify(fallback));
-    }
-    setIdentity(fallback);
-  }, [enabled, storageKey]);
+  const [identity, setIdentity] = useState<ClientCommentIdentity | null>(() =>
+    readStoredIdentity(storageKey, enabled)
+  );
 
   const updateName = useCallback(
     (name: string) => {
@@ -60,7 +65,8 @@ export function useClientCommentIdentity(publicToken: string, enabled = true) {
           name: cleaned || null,
         };
         if (typeof window !== "undefined") {
-          window.localStorage.setItem(storageKey, JSON.stringify(updated));
+          window.sessionStorage.setItem(storageKey, JSON.stringify(updated));
+          window.localStorage.removeItem(storageKey);
         }
         return updated;
       });
@@ -73,4 +79,3 @@ export function useClientCommentIdentity(publicToken: string, enabled = true) {
     setIdentityName: enabled ? updateName : () => {},
   };
 }
-

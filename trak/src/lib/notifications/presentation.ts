@@ -90,9 +90,17 @@ export function buildNotificationPresentation(item: NotificationListItem): {
         href: resolveHref(item),
       };
     case "client_comment":
+      if (payload.activity_type === "edit") {
+        return {
+          type: event.event_type,
+          title: `${actorName} edited${tabName ? ` on ${tabName}` : ""}`,
+          detail: payload.comment_excerpt || context,
+          href: resolveHref(item),
+        };
+      }
       return {
         type: event.event_type,
-        title: `Client commented${tabName ? ` on ${tabName}` : ""}`,
+        title: `${actorName} commented${tabName ? ` on ${tabName}` : ""}`,
         detail: payload.comment_excerpt || context,
         href: resolveHref(item),
       };
@@ -106,7 +114,9 @@ export function buildNotificationPresentation(item: NotificationListItem): {
     case "file_upload":
       return {
         type: event.event_type,
-        title: `New file uploaded${payload.file_name ? `: ${payload.file_name}` : ""}`,
+        title: payload.actor_name
+          ? `${actorName} uploaded${payload.file_name ? ` ${payload.file_name}` : " a file"}`
+          : `New file uploaded${payload.file_name ? `: ${payload.file_name}` : ""}`,
         detail: context,
         href: resolveHref(item),
       };
