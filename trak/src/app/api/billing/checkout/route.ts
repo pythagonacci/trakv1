@@ -5,12 +5,17 @@ import { ensureWorkspaceBillingRow, getWorkspaceSeatCount, updateWorkspaceBillin
 import { getBaseAppUrl, getPlanPriceId, getStripe } from "@/lib/billing/stripe";
 import { normalizePlanKey } from "@/lib/billing/config";
 
+export const runtime = "nodejs";
+
 export async function POST(request: NextRequest) {
   try {
+    console.log("[billing/checkout] request:start");
     const { user } = await requireUser();
+    console.log("[billing/checkout] auth:ok", { userId: user.id });
     const body = await request.json();
     const workspaceId = typeof body.workspaceId === "string" ? body.workspaceId : "";
     const requestedPlan = normalizePlanKey(body.planKey);
+    console.log("[billing/checkout] request:parsed", { workspaceId, requestedPlan });
 
     if (!workspaceId) {
       return NextResponse.json({ error: "Missing workspaceId" }, { status: 400 });
@@ -21,27 +26,45 @@ export async function POST(request: NextRequest) {
     }
 
     await requireWorkspaceAdminRole(workspaceId, user.id);
+    console.log("[billing/checkout] workspace-admin:ok", { workspaceId, userId: user.id });
 
     const priceId = getPlanPriceId(requestedPlan);
+    console.log("[billing/checkout] plan-price:resolved", { requestedPlan, priceId });
     if (!priceId) {
       return NextResponse.json({ error: `Stripe price is not configured for ${requestedPlan}.` }, { status: 500 });
     }
 
     const stripe = getStripe();
+    console.log("[billing/checkout] stripe:client-ready");
     const billing = await ensureWorkspaceBillingRow(workspaceId);
+    console.log("[billing/checkout] billing:loaded", {
+      workspaceId,
+      existingCustomerId: billing.stripe_customer_id,
+      existingSubscriptionId: billing.stripe_subscription_id,
+    });
     let customerId = billing.stripe_customer_id;
     if (!customerId) {
+      console.log("[billing/checkout] stripe-customer:create:start", { workspaceId });
       const customer = await stripe.customers.create({
         metadata: {
           workspaceId,
         },
       });
       customerId = customer.id;
+      console.log("[billing/checkout] stripe-customer:create:ok", { workspaceId, customerId });
       await updateWorkspaceBillingRow(workspaceId, { stripe_customer_id: customerId });
+      console.log("[billing/checkout] billing:update-customer:ok", { workspaceId, customerId });
     }
 
     const seatQuantity = await getWorkspaceSeatCount(workspaceId);
     const appUrl = getBaseAppUrl();
+    console.log("[billing/checkout] checkout-session:create:start", {
+      workspaceId,
+      customerId,
+      seatQuantity,
+      appUrl,
+      priceId,
+    });
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: customerId,
@@ -65,9 +88,15 @@ export async function POST(request: NextRequest) {
         initiatingUserId: user.id,
       },
     });
+    console.log("[billing/checkout] checkout-session:create:ok", {
+      workspaceId,
+      sessionId: session.id,
+      hasUrl: Boolean(session.url),
+    });
 
     return NextResponse.json({ data: { url: session.url } });
   } catch (error) {
+    console.error("[billing/checkout] request:error", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to create checkout session" },
       { status: 500 }
