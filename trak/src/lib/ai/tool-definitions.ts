@@ -1047,7 +1047,7 @@ const blockActionTools: ToolDefinition[] = [
     name: "createSpecChartBlock",
     description:
       "PREFERRED chart tool. Create a spec-driven chart block. " +
-      "Use this when the user asks for a chart/graph/visualization over Trak entities (tasks, cards, table rows, timeline events, etc.). " +
+      "Use this when the user asks for a chart/graph/visualization over Saria entities (tasks, cards, table rows, timeline events, etc.). " +
       "Steps: (1) retrieve data using search tools, (2) normalise rows with consistent field names, (3) build a ChartSpec JSON, (4) call this tool. " +
       "Do NOT generate JSX. Output a validated JSON spec and the data rows.\n\n" +
       "CHART SPEC v1 reference:\n" +
@@ -2078,7 +2078,7 @@ const shopifyTools: ToolDefinition[] = [
       "Use productId from searchShopifyProducts results.",
     category: "shopify",
     parameters: {
-      productId: { type: "string", description: "Trak product ID (from searchShopifyProducts)" },
+      productId: { type: "string", description: "Saria product ID (from searchShopifyProducts)" },
     },
     requiredParams: ["productId"],
   },
@@ -2094,7 +2094,7 @@ const shopifyTools: ToolDefinition[] = [
       "Example: 'How many units of [product] sold last month?'",
     category: "shopify",
     parameters: {
-      productId: { type: "string", description: "Trak product ID (from searchShopifyProducts)" },
+      productId: { type: "string", description: "Saria product ID (from searchShopifyProducts)" },
       startDate: { type: "string", description: "Start date (YYYY-MM-DD)" },
       endDate: { type: "string", description: "End date (YYYY-MM-DD)" },
     },
@@ -2131,7 +2131,7 @@ const shopifyTools: ToolDefinition[] = [
       "Use when user asks to 'refresh', 'sync', or 'update' product data.",
     category: "shopify",
     parameters: {
-      productId: { type: "string", description: "Trak product ID to refresh" },
+      productId: { type: "string", description: "Saria product ID to refresh" },
     },
     requiredParams: ["productId"],
   },

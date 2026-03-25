@@ -1,6 +1,6 @@
 "use client";
 
-// Trak Universal Properties - Property Menu Component
+// Saria Universal Properties - Property Menu Component
 // Popover menu for managing fixed properties (status, priority, assignee, due date, tags).
 // When anchorRef is provided, opens as a dropdown from the trigger; otherwise falls back to centered dialog.
 

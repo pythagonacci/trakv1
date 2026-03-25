@@ -19,7 +19,7 @@ export async function sendWorkspaceInvitationEmail(params: {
 
   const { Resend } = await import("resend");
   const resend = new Resend(apiKey);
-  const from = process.env.RESEND_FROM_EMAIL ?? "Trak <onboarding@resend.dev>";
+  const from = process.env.RESEND_FROM_EMAIL ?? "Saria <onboarding@resend.dev>";
 
   const inviterLine = params.inviterEmail
     ? `\n<p>You were invited by ${escapeHtml(params.inviterEmail)}.</p>\n`
@@ -28,9 +28,9 @@ export async function sendWorkspaceInvitationEmail(params: {
   const { error } = await resend.emails.send({
     from,
     to: [params.to],
-    subject: `You're invited to ${params.workspaceName} on Trak`,
+    subject: `You're invited to ${params.workspaceName} on Saria`,
     html: `
-      <p>You've been invited to join the workspace <strong>${escapeHtml(params.workspaceName)}</strong> on Trak.</p>
+      <p>You've been invited to join the workspace <strong>${escapeHtml(params.workspaceName)}</strong> on Saria.</p>
       ${inviterLine}
       <p><a href="${params.acceptUrl}" style="display:inline-block; padding: 10px 20px; background: #4f46e5; color: white; text-decoration: none; border-radius: 6px;">Accept invitation</a></p>
       <p>Or copy this link: ${params.acceptUrl}</p>

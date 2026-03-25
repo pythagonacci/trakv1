@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { requireWorkspaceAccess } from "@/lib/auth-utils";
 import { EverythingView } from "@/components/everything/everything-view";
+import { assertCanAccessEverythingPage } from "@/lib/billing/entitlements";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -14,6 +15,12 @@ export default async function EverythingPage() {
   // Verify access
   const authResult = await requireWorkspaceAccess(workspaceId);
   if ("error" in authResult) redirect("/login");
+
+  try {
+    await assertCanAccessEverythingPage(workspaceId);
+  } catch {
+    redirect("/dashboard");
+  }
 
   return (
     <div className="min-h-screen bg-[var(--surface)]">

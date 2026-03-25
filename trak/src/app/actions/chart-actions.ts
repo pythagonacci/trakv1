@@ -20,6 +20,9 @@ import type { ChartRow, ChartSpec } from "@/lib/charts/chartSpec";
 import { searchTasks, searchTimelineEvents, searchTableRows, searchCards } from "@/app/actions/ai-search";
 import type { TableField } from "@/types/table";
 import type { DashboardChartQuery } from "@/app/dashboard/dashboard-config-types";
+import { getCurrentWorkspaceId } from "@/app/actions/workspace";
+import { assertCanUseWorkspaceScopeCharts } from "@/lib/billing/entitlements";
+import { toBillingErrorPayload } from "@/lib/billing/errors";
 
 export type ChartActionResult<T> = { data: T } | { error: string };
 
@@ -1158,6 +1161,12 @@ export async function generateDashboardChartData(
     const authContext = await getAuthContext();
     if ("error" in authContext) return { error: authContext.error };
 
+    if (query.scope === "workspace") {
+      const workspaceId = await getCurrentWorkspaceId();
+      if (!workspaceId) return { error: "No workspace selected" };
+      await assertCanUseWorkspaceScopeCharts(workspaceId);
+    }
+
     const res = await searchTasks({
       projectId: query.scope === "project" && query.projectId ? query.projectId : undefined,
       limit: 500,
@@ -1187,6 +1196,8 @@ export async function generateDashboardChartData(
       },
     };
   } catch (error) {
+    const billingError = toBillingErrorPayload(error);
+    if (billingError) return { error: billingError.message };
     return { error: error instanceof Error ? error.message : "Failed to generate chart" };
   }
 }

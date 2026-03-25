@@ -44,7 +44,7 @@ export default async function SlackIntegrationPage() {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Slack Integration</h1>
         <p className="text-gray-600">
-          Connect your workspace to Slack and use AI-powered commands with <code className="bg-gray-100 px-2 py-1 rounded">/trak</code>
+          Connect your workspace to Slack and use AI-powered commands with <code className="bg-gray-100 px-2 py-1 rounded">/saria</code>
         </p>
       </div>
 

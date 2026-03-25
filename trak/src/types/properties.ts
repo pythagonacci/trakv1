@@ -1,4 +1,4 @@
-// Trak Universal Properties - Simplified Implementation
+// Saria Universal Properties - Simplified Implementation
 // Fixed properties (not database-driven property definitions)
 
 // ============================================================================

@@ -72,7 +72,7 @@ export default async function SlackLinkPage({ searchParams }: PageProps) {
               Workspace Not Connected
             </h1>
             <p className="text-gray-600 mb-6">
-              This Slack workspace is not connected to TWOD. Please ask your workspace admin to connect it first.
+              This Slack workspace is not connected to Saria. Please ask your workspace admin to connect it first.
             </p>
             <a
               href="/dashboard/settings/integrations"
@@ -105,7 +105,7 @@ export default async function SlackLinkPage({ searchParams }: PageProps) {
               Already Linked
             </h1>
             <p className="text-gray-600 mb-6">
-              Your Slack account is already linked to TWOD. You can now use <code className="bg-gray-100 px-2 py-1 rounded">/trak</code> commands in Slack.
+              Your Slack account is already linked to Saria. You can now use <code className="bg-gray-100 px-2 py-1 rounded">/saria</code> commands in Slack.
             </p>
             <a
               href="/dashboard/settings/integrations"
@@ -170,7 +170,7 @@ export default async function SlackLinkPage({ searchParams }: PageProps) {
             Account Linked Successfully!
           </h1>
           <p className="text-gray-600 mb-6">
-            Your Slack account has been linked to TWOD. You can now use <code className="bg-gray-100 px-2 py-1 rounded">/trak</code> commands in {connection.slack_team_name}.
+            Your Slack account has been linked to Saria. You can now use <code className="bg-gray-100 px-2 py-1 rounded">/saria</code> commands in {connection.slack_team_name}.
           </p>
           <div className="space-y-3">
             <a
@@ -180,7 +180,7 @@ export default async function SlackLinkPage({ searchParams }: PageProps) {
               View Integrations
             </a>
             <p className="text-sm text-gray-500">
-              Try it out: Type <code className="bg-gray-100 px-2 py-1 rounded">/trak search tasks</code> in Slack!
+              Try it out: Type <code className="bg-gray-100 px-2 py-1 rounded">/saria search tasks</code> in Slack!
             </p>
           </div>
         </div>

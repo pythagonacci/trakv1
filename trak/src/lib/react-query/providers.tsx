@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { makeQueryClient } from './query-client';
 
 /**
- * React Query provider for Trak
+ * React Query provider for Saria
  * Wraps the app to enable data caching and synchronization
  */
 export function ReactQueryProvider({ children }: { children: React.ReactNode }) {

@@ -1,6 +1,6 @@
 "use client";
 
-// Trak Universal Properties - Property Badge Component (Simplified)
+// Saria Universal Properties - Property Badge Component (Simplified)
 // Inline badges showing status, priority, assignee, due date, tags
 
 import React from "react";

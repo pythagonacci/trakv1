@@ -20,7 +20,7 @@ import {
 import { useDashboardConfigModal } from "../dashboard-config-modal-context";
 import { generateDashboardChartData } from "@/app/actions/chart-actions";
 import { buildChartData, groupRowsByBreakdown } from "@/lib/charts/transform";
-import { TrakChart } from "@/components/blocks/chart/TrakChart";
+import { SariaChart } from "@/components/blocks/chart/SariaChart";
 import { resolveColor } from "@/lib/charts/palette";
 import { cn } from "@/lib/utils";
 import { getLinkableItemHref } from "@/lib/references/navigation";
@@ -489,7 +489,7 @@ export default function DashboardChartWidget({ config }: DashboardChartWidgetPro
             </div>
             <div className="mt-3 flex-1 min-h-[220px] flex items-center justify-center">
               <div className="w-full h-full max-h-[280px]">
-                <TrakChart key={spinNonce} spec={spec} data={chartData} height={260} />
+                <SariaChart key={spinNonce} spec={spec} data={chartData} height={260} />
               </div>
             </div>
           </div>

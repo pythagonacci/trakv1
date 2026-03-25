@@ -8,6 +8,7 @@ import {
   revalidateDashboardProjectPath,
   revalidateDashboardProjectTabPath,
 } from "@/app/actions/dashboard-path-revalidation";
+import { assertCanCreateTopLevelTab } from "@/lib/billing/limits";
 
 // Limits to prevent unbounded queries
 const TABS_PER_PROJECT_LIMIT = 1000;
@@ -93,6 +94,10 @@ export async function createTab(data: {
       }
     }
 
+    if (!data.parentTabId) {
+      await assertCanCreateTopLevelTab(data.projectId);
+    }
+
     // 5. Calculate position (last in the list at this level)
     const { data: existingTabs } = await supabase
       .from("tabs")
@@ -143,7 +148,7 @@ export async function createTab(data: {
     return { data: newTab };
   } catch (error) {
     console.error("Create tab exception:", error);
-    return { error: "Failed to create tab" };
+    return { error: error instanceof Error ? error.message : "Failed to create tab" };
   }
 }
 

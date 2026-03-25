@@ -257,7 +257,7 @@ function DayViewEventCard({
 }) {
   const color = getEventColor(event);
   const c = DAY_GRID_COLORS[color];
-  const source = event.type === "google" ? "Google" : event.type === "timeline" ? "Timeline" : "Trak";
+  const source = event.type === "google" ? "Google" : event.type === "timeline" ? "Timeline" : "Saria";
 
   return (
     <div
@@ -309,8 +309,8 @@ const DayView = forwardRef<
   {
     currentDate: Date;
     mergedEvents: CalendarEvent[];
-    showTrakEvents: boolean;
-    setShowTrakEvents: (v: boolean) => void;
+    showSariaEvents: boolean;
+    setShowSariaEvents: (v: boolean) => void;
     showGoogleEvents: boolean;
     setShowGoogleEvents: (v: boolean) => void;
     googleConnected: boolean;
@@ -325,8 +325,8 @@ const DayView = forwardRef<
   {
     currentDate,
     mergedEvents,
-    showTrakEvents,
-    setShowTrakEvents,
+    showSariaEvents,
+    setShowSariaEvents,
     showGoogleEvents,
     setShowGoogleEvents,
     googleConnected,
@@ -399,7 +399,7 @@ const DayView = forwardRef<
           <div className="mt-4">
             <div className="text-xs font-semibold text-[var(--foreground)] mb-2">Show</div>
             <div className="space-y-2">
-              <ToggleRow label="Trak events" on={showTrakEvents} onChange={setShowTrakEvents} />
+              <ToggleRow label="Saria events" on={showSariaEvents} onChange={setShowSariaEvents} />
               <ToggleRow
                 label="Google events"
                 on={showGoogleEvents}
@@ -557,7 +557,7 @@ export default function CalendarView({
   const [googleError, setGoogleError] = useState<string | null>(null);
   const [googleAvailable, setGoogleAvailable] = useState(true);
   const [showGoogleEvents, setShowGoogleEvents] = useState(true);
-  const [showTrakEvents, setShowTrakEvents] = useState(true);
+  const [showSariaEvents, setShowSariaEvents] = useState(true);
   const [showFocusBlocks, setShowFocusBlocks] = useState(false);
   const [addEventDialogOpen, setAddEventDialogOpen] = useState(false);
   const [addEventDate, setAddEventDate] = useState<Date | undefined>(undefined);
@@ -621,10 +621,10 @@ export default function CalendarView({
 
   const mergedEvents = useMemo(
     () => [
-      ...(showTrakEvents ? events : []),
+      ...(showSariaEvents ? events : []),
       ...(showGoogleEvents ? googleEvents : []),
     ],
-    [events, googleEvents, showTrakEvents, showGoogleEvents]
+    [events, googleEvents, showSariaEvents, showGoogleEvents]
   );
 
   // Get events for a specific date
@@ -1263,8 +1263,8 @@ export default function CalendarView({
             ref={dayViewRef}
             currentDate={currentDate}
             mergedEvents={mergedEvents}
-            showTrakEvents={showTrakEvents}
-            setShowTrakEvents={setShowTrakEvents}
+            showSariaEvents={showSariaEvents}
+            setShowSariaEvents={setShowSariaEvents}
             showGoogleEvents={showGoogleEvents}
             setShowGoogleEvents={setShowGoogleEvents}
             googleConnected={googleConnected}

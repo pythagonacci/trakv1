@@ -5,7 +5,7 @@ import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { IntegrationsClient } from "./integrations-client";
 
 export const metadata = {
-  title: "Integrations - TWOD",
+  title: "Integrations - Saria",
   description: "Manage your integrations",
 };
 

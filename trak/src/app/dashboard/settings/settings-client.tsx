@@ -10,6 +10,7 @@ import MembersTable from "./members/members-table";
 import GeneralSettingsForm from "./general/general-settings-form";
 import TeamsTable from "./teams/teams-table";
 import NotificationPreferencesPanel from "@/components/notifications/notification-preferences-panel";
+import type { WorkspaceBillingSummary } from "@/hooks/use-workspace-billing";
 
 interface Workspace {
   id: string;
@@ -39,6 +40,7 @@ interface SettingsClientProps {
   workspace: Workspace;
   members: Member[];
   teams: WorkspaceTeam[];
+  billingSummary: WorkspaceBillingSummary;
   currentUserRole: "owner" | "admin" | "teammate";
   currentUserId: string;
   initialTab: "members" | "general" | "teams" | "notifications";
@@ -48,6 +50,7 @@ export function SettingsClient({
   workspace,
   members,
   teams,
+  billingSummary,
   currentUserRole,
   currentUserId,
   initialTab,
@@ -203,6 +206,7 @@ export function SettingsClient({
             workspaceId={workspace.id}
             workspaceName={workspace.name}
             canManage={canManage}
+            billingSummary={billingSummary}
           />
         )}
         {activeTab === "notifications" && (

@@ -28,7 +28,7 @@ export default async function GoogleDriveSettingsPage() {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-[var(--foreground)]">Google Drive Integration</h1>
         <p className="text-sm text-[var(--muted-foreground)]">
-          Connect one Google Drive account for this workspace. Trak remains the operational surface while Drive stays the storage provider.
+          Connect one Google Drive account for this workspace. Saria remains the operational surface while Drive stays the storage provider.
         </p>
       </div>
 

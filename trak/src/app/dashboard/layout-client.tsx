@@ -41,6 +41,7 @@ import { AICommandPalette, useAI } from "@/components/ai";
 import { useTheme } from "./theme-context";
 import NotificationBell from "@/components/notifications/notification-bell";
 import { OPEN_CREATE_PROJECT_EVENT } from "@/lib/projects";
+import { useWorkspaceBilling } from "@/hooks/use-workspace-billing";
 import {
   createUnavailableSplashWeather,
   resolveSplashWeather,
@@ -384,6 +385,7 @@ function Sidebar({
   const pathname = usePathname();
   const { data: currentUser } = useUser();
   const { currentWorkspace, workspaces, switchWorkspace, isSwitching } = useWorkspace();
+  const { data: billingSummary } = useWorkspaceBilling(currentWorkspace?.id);
   const { theme, setTheme } = useTheme();
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const userDropdownRef = useRef<HTMLDivElement>(null);
@@ -443,7 +445,7 @@ function Sidebar({
       >
         {!collapsed && (
           <span className="text-[11px] font-semibold uppercase tracking-[0.4em] text-[var(--foreground)]">
-            TWOD
+            Saria
           </span>
         )}
         <button
@@ -488,14 +490,16 @@ function Sidebar({
           >
             Projects
           </NavLink>
-          <NavLink
-            href="/dashboard/workspace/everything"
-            icon={<Database className="h-4 w-4" />}
-            active={pathname?.startsWith("/dashboard/workspace/everything")}
-            collapsed={collapsed}
-          >
-            Everything
-          </NavLink>
+          {billingSummary?.entitlements.allowEverythingPage && (
+            <NavLink
+              href="/dashboard/workspace/everything"
+              icon={<Database className="h-4 w-4" />}
+              active={pathname?.startsWith("/dashboard/workspace/everything")}
+              collapsed={collapsed}
+            >
+              Everything
+            </NavLink>
+          )}
           <NavLink
             href="/dashboard/workflow"
             icon={<Square className="h-4 w-4" />}
@@ -746,6 +750,7 @@ function Header() {
   const { headerHidden } = useDashboardHeader();
   const configModal = useDashboardConfigModal();
   const { currentWorkspace } = useWorkspace();
+  const { data: billingSummary } = useWorkspaceBilling(currentWorkspace?.id);
   const isWorkflowPage = pathname?.startsWith("/dashboard/workflow");
   const isCalendarPage = pathname?.startsWith("/dashboard/calendar");
   const isDashboardHome = pathname === "/dashboard";
@@ -770,7 +775,7 @@ function Header() {
       </p>
       <div className="flex items-center gap-2">
         <NotificationBell workspaceId={currentWorkspace?.id} />
-        {isDashboardHome && configModal && (
+        {isDashboardHome && configModal && billingSummary?.entitlements.allowDashboardConfiguration && (
           <Button
             size="sm"
             variant="outline"

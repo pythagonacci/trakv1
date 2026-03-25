@@ -210,7 +210,7 @@ import {
 // IMPORTS - Shopify Actions
 // ============================================================================
 import {
-  getTrakProducts,
+  getSariaProducts,
   getProductDetails,
   refreshProduct,
   type ShopifyProduct,
@@ -4903,8 +4903,8 @@ export async function executeTool(
             }
           }
 
-          // Get products from Trak database
-          const productsResult = await getTrakProducts(connectionId, {
+          // Get products from Saria database
+          const productsResult = await getSariaProducts(connectionId, {
             search: args.searchText as string | undefined,
             limit: (args.limit as number) || 50,
             offset: (args.offset as number) || 0,
@@ -4916,7 +4916,7 @@ export async function executeTool(
 
           let products = productsResult.data.products;
 
-          // Apply additional filters not supported by getTrakProducts
+          // Apply additional filters not supported by getSariaProducts
           if (args.vendor) {
             const vendor = (args.vendor as string).toLowerCase();
             products = products.filter(p => p.vendor?.toLowerCase().includes(vendor));
@@ -5042,7 +5042,7 @@ export async function executeTool(
             }
           } else {
             // Fetch products with filters
-            const productsResult = await getTrakProducts(connectionId, {
+            const productsResult = await getSariaProducts(connectionId, {
               search: args.searchText as string | undefined,
               limit: (args.limit as number) || 50,
             });

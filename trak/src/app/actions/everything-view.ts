@@ -6,6 +6,7 @@ import { buildDueDateRange, normalizeDueDateRange } from "@/lib/due-date";
 import { buildProjectTabPath } from "@/lib/dashboard-routes";
 import type { EverythingItem, EverythingOptions, EverythingResult } from "@/types/everything";
 import type { EntityType, EntityProperties, Status, Priority } from "@/types/properties";
+import { assertCanAccessEverythingPage } from "@/lib/billing/entitlements";
 
 type ActionResult<T> = { data: T } | { error: string };
 
@@ -35,9 +36,11 @@ export async function getWorkspaceEverything(
   workspaceId: string,
   options?: EverythingOptions
 ): Promise<ActionResult<EverythingResult>> {
-  const supabase = await createClient();
-  const limit = options?.limit ?? 2000;
-  const offset = options?.offset ?? 0;
+  try {
+    await assertCanAccessEverythingPage(workspaceId);
+    const supabase = await createClient();
+    const limit = options?.limit ?? 2000;
+    const offset = options?.offset ?? 0;
 
   // Execute 4-way UNION query to get all items with properties
   const { data: rawItems, error: queryError } = await supabase.rpc('get_workspace_everything', {
@@ -78,13 +81,16 @@ export async function getWorkspaceEverything(
     );
   });
 
-  return {
-    data: {
-      items: withAtLeastOneProp,
-      total: withAtLeastOneProp.length,
-      hasMore: withAtLeastOneProp.length === limit,
-    },
-  };
+    return {
+      data: {
+        items: withAtLeastOneProp,
+        total: withAtLeastOneProp.length,
+        hasMore: withAtLeastOneProp.length === limit,
+      },
+    };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Failed to fetch workspace items" };
+  }
 }
 
 /**

@@ -59,7 +59,7 @@ export default async function ProjectDrivePage({ params }: { params: Promise<{ p
 
       <h1 className="text-2xl font-semibold">Drive</h1>
       <p className="mb-6 text-sm text-[var(--muted-foreground)]">
-        Browse the mapped project folder and preview linked Drive files in Trak.
+        Browse the mapped project folder and preview linked Drive files in Saria.
       </p>
 
       <ProjectDriveClient

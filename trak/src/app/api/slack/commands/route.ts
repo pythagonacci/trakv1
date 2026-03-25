@@ -16,7 +16,7 @@ const NEXT_PUBLIC_APP_URL = process.env.NEXT_PUBLIC_APP_URL;
 /**
  * POST /api/slack/commands
  *
- * Handles Slack slash command requests (/trak <text>)
+ * Handles Slack slash command requests (/saria <text>)
  * - Verifies Slack signature for security
  * - Checks rate limits and idempotency
  * - Validates user account linking
@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
       const linkUrl = `${NEXT_PUBLIC_APP_URL}/dashboard/settings/integrations/slack/link?team_id=${teamId}&slack_user_id=${slackUserId}`;
       const errorResponse = {
         response_type: "ephemeral",
-        text: `🔗 Please link your Slack account to TWOD first:\n${linkUrl}`,
+        text: `🔗 Please link your Slack account to Saria first:\n${linkUrl}`,
       };
       if (slackRequestId) {
         await saveIdempotency(generateIdempotencyKey(teamId, slackRequestId), errorResponse);
@@ -194,7 +194,7 @@ async function processSlackCommandAsync(params: {
       const createFlowResult: SlackExecutionResult = projectsError || !projects || projects.length === 0
         ? {
           success: false,
-          response: "No projects found. Please create a project in TWOD first.",
+          response: "No projects found. Please create a project in Saria first.",
           toolCallsMade: [],
           error: projectsError?.message ?? "No projects available",
         }

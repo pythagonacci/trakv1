@@ -8,6 +8,7 @@ import { createTab } from './tab'
 import { createBlock } from './block'
 import type { BlockType } from './block';
 import { syncTagsFieldConfigsForProject } from '@/lib/tables/tag-field-config';
+import { assertCanCreateProject } from '@/lib/billing/limits';
 
 // Type for project status
 type ProjectStatus = 'not_started' | 'in_progress' | 'complete'
@@ -295,31 +296,34 @@ function summarizeBlockPreview(
 
 // 1. CREATE PROJECT
 export async function createProject(workspaceId: string, projectData: ProjectData, opts?: { authContext?: AuthContext }) {
-  let supabase: Awaited<ReturnType<typeof import('@/lib/supabase/server').createClient>>
-  let userId: string
-  if (opts?.authContext) {
-    supabase = opts.authContext.supabase
-    userId = opts.authContext.userId
-  } else {
-    const authResult = await getServerUser()
-    if (!authResult) return { error: 'Unauthorized' }
-    supabase = authResult.supabase
-    userId = authResult.user.id
-  }
+  try {
+    let supabase: Awaited<ReturnType<typeof import('@/lib/supabase/server').createClient>>
+    let userId: string
+    if (opts?.authContext) {
+      supabase = opts.authContext.supabase
+      userId = opts.authContext.userId
+    } else {
+      const authResult = await getServerUser()
+      if (!authResult) return { error: 'Unauthorized' }
+      supabase = authResult.supabase
+      userId = authResult.user.id
+    }
 
-  // Check if user is a member of the workspace
-  const { data: membership, error: memberError } = await supabase
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', userId)
-    .maybeSingle()
+    // Check if user is a member of the workspace
+    const { data: membership, error: memberError } = await supabase
+      .from('workspace_members')
+      .select('role')
+      .eq('workspace_id', workspaceId)
+      .eq('user_id', userId)
+      .maybeSingle()
 
-  if (memberError || !membership) {
-    return { error: 'You must be a workspace member to create projects' }
-  }
+    if (memberError || !membership) {
+      return { error: 'You must be a workspace member to create projects' }
+    }
 
-  let finalClientId = projectData.client_id;
+    await assertCanCreateProject(workspaceId)
+
+    let finalClientId = projectData.client_id;
 
   // If client_name is provided (new client), create it first
   if (projectData.client_name && !projectData.client_id) {
@@ -437,7 +441,10 @@ export async function createProject(workspaceId: string, projectData: ProjectDat
   }
 
   await safeRevalidatePath('/dashboard')
-  return { data: project }
+    return { data: project }
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : 'Failed to create project' }
+  }
 }
 
 /** Get all tags for a project (tag bank). */

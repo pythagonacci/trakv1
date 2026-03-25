@@ -190,7 +190,7 @@ async function handleProjectSelection(params: {
       return await respondToInteractive(params.payload.response_url, {
         response_type: "ephemeral",
         replace_original: true,
-        text: "❌ No tabs found in that project. Create a tab in TWOD first.",
+        text: "❌ No tabs found in that project. Create a tab in Saria first.",
       });
     }
 

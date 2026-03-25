@@ -28,6 +28,7 @@ import type { FileAnalysisMessage } from "@/lib/file-analysis/types";
 import { formatBlockText } from "@/lib/format-block-text";
 import type { UndoBatch } from "@/lib/ai/undo";
 import type { WriteConfirmationApproval, WriteConfirmationRequest } from "@/lib/ai/write-confirmation";
+import { useWorkspaceBilling } from "@/hooks/use-workspace-billing";
 
 interface UploadingFile {
   id: string;
@@ -142,6 +143,7 @@ export function AIPanel({
   const { consumeQueuedFileIds, contextBlock, pendingFileIds } = useAI();
   const { currentWorkspace } = useWorkspace();
   const router = useRouter();
+  const { data: billingSummary } = useWorkspaceBilling(currentWorkspace?.id);
   const queryClient = useQueryClient();
 
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -179,6 +181,9 @@ export function AIPanel({
   const [assistantRoutingMode, setAssistantRoutingMode] = useState<"default" | "chart" | "shopify">("default");
   const [assistantSessionStarted, setAssistantSessionStarted] = useState(false);
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
+  const aiUsageLabel = billingSummary?.usage.commandLimit == null
+    ? `${billingSummary?.entitlements.planKey === "business" ? "Business" : "Standard"} AI`
+    : `AI today ${billingSummary.usage.commandsUsed}/${billingSummary.usage.commandLimit}`;
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -1359,7 +1364,7 @@ export function AIPanel({
               </h2>
               {/* Demo hidden copy:
               <p className="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">
-                Ask questions or have Trak take action anywhere in your workspace.
+                Ask questions or have Saria take action anywhere in your workspace.
               </p>
               */}
             </div>
@@ -1752,6 +1757,11 @@ export function AIPanel({
 
       {/* Input */}
       <form onSubmit={handleSubmit} className="flex shrink-0 flex-col gap-2 border-t border-[var(--border)] bg-[#fbfcfd] px-3 py-3">
+        {mode === "assistant" && billingSummary && (
+          <div className="px-1 text-[11px] text-[var(--muted-foreground)]">
+            {aiUsageLabel}
+          </div>
+        )}
         <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] p-2">
           <div className="flex flex-col gap-2">
             {mode === "assistant" && assistantRoutingMode !== "default" && (

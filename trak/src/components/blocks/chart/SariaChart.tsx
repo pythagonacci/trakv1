@@ -413,16 +413,16 @@ function MultiSeriesBarRenderer({
   );
 }
 
-// ─── TrakChart root ──────────────────────────────────────────────────────────
+// ─── SariaChart root ──────────────────────────────────────────────────────────
 
-interface TrakChartProps {
+interface SariaChartProps {
   spec: ChartSpec;
   data: ChartData;
   height?: number;
   className?: string;
 }
 
-export function TrakChart({ spec, data, height = 300, className }: TrakChartProps) {
+export function SariaChart({ spec, data, height = 300, className }: SariaChartProps) {
   const isEmpty = data.data.length === 0;
 
   if (isEmpty) {

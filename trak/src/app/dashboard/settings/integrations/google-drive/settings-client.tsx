@@ -108,11 +108,11 @@ export default function GoogleDriveSettingsClient({
         )}
 
         <div className="rounded-md border border-[var(--border)] bg-[var(--surface-hover)] p-4 text-sm">
-          <p className="font-medium">What Trak can access</p>
+          <p className="font-medium">What Saria can access</p>
           <ul className="ml-4 mt-2 list-disc space-y-1 text-[var(--muted-foreground)]">
             <li>Read metadata for files and folders you link.</li>
             <li>Create folders/files only when you use mapped-folder creation features.</li>
-            <li>Trak does not automatically change Google Drive sharing permissions.</li>
+            <li>Saria does not automatically change Google Drive sharing permissions.</li>
           </ul>
         </div>
       </CardContent>

@@ -8,6 +8,8 @@ import { getServerUser, setTestUserContext as setServerUserTestContext, clearTes
 import { logger } from '@/lib/logger'
 import { setTestUserContext, clearTestUserContext } from '@/lib/auth-utils'
 import { enableTestMode, disableTestMode, setTestUserId } from '@/lib/supabase/server'
+import { assertCanCreateWorkspace } from '@/lib/billing/entitlements'
+import { ensureWorkspaceBillingRow, updateStripeSubscriptionSeatQuantity } from '@/lib/billing/data'
 
 const CURRENT_WORKSPACE_COOKIE = "trak_current_workspace"
 
@@ -125,47 +127,55 @@ export async function setCurrentWorkspaceAfterInvite(workspaceId: string) {
 
 //create workspace action 
 export async function createWorkspace(name: string) {
-  const authResult = await getServerUser()
-  
-  // 1. Get authenticated user
-  if (!authResult) {
-    return { error: 'Unauthorized' }
-  }
-  const { supabase, user } = authResult
+  try {
+    const authResult = await getServerUser()
+    
+    // 1. Get authenticated user
+    if (!authResult) {
+      return { error: 'Unauthorized' }
+    }
+    const { supabase, user } = authResult
 
-  // 2. Create workspace (users can have multiple workspaces)
-  const { data: workspace, error: workspaceError } = await supabase
-    .from('workspaces')
-    .insert({ 
-      name, 
-      owner_id: user.id 
-    })
-    .select()
-    .single()
-  
-  if (workspaceError) {
-    return { error: workspaceError.message }
+    await assertCanCreateWorkspace(user.id)
+
+    // 2. Create workspace (users can have multiple workspaces)
+    const { data: workspace, error: workspaceError } = await supabase
+      .from('workspaces')
+      .insert({ 
+        name, 
+        owner_id: user.id 
+      })
+      .select()
+      .single()
+    
+    if (workspaceError) {
+      return { error: workspaceError.message }
+    }
+    
+    // 3. Add creator as owner in workspace_members
+    const { error: memberError } = await supabase
+      .from('workspace_members')
+      .insert({
+        workspace_id: workspace.id,
+        user_id: user.id,
+        role: 'owner'
+      })
+    
+    if (memberError) {
+      // Rollback workspace creation if member insert fails
+      await supabase.from('workspaces').delete().eq('id', workspace.id)
+      return { error: 'Failed to create workspace member' }
+    }
+
+    await ensureWorkspaceBillingRow(workspace.id)
+    
+    // 4. Revalidate any cached paths
+    revalidatePath('/dashboard')
+    
+    return { data: workspace }
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : 'Failed to create workspace' }
   }
-  
-  // 3. Add creator as owner in workspace_members
-  const { error: memberError } = await supabase
-    .from('workspace_members')
-    .insert({
-      workspace_id: workspace.id,
-      user_id: user.id,
-      role: 'owner'
-    })
-  
-  if (memberError) {
-    // Rollback workspace creation if member insert fails
-    await supabase.from('workspaces').delete().eq('id', workspace.id)
-    return { error: 'Failed to create workspace member' }
-  }
-  
-  // 4. Revalidate any cached paths
-  revalidatePath('/dashboard')
-  
-  return { data: workspace }
 }
 //get user workspaces action
 // Cache this to prevent redundant queries in the same request
@@ -247,11 +257,14 @@ export async function inviteMember(workspaceId: string, email: string, role: 'ad
         .select('id, role, created_at, user_id')
         .single()
       if (memberError) return { error: memberError.message }
+      updateStripeSubscriptionSeatQuantity(workspaceId).catch((error) => {
+        logger.error("Failed to sync workspace seats after member add", error)
+      })
       safeRevalidatePath('/dashboard')
       return { data: newMember }
     }
 
-    // Invitee not in Trak: create invitation and send email
+    // Invitee not in Saria: create invitation and send email
     const { data: workspace } = await supabase
       .from('workspaces')
       .select('name')
@@ -507,6 +520,10 @@ export async function removeMember(workspaceId: string, memberId: string) {
     if (deleteError) {
       return { error: deleteError.message }
     }
+
+    updateStripeSubscriptionSeatQuantity(workspaceId).catch((error) => {
+      logger.error("Failed to sync workspace seats after member removal", error)
+    })
     
     revalidatePath('/dashboard')
     

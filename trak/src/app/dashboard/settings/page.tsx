@@ -5,11 +5,12 @@ import { getAllTeams } from "@/app/actions/workspace-teams";
 import { requireWorkspaceAccess } from "@/lib/auth-utils";
 import { createClient } from "@/lib/supabase/server";
 import { SettingsClient } from "./settings-client";
+import { getWorkspaceBillingSummary } from "@/lib/billing/entitlements";
 
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Settings - TWOD",
+  title: "Settings - Saria",
   description: "Manage workspace settings and team members",
 };
 
@@ -45,6 +46,7 @@ export default async function SettingsPage({
   ]);
   const members = "data" in membersResult ? membersResult.data : [];
   const teams = "data" in teamsResult ? teamsResult.data : [];
+  const billingSummary = await getWorkspaceBillingSummary(workspaceId);
 
   const params = searchParams ?? {};
   const initialTab =
@@ -59,6 +61,7 @@ export default async function SettingsPage({
       workspace={workspace}
       members={members || []}
       teams={teams || []}
+      billingSummary={billingSummary}
       currentUserRole={membership.role}
       currentUserId={user.id}
       initialTab={initialTab}

@@ -673,7 +673,7 @@ export async function executeSlackAICommand(
       if (!projects || projects.length === 0) {
         return {
           success: false,
-          response: "No projects found. Please create a project in TWOD first.",
+          response: "No projects found. Please create a project in Saria first.",
           toolCallsMade: [],
           error: "No projects available",
         };
@@ -712,7 +712,7 @@ export async function executeSlackAICommand(
       if (!tabs || tabs.length === 0) {
         return {
           success: false,
-          response: "No tabs found in that project. Please create a tab in TWOD first.",
+          response: "No tabs found in that project. Please create a tab in Saria first.",
           toolCallsMade: [],
           error: "No tabs available",
         };
@@ -734,10 +734,10 @@ export async function executeSlackAICommand(
     const systemPrefix: AIMessage[] = [
       {
         role: "system",
-        content: `You are TWOD AI, responding to a Slack slash command.
+        content: `You are Saria AI, responding to a Slack slash command.
 
 IMPORTANT CONSTRAINTS:
-- You CANNOT create blocks or visual artifacts (this is Slack, not a TWOD page)
+- You CANNOT create blocks or visual artifacts (this is Slack, not a Saria page)
 - Respond with concise text summaries (1-3 sentences maximum)
 - For creation commands, execute the action and confirm completion
 - For search/query commands, return a brief summary (not full details)
@@ -755,13 +755,13 @@ RESPONSE PATTERN:
 3. Keep responses under 200 characters when possible
 
 Examples:
-- Command: "/trak search overdue tasks"
+- Command: "/saria search overdue tasks"
   Response: "Found 5 overdue tasks: Fix login bug (due 2 days ago), Update docs (due yesterday), ..."
 
-- Command: "/trak create task Review Q1 report"
+- Command: "/saria create task Review Q1 report"
   Response: "✅ Created task 'Review Q1 report' in ${params.projectId ? 'current project' : 'the selected project'}"
 
-- Command: "/trak show projects for client Acme"
+- Command: "/saria show projects for client Acme"
   Response: "3 projects for Acme: Website Redesign, Mobile App, Cloud Migration"
 
 REMEMBER: Be concise. This is Slack, not a detailed report.`,

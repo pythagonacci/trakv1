@@ -42,7 +42,7 @@ export function IntegrationsClient({
     <div className="p-8 max-w-6xl mx-auto">
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-2">Integrations</h1>
-        <p className="text-gray-600">Connect external services to TWOD</p>
+        <p className="text-gray-600">Connect external services to Saria</p>
       </div>
 
       {/* Success/Error Messages */}

@@ -10,6 +10,7 @@ import { buildEntityPropertiesFromRows } from "@/app/actions/entity-properties";
 import {
   revalidateDashboardProjectTabPath,
 } from "@/app/actions/dashboard-path-revalidation";
+import { assertCanCreateTopLevelBlock } from "@/lib/billing/limits";
 
 // ============================================================================
 // TYPES
@@ -370,6 +371,8 @@ export async function createBlock(data: {
       if (column < 0 || column > 2) {
         return { error: "Column must be between 0 and 2" };
       }
+
+      await assertCanCreateTopLevelBlock(data.tabId);
     }
 
     // 6. Calculate position if not provided - use atomic approach to prevent race conditions
@@ -596,7 +599,7 @@ export async function createBlock(data: {
     return { data: block };
   } catch (error) {
     console.error("Create block exception:", error);
-    return { error: "Failed to create block" };
+    return { error: error instanceof Error ? error.message : "Failed to create block" };
   }
 }
 

@@ -6,6 +6,8 @@ import { aiDebug, aiTiming, isAITimingEnabled } from "@/lib/ai/debug"; // Added 
 import { getBlockWithContext } from "@/app/actions/ai-context";
 import { isUnauthorizedApiError, requireUser } from "@/lib/auth/require-user";
 import { resolveRouteContextFromPathname } from "@/lib/route-context";
+import { assertAndConsumeFreeAiCommandQuota } from "@/lib/billing/limits";
+import { toBillingErrorPayload } from "@/lib/billing/errors";
 
 /**
  * POST /api/ai
@@ -78,6 +80,25 @@ export async function POST(request: NextRequest) {
         { success: false, error: "Missing command", response: "Please provide a command." },
         { status: 400 }
       );
+    }
+
+    try {
+      await assertAndConsumeFreeAiCommandQuota(workspaceId);
+    } catch (error) {
+      const billingError = toBillingErrorPayload(error);
+      if (billingError) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: billingError.code,
+            response: billingError.message,
+            code: billingError.code,
+            upgradeTargetPlan: billingError.upgradeTargetPlan,
+          },
+          { status: 402 }
+        );
+      }
+      throw error;
     }
 
     aiDebug("api/ai:request", {
@@ -190,6 +211,19 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json(result);
   } catch (error) {
+    const billingError = toBillingErrorPayload(error);
+    if (billingError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: billingError.code,
+          response: billingError.message,
+          code: billingError.code,
+          upgradeTargetPlan: billingError.upgradeTargetPlan,
+        },
+        { status: 402 }
+      );
+    }
     if (isUnauthorizedApiError(error)) {
       return NextResponse.json(
         { success: false, error: "Unauthorized", response: "Please sign in to use AI commands." },
@@ -219,7 +253,7 @@ export async function GET() {
   const hasApiKey = !!process.env.DEEPSEEK_API_KEY;
 
   return NextResponse.json({
-    service: "TWOD AI",
+    service: "Saria AI",
     status: hasApiKey ? "ready" : "not_configured",
     message: hasApiKey
       ? "AI service is ready to accept commands."

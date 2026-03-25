@@ -108,7 +108,7 @@ export default function InviteMemberDialog({
           {success && (
             <div className="rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
               {success === "added" ? (
-                <p>They already have a Trak account and have been added to this workspace. No email was sent.</p>
+                <p>They already have a Saria account and have been added to this workspace. No email was sent.</p>
               ) : (
                 <p>Invitation email sent. They can sign up via the link in the email.</p>
               )}

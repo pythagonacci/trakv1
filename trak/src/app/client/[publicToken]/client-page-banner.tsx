@@ -16,7 +16,7 @@ export default function ClientPageBanner() {
             <p className="text-xs text-[var(--muted-foreground)]">
               Working with multiple providers?{" "}
               <span className="font-medium text-[var(--foreground)]">
-                Save all your projects to a free TWOD dashboard
+                Save all your projects to a free Saria dashboard
               </span>
             </p>
           </div>

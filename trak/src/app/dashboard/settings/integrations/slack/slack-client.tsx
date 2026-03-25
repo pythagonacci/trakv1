@@ -64,7 +64,7 @@ export default function SlackClient({
               Connect Slack
             </h3>
             <p className="text-gray-600 mb-4">
-              Install the TWOD app to your Slack workspace and use AI-powered commands directly in Slack.
+              Install the Saria app to your Slack workspace and use AI-powered commands directly in Slack.
             </p>
             {canManage ? (
               <button
@@ -168,7 +168,7 @@ export default function SlackClient({
                 Your Slack account is not linked
               </p>
               <p className="text-sm text-gray-500">
-                You need to link your account to use <code className="bg-gray-100 px-1 rounded">/trak</code> commands
+                You need to link your account to use <code className="bg-gray-100 px-1 rounded">/saria</code> commands
               </p>
             </div>
           </div>
@@ -178,14 +178,14 @@ export default function SlackClient({
       {/* Usage Instructions */}
       <div className="bg-blue-50 rounded-lg p-6">
         <h3 className="text-lg font-semibold text-blue-900 mb-3">
-          Using TWOD in Slack
+          Using Saria in Slack
         </h3>
         <div className="space-y-2 text-sm text-blue-800">
-          <p>Use the <code className="bg-blue-100 px-2 py-1 rounded font-mono">/trak</code> command in any Slack channel:</p>
+          <p>Use the <code className="bg-blue-100 px-2 py-1 rounded font-mono">/saria</code> command in any Slack channel:</p>
           <ul className="list-disc list-inside space-y-1 ml-2">
-            <li><code className="bg-blue-100 px-1 rounded font-mono">/trak search tasks</code> - Find tasks</li>
-            <li><code className="bg-blue-100 px-1 rounded font-mono">/trak create task Review Q1 report</code> - Create a new task</li>
-            <li><code className="bg-blue-100 px-1 rounded font-mono">/trak show projects for client Acme</code> - List projects</li>
+            <li><code className="bg-blue-100 px-1 rounded font-mono">/saria search tasks</code> - Find tasks</li>
+            <li><code className="bg-blue-100 px-1 rounded font-mono">/saria create task Review Q1 report</code> - Create a new task</li>
+            <li><code className="bg-blue-100 px-1 rounded font-mono">/saria show projects for client Acme</code> - List projects</li>
           </ul>
           <p className="mt-3 text-blue-700">
             💡 All responses are ephemeral (only visible to you)

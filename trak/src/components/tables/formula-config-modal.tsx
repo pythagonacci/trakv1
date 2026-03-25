@@ -132,10 +132,10 @@ export function FormulaConfigModal({ open, field, tableFields, onClose, onSave }
           sample = cfg.options?.slice(0, 2).map((opt: any) => opt.label ?? opt.id) ?? [];
           break;
         case "url":
-          sample = "https://trak.so";
+          sample = "https://saria.so";
           break;
         case "email":
-          sample = "team@trak.so";
+          sample = "team@saria.so";
           break;
         case "phone":
           sample = "+1 555 0100";

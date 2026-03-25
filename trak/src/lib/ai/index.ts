@@ -1,7 +1,7 @@
 /**
  * AI Module for Prompt-to-Action
  *
- * This module provides the AI-powered command execution system for Trak.
+ * This module provides the AI-powered command execution system for Saria.
  * It enables users to execute natural language commands to manage their
  * projects, tasks, tables, timelines, and more.
  */
@@ -23,8 +23,8 @@ export {
 
 // System prompt
 export {
-  TRAK_SYSTEM_PROMPT,
-  TRAK_FAST_ACTION_PROMPT,
+  SARIA_SYSTEM_PROMPT,
+  SARIA_FAST_ACTION_PROMPT,
   getSystemPrompt,
   CLARIFICATION_PROMPTS,
   RESPONSE_TEMPLATES,

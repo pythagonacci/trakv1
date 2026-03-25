@@ -1,6 +1,6 @@
 "use client";
 
-// Trak Universal Properties - React Query Hooks (Simplified)
+// Saria Universal Properties - React Query Hooks (Simplified)
 // Fixed properties: status, priority, assignee, due date, tags
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";

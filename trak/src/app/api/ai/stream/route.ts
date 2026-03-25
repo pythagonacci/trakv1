@@ -5,6 +5,8 @@ import type { WriteConfirmationApproval } from "@/lib/ai/write-confirmation";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { isUnauthorizedApiError, requireUser } from "@/lib/auth/require-user";
 import { resolveRouteContextFromPathname } from "@/lib/route-context";
+import { assertAndConsumeFreeAiCommandQuota } from "@/lib/billing/limits";
+import { toBillingErrorPayload } from "@/lib/billing/errors";
 
 /**
  * POST /api/ai/stream
@@ -68,6 +70,27 @@ export async function POST(request: NextRequest) {
 
     let resolvedTabId = (tabId || "").trim();
     const workspaceId = await getCurrentWorkspaceId();
+    if (workspaceId) {
+      try {
+        await assertAndConsumeFreeAiCommandQuota(workspaceId);
+      } catch (error) {
+        const billingError = toBillingErrorPayload(error);
+        if (billingError) {
+          return new Response(
+            `data: ${JSON.stringify({ type: "error", content: billingError.message, code: billingError.code, upgradeTargetPlan: billingError.upgradeTargetPlan })}\n\n`,
+            {
+              status: 402,
+              headers: {
+                "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache",
+                Connection: "keep-alive",
+              },
+            }
+          );
+        }
+        throw error;
+      }
+    }
     if (workspaceId && refererPathname) {
       const resolvedRoute = await resolveRouteContextFromPathname({
         supabase,

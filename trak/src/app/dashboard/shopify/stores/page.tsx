@@ -5,7 +5,7 @@ import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { ShopifyStoresClient } from "./stores-client";
 
 export const metadata = {
-  title: "Stores - TWOD",
+  title: "Stores - Saria",
   description: "Connect your Shopify stores to import products",
 };
 

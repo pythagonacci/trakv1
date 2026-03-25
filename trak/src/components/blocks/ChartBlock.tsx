@@ -18,7 +18,7 @@ import { isSpecChart, isRefreshableDataSource } from "@/types/chart";
 import { cn } from "@/lib/utils";
 import { updateChartBlock, refreshChartBlock, saveChartAsSnapshot, setChartDataScope } from "@/app/actions/chart-actions";
 import { searchTasks } from "@/app/actions/ai-search";
-import { TrakChart } from "@/components/blocks/chart/TrakChart";
+import { SariaChart } from "@/components/blocks/chart/SariaChart";
 import { ChartConfigPanel } from "@/components/blocks/chart/ChartConfigPanel";
 import { buildChartData, groupRowsByBreakdown } from "@/lib/charts/transform";
 import { applySpecFallbacks, type ChartSpec } from "@/lib/charts/chartSpec";
@@ -733,7 +733,7 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
                   className="mt-3 flex-1 min-h-0 flex items-center justify-center min-h-[260px]"
                 >
                   <div className="w-full h-full">
-                    <TrakChart
+                    <SariaChart
                       spec={localSpec}
                       data={chartData}
                       height={chartHeight}

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { TrakChart } from "@/components/blocks/chart/TrakChart";
+import { SariaChart } from "@/components/blocks/chart/SariaChart";
 import { ChartConfigPanel } from "@/components/blocks/chart/ChartConfigPanel";
 import { buildChartData } from "@/lib/charts/transform";
 import { applySpecFallbacks, type ChartSpec } from "@/lib/charts/chartSpec";
@@ -199,7 +199,7 @@ export default function ChartTestPage() {
             </div>
 
             {chartData ? (
-              <TrakChart spec={activeSpec} data={chartData} height={340} />
+              <SariaChart spec={activeSpec} data={chartData} height={340} />
             ) : (
               <div className="flex h-48 items-center justify-center text-sm text-[var(--error)]">
                 Transform error — check console

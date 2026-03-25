@@ -10,8 +10,12 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'TWOD',
+  title: 'Saria',
   description: 'Project management made simple',
+  icons: {
+    icon: '/LOGO.png',
+    apple: '/LOGO.png',
+  },
 };
 
 export default function RootLayout({

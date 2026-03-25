@@ -45,6 +45,7 @@ import { getAllProjects } from "@/app/actions/project";
 import { getAllInternalGroups } from "@/app/actions/internal-group";
 import { getAllTeams } from "@/app/actions/workspace-teams";
 import { cn } from "@/lib/utils";
+import { useWorkspaceBilling } from "@/hooks/use-workspace-billing";
 
 const BUILT_IN_LABELS: Record<string, string> = {
   notifications: "Notifications",
@@ -110,6 +111,7 @@ export default function DashboardConfigModal({
 }: DashboardConfigModalProps) {
   const modal = useDashboardConfigModal();
   const { config, setConfig } = useDashboardConfig(workspaceId);
+  const { data: billingSummary } = useWorkspaceBilling(workspaceId);
   const [addingType, setAddingType] = useState<
     "project_card" | "project_group" | "task_list" | "chart" | null
   >(null);
@@ -118,6 +120,8 @@ export default function DashboardConfigModal({
   const [teams, setTeams] = useState<Array<{ id: string; name: string }>>([]);
 
   const open = modal?.isOpen ?? false;
+  const canConfigureDashboard = billingSummary?.entitlements.allowDashboardConfiguration ?? false;
+  const canUseWorkspaceScopeCharts = billingSummary?.entitlements.allowWorkspaceScopeCharts ?? false;
   const onClose = useCallback(() => {
     modal?.close();
     setAddingType(null);
@@ -175,6 +179,21 @@ export default function DashboardConfigModal({
   const resetToDefault = useCallback(() => {
     setConfig(getDefaultDashboardConfig());
   }, [setConfig]);
+
+  if (!canConfigureDashboard) {
+    return (
+      <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Configure dashboard</DialogTitle>
+            <DialogDescription>
+              Dashboard customization is available on Business only. Upgrade to unlock configurable widgets and workspace-wide analytics.
+            </DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -282,14 +301,15 @@ export default function DashboardConfigModal({
             </div>
           </div>
         ) : (
-          <AddWidgetForm
-            type={addingType}
-            projects={projects}
-            groups={groups}
-            teams={teams}
-            onAdd={addWidget}
-            onCancel={() => setAddingType(null)}
-          />
+            <AddWidgetForm
+              type={addingType}
+              projects={projects}
+              groups={groups}
+              teams={teams}
+              canUseWorkspaceScopeCharts={canUseWorkspaceScopeCharts}
+              onAdd={addWidget}
+              onCancel={() => setAddingType(null)}
+            />
         )}
 
         <DialogFooter>
@@ -310,6 +330,7 @@ function AddWidgetForm({
   projects,
   groups,
   teams,
+  canUseWorkspaceScopeCharts,
   onAdd,
   onCancel,
 }: {
@@ -317,6 +338,7 @@ function AddWidgetForm({
   projects: Array<{ id: string; name: string }>;
   groups: Array<{ id: string; name: string }>;
   teams: Array<{ id: string; name: string }>;
+  canUseWorkspaceScopeCharts: boolean;
   onAdd: (w: DashboardWidgetConfig) => void;
   onCancel: () => void;
 }) {
@@ -350,6 +372,7 @@ function AddWidgetForm({
   return (
     <AddChartForm
       projects={projects}
+      canUseWorkspaceScopeCharts={canUseWorkspaceScopeCharts}
       onAdd={onAdd as (w: ChartWidgetConfig) => void}
       onCancel={onCancel}
     />
@@ -588,15 +611,17 @@ const BREAKDOWN_LABELS: Record<DashboardChartQuery["breakdownField"], string> = 
 
 function AddChartForm({
   projects,
+  canUseWorkspaceScopeCharts,
   onAdd,
   onCancel,
 }: {
   projects: Array<{ id: string; name: string }>;
+  canUseWorkspaceScopeCharts: boolean;
   onAdd: (w: ChartWidgetConfig) => void;
   onCancel: () => void;
 }) {
   const [chartType, setChartType] = useState<DashboardChartQuery["chartType"]>("pie");
-  const [scope, setScope] = useState<"workspace" | "project">("workspace");
+  const [scope, setScope] = useState<"workspace" | "project">(canUseWorkspaceScopeCharts ? "workspace" : "project");
   const [projectId, setProjectId] = useState("");
   const [breakdownField, setBreakdownField] = useState<DashboardChartQuery["breakdownField"]>("status");
   const [title, setTitle] = useState("");
@@ -628,7 +653,7 @@ function AddChartForm({
           }}
           className="mt-1 w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm"
         >
-          <option value="workspace">All workspace tasks</option>
+          {canUseWorkspaceScopeCharts && <option value="workspace">All workspace tasks</option>}
           <option value="project">Tasks in a project</option>
         </select>
       </div>

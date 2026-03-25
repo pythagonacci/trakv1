@@ -147,7 +147,7 @@ export default async function ClientTabPage({
       {/* Auto-refresh every 30 seconds */}
       <AutoRefresh />
 
-      {/* "My Trak" Banner (placeholder CTA) */}
+      {/* "My Saria" Banner (placeholder CTA) */}
       <ClientPageBanner />
 
       <div className="max-w-7xl mx-auto px-3 md:px-4 lg:px-5">

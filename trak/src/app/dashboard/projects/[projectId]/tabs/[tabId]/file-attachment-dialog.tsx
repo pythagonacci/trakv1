@@ -109,7 +109,7 @@ export default function FileAttachmentDialog({
           ) : (
             <div className="space-y-3">
               <p className="text-sm text-[var(--muted-foreground)]">
-                Link Drive files as external assets. Trak will keep links and previews while Drive remains the source of truth.
+                Link Drive files as external assets. Saria will keep links and previews while Drive remains the source of truth.
               </p>
               {error && <p className="text-sm text-red-600">{error}</p>}
               <button

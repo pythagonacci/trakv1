@@ -204,7 +204,7 @@ export async function listShopifyProducts(
 }
 
 /**
- * Imports Shopify products into Trak database
+ * Imports Shopify products into Saria database
  */
 export async function importShopifyProducts(
   connectionId: string,
@@ -532,9 +532,9 @@ export async function unimportShopifyProduct(
 }
 
 /**
- * Gets imported products from Trak database
+ * Gets imported products from Saria database
  */
-export async function getTrakProducts(
+export async function getSariaProducts(
   connectionId: string,
   options: { search?: string; limit?: number; offset?: number } = {}
 ): Promise<ActionResult<{ products: ShopifyProduct[]; total: number }>> {
@@ -567,7 +567,7 @@ export async function getTrakProducts(
     const { data: products, error: productsError, count } = await query;
 
     if (productsError) {
-      console.error("Error fetching Trak products:", productsError);
+      console.error("Error fetching Saria products:", productsError);
       return { error: "Failed to fetch products" };
     }
 
@@ -578,7 +578,7 @@ export async function getTrakProducts(
       },
     };
   } catch (error) {
-    console.error("Error in getTrakProducts:", error);
+    console.error("Error in getSariaProducts:", error);
     return { error: "Internal server error" };
   }
 }

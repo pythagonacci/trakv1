@@ -85,7 +85,7 @@ function buildContextSelectionMessage(result: SlackExecutionResult): SlackBlockK
   if (options.length > 5) {
     const hintText: SlackTextObject = {
       type: "plain_text",
-      text: `💡 Tip: You can specify the ${type} in your command next time, e.g., "/trak in the Marketing ${type}, create task..."`,
+      text: `💡 Tip: You can specify the ${type} in your command next time, e.g., "/saria in the Marketing ${type}, create task..."`,
     };
     blocks.push({
       type: "context",
@@ -192,7 +192,7 @@ export function buildListMessage(
   if (hasMore) {
     const moreText: SlackTextObject = {
       type: "plain_text",
-      text: `... and ${items.length - maxItems} more. View all in TWOD.`,
+      text: `... and ${items.length - maxItems} more. View all in Saria.`,
     };
     blocks.push({
       type: "context",

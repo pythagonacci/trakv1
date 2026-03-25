@@ -1,7 +1,7 @@
 import { QueryClient } from '@tanstack/react-query';
 
 /**
- * React Query client configuration for Trak
+ * React Query client configuration for Saria
  * Optimized for tab navigation and block data caching
  */
 export function makeQueryClient() {
