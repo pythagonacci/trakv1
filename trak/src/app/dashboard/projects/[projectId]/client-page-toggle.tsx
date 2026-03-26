@@ -60,8 +60,10 @@ interface ClientPageToggleProps {
   clientCommentsEnabled: boolean;
   clientEditingEnabled?: boolean;
   tabs?: Tab[];
-  /** When set (project tab route), the header button is highlighted only if this tab is public to clients. */
+  /** Active tab id for tab-route-specific styling. */
   activeTabId?: string;
+  /** When true, the header button is highlighted only if the active tab is public to clients. */
+  tabScopedHighlight?: boolean;
 }
 
 function flattenTabs(tabs: Tab[], depth = 0): FlatTab[] {
@@ -90,6 +92,7 @@ export default function ClientPageToggle({
   clientEditingEnabled = false,
   tabs = [],
   activeTabId,
+  tabScopedHighlight = false,
 }: ClientPageToggleProps) {
   const router = useRouter();
   const flattenedTabs = useMemo(() => flattenTabs(tabs), [tabs]);
@@ -171,10 +174,11 @@ export default function ClientPageToggle({
 
   const headerLinkLooksPublic = useMemo(() => {
     if (!isEnabled) return false;
-    if (!activeTabId) return true;
+    if (!tabScopedHighlight) return false;
+    if (!activeTabId) return false;
     const tab = localTabs.find((t) => t.id === activeTabId);
     return Boolean(tab?.is_client_visible);
-  }, [isEnabled, activeTabId, localTabs]);
+  }, [isEnabled, activeTabId, localTabs, tabScopedHighlight]);
 
   const handleToggle = async () => {
     setIsLoading(true);

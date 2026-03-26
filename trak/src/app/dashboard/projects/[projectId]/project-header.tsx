@@ -295,6 +295,7 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
             clientEditingEnabled={project.client_editing_enabled || false}
             tabs={tabs}
             activeTabId={tabId}
+            tabScopedHighlight={Boolean(tabId)}
           />
 
           {/* Project settings: Edit details + Manage Access */}
