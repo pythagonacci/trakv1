@@ -294,6 +294,7 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
             clientCommentsEnabled={project.client_comments_enabled || false}
             clientEditingEnabled={project.client_editing_enabled || false}
             tabs={tabs}
+            activeTabId={tabId}
           />
 
           {/* Project settings: Edit details + Manage Access */}

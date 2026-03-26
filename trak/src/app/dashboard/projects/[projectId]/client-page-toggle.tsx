@@ -60,6 +60,8 @@ interface ClientPageToggleProps {
   clientCommentsEnabled: boolean;
   clientEditingEnabled?: boolean;
   tabs?: Tab[];
+  /** When set (project tab route), the header button is highlighted only if this tab is public to clients. */
+  activeTabId?: string;
 }
 
 function flattenTabs(tabs: Tab[], depth = 0): FlatTab[] {
@@ -87,6 +89,7 @@ export default function ClientPageToggle({
   clientCommentsEnabled,
   clientEditingEnabled = false,
   tabs = [],
+  activeTabId,
 }: ClientPageToggleProps) {
   const router = useRouter();
   const flattenedTabs = useMemo(() => flattenTabs(tabs), [tabs]);
@@ -165,6 +168,13 @@ export default function ClientPageToggle({
       ),
     [localTabs]
   );
+
+  const headerLinkLooksPublic = useMemo(() => {
+    if (!isEnabled) return false;
+    if (!activeTabId) return true;
+    const tab = localTabs.find((t) => t.id === activeTabId);
+    return Boolean(tab?.is_client_visible);
+  }, [isEnabled, activeTabId, localTabs]);
 
   const handleToggle = async () => {
     setIsLoading(true);
@@ -318,7 +328,7 @@ export default function ClientPageToggle({
         disabled={isLoading}
         className={cn(
           "inline-flex h-7 items-center gap-1 rounded-[var(--radius-md)] border px-2.5 py-1.5 text-[11px] font-medium shadow-sm transition-all duration-150",
-          isEnabled
+          headerLinkLooksPublic
             ? "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
             : "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)]",
           isLoading && "cursor-not-allowed opacity-50"
