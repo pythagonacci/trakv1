@@ -25,7 +25,7 @@ function Select({ label, id, className, children, ...rest }: SelectProps) {
       <select
         id={inputId}
         className={cn(
-          "rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]",
+          "rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]",
           className
         )}
         {...rest}
@@ -76,7 +76,7 @@ function TextField({ label, value, onChange, placeholder }: TextFieldProps) {
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]"
+        className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]"
       />
     </div>
   );
@@ -123,7 +123,7 @@ export function ChartConfigPanel({
   return (
     <div
       className={cn(
-        "flex flex-col gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-sm shadow-md",
+        "flex flex-col gap-4 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] p-4 text-sm shadow-md",
         className
       )}
       aria-label="Chart configuration panel"

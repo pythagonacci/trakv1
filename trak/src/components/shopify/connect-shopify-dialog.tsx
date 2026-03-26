@@ -78,7 +78,7 @@ export function ConnectShopifyDialog({ isOpen, onClose, workspaceId }: ConnectSh
               disabled={isPending}
               autoFocus
             />
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-[var(--tertiary-foreground)]">
               Enter your store name or full domain (e.g., "my-store" or "my-store.myshopify.com")
             </p>
           </div>

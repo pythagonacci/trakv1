@@ -41,7 +41,7 @@ export function ExternalAssetCard({ asset, onPreview, onRemove }: ExternalAssetC
   };
 
   return (
-    <div className="rounded-md border border-[var(--border)] p-3">
+    <div className="rounded-[var(--radius-md)] border border-[var(--border)] p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{asset.name}</p>

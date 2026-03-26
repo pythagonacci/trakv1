@@ -18,7 +18,7 @@ export default async function DashboardPage() {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
-          <p className="text-neutral-500">No workspace selected</p>
+          <p className="text-[var(--tertiary-foreground)]">No workspace selected</p>
         </div>
       </div>
     );

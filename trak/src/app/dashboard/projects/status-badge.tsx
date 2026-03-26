@@ -7,13 +7,12 @@ interface StatusBadgeProps {
 }
 
 export default function StatusBadge({ status }: StatusBadgeProps) {
-  const { theme } = useThemeOptional();
+  useThemeOptional();
   
-  // SARAJEVO ARTS PALETTE for status badges (single light theme)
   const styles = {
-    not_started: "bg-[var(--river-indigo)]/10 text-[var(--river-indigo)] border border-[var(--river-indigo)]/20",
-    in_progress: "bg-[var(--tram-yellow)]/10 text-[var(--tram-yellow)] border border-[var(--tram-yellow)]/20",
-    complete: "bg-[var(--dome-teal)]/10 text-[var(--dome-teal)] border border-[var(--dome-teal)]/20",
+    not_started: "bg-[var(--status-todo-bg)] text-[var(--status-todo-text)] border border-[var(--border-strong)]",
+    in_progress: "bg-[var(--status-inprogress-bg)] text-[var(--status-inprogress-text)] border border-[var(--status-inprogress-text)]/20",
+    complete: "bg-[var(--status-done-bg)] text-[var(--status-done-text)] border border-[var(--status-done-text)]/20",
   } as const;
 
   const labels = {

@@ -159,7 +159,7 @@ function ExpandableBreakdownRow({
           <span className="text-[12px] font-semibold text-[var(--foreground)] tabular-nums">
             {count} ({pct(percent)})
           </span>
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)]">
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)]">
             {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
           </span>
         </div>
@@ -179,7 +179,7 @@ function ExpandableBreakdownRow({
               {rows.map((row) => (
                 <div
                   key={row.id}
-                  className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 hover:bg-[var(--surface-hover)]"
+                  className="flex items-center justify-between gap-3 rounded-[var(--radius-lg)] px-2 py-1.5 hover:bg-[var(--surface-hover)]"
                 >
                   <div className="min-w-0">
                     <div className="truncate text-[12px] font-medium text-[var(--foreground)]">
@@ -193,7 +193,7 @@ function ExpandableBreakdownRow({
                   </div>
                   <a
                     href={getTaskHref?.(row) ?? `#task-${row.id}`}
-                    className="shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+                    className="shrink-0 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
                   >
                     Open
                   </a>
@@ -308,7 +308,7 @@ export default function DashboardChartWidget({ config }: DashboardChartWidgetPro
               <h2 className="truncate text-[15px] font-semibold tracking-tight text-[var(--foreground)]">
                 {title}
               </h2>
-              <span className="hidden sm:inline-flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-1 text-[11px] font-medium text-[var(--muted-foreground)]">
+              <span className="hidden sm:inline-flex items-center gap-1 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-1 text-[11px] font-medium text-[var(--muted-foreground)]">
                 <Sparkles className="h-3.5 w-3.5" />
                 Chart
               </span>
@@ -331,7 +331,7 @@ export default function DashboardChartWidget({ config }: DashboardChartWidgetPro
               <h2 className="truncate text-[15px] font-semibold tracking-tight text-[var(--foreground)]">
                 {title}
               </h2>
-              <span className="hidden sm:inline-flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-1 text-[11px] font-medium text-[var(--muted-foreground)]">
+              <span className="hidden sm:inline-flex items-center gap-1 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-1 text-[11px] font-medium text-[var(--muted-foreground)]">
                 <Sparkles className="h-3.5 w-3.5" />
                 Chart
               </span>
@@ -386,7 +386,7 @@ export default function DashboardChartWidget({ config }: DashboardChartWidgetPro
             <h2 className="truncate text-[15px] font-semibold tracking-tight text-[var(--foreground)]">
               {title}
             </h2>
-            <span className="hidden sm:inline-flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-1 text-[11px] font-medium text-[var(--muted-foreground)]">
+            <span className="hidden sm:inline-flex items-center gap-1 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-1 text-[11px] font-medium text-[var(--muted-foreground)]">
               <Sparkles className="h-3.5 w-3.5" />
               Chart
             </span>

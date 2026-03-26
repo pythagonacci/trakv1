@@ -48,7 +48,7 @@ export default function ClientDocViewer({ docId, docTitle, publicToken }: Client
           node.marks.forEach((mark: any) => {
             if (mark.type === "bold") text = `<strong>${text}</strong>`;
             if (mark.type === "italic") text = `<em>${text}</em>`;
-            if (mark.type === "code") text = `<code class="px-1 py-0.5 bg-gray-100 rounded text-sm">${text}</code>`;
+            if (mark.type === "code") text = `<code class="px-1 py-0.5 bg-[var(--surface-muted)] rounded text-sm">${text}</code>`;
           });
         }
         return text;
@@ -99,10 +99,10 @@ export default function ClientDocViewer({ docId, docTitle, publicToken }: Client
     return (
       <button
         onClick={() => setIsExpanded(true)}
-        className="w-full border border-[var(--border)] rounded-lg p-4 transition-all hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)] text-left"
+        className="w-full border border-[var(--border)] rounded-[var(--radius-lg)] p-4 transition-all hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)] text-left"
       >
         <div className="flex items-start gap-3">
-          <div className="p-2 rounded-lg bg-blue-50 text-blue-600">
+          <div className="p-2 rounded-[var(--radius-lg)] bg-blue-50 text-blue-600">
             <FileText className="h-5 w-5" />
           </div>
           
@@ -120,7 +120,7 @@ export default function ClientDocViewer({ docId, docTitle, publicToken }: Client
   }
 
   return (
-    <div className="border border-[var(--border)] rounded-lg overflow-hidden">
+    <div className="border border-[var(--border)] rounded-[var(--radius-lg)] overflow-hidden">
       {/* Header */}
       <div className="bg-[var(--surface-muted)] border-b border-[var(--border)] p-3 flex items-center justify-between">
         <div className="flex items-center gap-2">

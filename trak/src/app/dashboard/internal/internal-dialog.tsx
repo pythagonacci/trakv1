@@ -95,7 +95,7 @@ export default function InternalDialog({ mode, isOpen, onClose, onSubmit, initia
               id="status"
               value={formData.status}
               onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value as "not_started" | "in_progress" | "complete" }))}
-              className="w-full px-3 py-2 text-sm border border-[var(--border)] rounded-md bg-[var(--background)] text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)] focus:ring-offset-1"
+              className="w-full px-3 py-2 text-sm border border-[var(--border)] rounded-[var(--radius-md)] bg-[var(--background)] text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)] focus:ring-offset-1"
             >
               <option value="not_started">Draft</option>
               <option value="in_progress">Active</option>
@@ -104,7 +104,7 @@ export default function InternalDialog({ mode, isOpen, onClose, onSubmit, initia
           </div>
 
           {error && (
-            <div className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+            <div className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-[var(--radius-md)] px-3 py-2">
               {error}
             </div>
           )}

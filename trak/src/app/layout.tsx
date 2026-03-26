@@ -1,11 +1,19 @@
 import type { Metadata } from 'next';
 import P2AWarmup from '@/components/ai/p2a-warmup';
-import { Inter } from 'next/font/google';
+import { DM_Sans, Instrument_Serif } from 'next/font/google';
 import './globals.css';
 
-const inter = Inter({
+const dmSans = DM_Sans({
   subsets: ['latin'],
   variable: '--font-sans',
+  weight: ['300', '400', '500'],
+  display: 'swap',
+});
+
+const instrumentSerif = Instrument_Serif({
+  subsets: ['latin'],
+  variable: '--font-serif',
+  weight: ['400'],
   display: 'swap',
 });
 
@@ -24,7 +32,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning className={inter.variable}>
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${dmSans.variable} ${instrumentSerif.variable}`}
+    >
       <body className={`bg-[var(--background)] text-[var(--foreground)]`}>
         <div id="app-scale-wrapper">
           {children}

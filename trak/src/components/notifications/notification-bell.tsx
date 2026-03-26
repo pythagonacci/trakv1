@@ -47,7 +47,7 @@ export default function NotificationBell({ workspaceId }: { workspaceId?: string
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="relative inline-flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--header-bar-text)] transition-colors hover:bg-[var(--surface-hover)]"
+          className="relative inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] text-[var(--header-bar-text)] transition-colors hover:bg-[var(--surface-hover)]"
           aria-label="Open notifications"
         >
           <Bell className="h-4 w-4" />

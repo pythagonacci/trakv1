@@ -432,14 +432,14 @@ export default function DocEditor({ doc }: DocEditorProps) {
           </div>
 
           <div className="flex items-center gap-3 flex-shrink-0">
-            <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+            <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)]">
               {availableThemes.map((t) => (
                 <button
                   key={t.id}
                   onClick={() => setDocTheme(t.id)}
                   type="button"
                   className={cn(
-                    "h-6 w-6 rounded-md border flex-shrink-0 transition-all",
+                    "h-6 w-6 rounded-[var(--radius-md)] border flex-shrink-0 transition-all",
                     docTheme === t.id ? "ring-2 ring-[var(--foreground)] border-transparent" : "border-[var(--border)]"
                   )}
                   style={{ background: t.paperBg }}
@@ -451,7 +451,7 @@ export default function DocEditor({ doc }: DocEditorProps) {
             {/* Line Spacing Dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors">
+                <button className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors">
                   <Type className="h-3.5 w-3.5" />
                   <span className="hidden sm:inline">{lineSpacing === "1" ? "Single" : lineSpacing === "2" ? "Double" : `${lineSpacing}x`}</span>
                   <ChevronDown className="h-3 w-3" />
@@ -477,7 +477,7 @@ export default function DocEditor({ doc }: DocEditorProps) {
             {isMounted ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors">
+                  <button className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors">
                     <Download className="h-3.5 w-3.5" />
                     <span className="hidden sm:inline">Export</span>
                     <ChevronDown className="h-3 w-3" />
@@ -499,7 +499,7 @@ export default function DocEditor({ doc }: DocEditorProps) {
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
-              <button className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] opacity-50" disabled>
+              <button className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] opacity-50" disabled>
                 <Download className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Export</span>
                 <ChevronDown className="h-3 w-3" />

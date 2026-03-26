@@ -82,14 +82,14 @@ export default function EditTeamDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
       <div
-        className="relative w-full max-w-md rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 shadow-lg max-h-[90vh] flex flex-col"
+        className="relative w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] p-6 shadow-lg max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-[var(--foreground)]">Edit Team</h2>
           <button
             onClick={onClose}
-            className="rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
+            className="rounded-[var(--radius-md)] p-1 text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
           >
             <X className="h-4 w-4" />
           </button>

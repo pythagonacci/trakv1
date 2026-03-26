@@ -70,7 +70,7 @@ export default function GoogleDriveSettingsClient({
       <CardContent className="space-y-4">
         {connection ? (
           <>
-            <div className="rounded-md border border-[var(--border)] p-4">
+            <div className="rounded-[var(--radius-md)] border border-[var(--border)] p-4">
               <p className="text-sm font-medium">Connected</p>
               <p className="text-sm text-[var(--muted-foreground)]">Account: {connection.google_account_email}</p>
               <p className="text-sm text-[var(--muted-foreground)]">Connected at: {connectedAt}</p>
@@ -107,7 +107,7 @@ export default function GoogleDriveSettingsClient({
           </>
         )}
 
-        <div className="rounded-md border border-[var(--border)] bg-[var(--surface-hover)] p-4 text-sm">
+        <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface-hover)] p-4 text-sm">
           <p className="font-medium">What Saria can access</p>
           <ul className="ml-4 mt-2 list-disc space-y-1 text-[var(--muted-foreground)]">
             <li>Read metadata for files and folders you link.</li>

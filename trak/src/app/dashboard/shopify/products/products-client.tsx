@@ -114,7 +114,7 @@ export function ShopifyProductsClient({
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-2">Products</h1>
-        <p className="text-gray-600">View and manage your imported Shopify products</p>
+        <p className="text-[var(--muted-foreground)]">View and manage your imported Shopify products</p>
       </div>
 
       {/* Filters */}
@@ -153,7 +153,7 @@ export function ShopifyProductsClient({
       {filteredProducts.length === 0 ? (
         <Card>
           <CardContent className="p-12 text-center">
-            <div className="text-gray-400 mb-4">
+            <div className="text-[var(--tertiary-foreground)] mb-4">
               <svg
                 className="w-16 h-16 mx-auto"
                 fill="none"
@@ -168,7 +168,7 @@ export function ShopifyProductsClient({
                 />
               </svg>
             </div>
-            <p className="text-gray-600 mb-4">
+            <p className="text-[var(--muted-foreground)] mb-4">
               {search
                 ? "No products match your search"
                 : "No products imported yet"}
@@ -194,10 +194,10 @@ export function ShopifyProductsClient({
                   <img
                     src={product.featured_image_url}
                     alt={product.title}
-                    className="w-full h-48 object-cover rounded-lg mb-4"
+                    className="w-full h-48 object-cover rounded-[var(--radius-lg)] mb-4"
                   />
                 ) : (
-                  <div className="w-full h-48 bg-gray-100 rounded-lg mb-4 flex items-center justify-center">
+                  <div className="w-full h-48 bg-[var(--surface-muted)] rounded-[var(--radius-lg)] mb-4 flex items-center justify-center">
                     <svg
                       className="w-16 h-16 text-gray-300"
                       fill="none"
@@ -220,7 +220,7 @@ export function ShopifyProductsClient({
                     {product.title}
                   </h3>
 
-                  <div className="text-sm text-gray-500 space-y-1">
+                  <div className="text-sm text-[var(--tertiary-foreground)] space-y-1">
                     {product.vendor && (
                       <div>
                         <span className="font-medium">Vendor:</span> {product.vendor}
@@ -248,7 +248,7 @@ export function ShopifyProductsClient({
                       className={`inline-block px-2 py-1 rounded text-xs ${
                         product.status === "active"
                           ? "bg-green-100 text-green-800"
-                          : "bg-gray-100 text-gray-800"
+                          : "bg-[var(--surface-muted)] text-gray-800"
                       }`}
                     >
                       {product.status}

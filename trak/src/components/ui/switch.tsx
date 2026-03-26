@@ -38,8 +38,8 @@ export const Switch = React.forwardRef<HTMLButtonElement, SwitchProps>(
       >
         <span
           className={cn(
-            "ml-0.5 inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-150 ease-out",
-            checked && "translate-x-4 bg-white"
+            "ml-0.5 inline-block h-4 w-4 rounded-full bg-[var(--surface)] shadow transition-transform duration-150 ease-out",
+            checked && "translate-x-4 bg-[var(--surface)]"
           )}
         />
       </button>

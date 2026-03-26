@@ -409,11 +409,11 @@ export default function ReferencePicker({
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
             className={cn(
-              "flex w-full items-center gap-2 rounded-lg border border-dashed border-[var(--border)] px-2.5 py-2 text-left transition-colors hover:border-[var(--secondary)] hover:bg-[var(--surface-hover)] disabled:opacity-60",
+              "flex w-full items-center gap-2 rounded-lg border border-dashed border-neutral-200 px-2.5 py-2 text-left transition-colors hover:border-[var(--secondary)] hover:bg-neutral-200 disabled:opacity-60",
               variant === "popover" ? "text-xs" : "text-sm"
             )}
           >
-            <Upload className={cn("text-[var(--muted-foreground)]", variant === "popover" ? "h-3.5 w-3.5" : "h-4 w-4")} />
+            <Upload className={cn("text-neutral-600", variant === "popover" ? "h-3.5 w-3.5" : "h-4 w-4")} />
             <span className="text-[var(--foreground)]">
               {uploading ? "Uploading…" : "Upload from computer"}
             </span>
@@ -620,7 +620,7 @@ export default function ReferencePicker({
       <div
         ref={popoverRef}
         onKeyDown={handleKeyDown}
-        className="fixed z-[100000] w-[260px] max-w-[90vw] max-h-[300px] rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2 shadow-popover overflow-hidden flex flex-col"
+        className="fixed z-[100000] w-[260px] max-w-[90vw] max-h-[300px] rounded-lg border border-neutral-200 bg-white p-2 shadow-popover overflow-hidden flex flex-col"
         style={{
           left: popoverLeft ?? anchorRect.left,
           top: popoverTop ?? anchorRect.top,
@@ -630,7 +630,7 @@ export default function ReferencePicker({
         <div className="flex-1 overflow-y-auto min-h-0">
           {pickerBody}
         </div>
-        <div className={cn("mt-1.5 flex flex-shrink-0 border-t border-[var(--border)] pt-1.5 text-[9px] text-[var(--muted-foreground)]", hideInstructions ? "items-center justify-end" : "items-center justify-between")}>
+        <div className={cn("mt-1.5 flex flex-shrink-0 border-t border-neutral-200 pt-1.5 text-[9px] text-neutral-600", hideInstructions ? "items-center justify-end" : "items-center justify-between")}>
           {!hideInstructions && <div>Use ↑/↓ to navigate and Enter to select.</div>}
           <Button variant="outline" size="sm" onClick={onClose} className="h-6 px-2 text-[10px]">
             Close

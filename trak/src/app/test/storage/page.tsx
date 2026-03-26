@@ -486,7 +486,7 @@ export default function StorageTestPage() {
   return (
     <div className="p-8 max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">Storage Test - Task 4.1</h1>
-      <p className="text-gray-600 mb-6">
+      <p className="text-[var(--muted-foreground)] mb-6">
         This tests: bucket creation, RLS policies, upload, download, and delete
       </p>
       
@@ -496,7 +496,7 @@ export default function StorageTestPage() {
           Select Workspace
         </label>
         {loadingWorkspaces ? (
-          <div className="text-sm text-gray-500">Loading workspaces...</div>
+          <div className="text-sm text-[var(--tertiary-foreground)]">Loading workspaces...</div>
         ) : workspaces.length === 0 ? (
           <div className="text-sm text-red-500">No workspaces found. Please create a workspace first.</div>
         ) : (
@@ -504,7 +504,7 @@ export default function StorageTestPage() {
             id="workspace-select"
             value={selectedWorkspaceId || ''}
             onChange={(e) => setSelectedWorkspaceId(e.target.value)}
-            className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+            className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-[var(--radius-md)] shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
           >
             {workspaces.map((ws) => (
               <option key={ws.id} value={ws.id}>
@@ -514,7 +514,7 @@ export default function StorageTestPage() {
           </select>
         )}
         {selectedWorkspace && (
-          <div className="mt-2 text-sm text-gray-600">
+          <div className="mt-2 text-sm text-[var(--muted-foreground)]">
             Selected: <span className="font-semibold">{selectedWorkspace.name}</span> - Role: <span className="capitalize">{selectedWorkspace.role}</span>
           </div>
         )}
@@ -546,7 +546,7 @@ export default function StorageTestPage() {
         </button>
       </div>
       
-      <pre className="mt-4 p-4 bg-gray-100 rounded whitespace-pre-wrap font-mono text-sm">
+      <pre className="mt-4 p-4 bg-[var(--surface-muted)] rounded whitespace-pre-wrap font-mono text-sm">
         {result || 'Select a workspace and click button to test storage setup...'}
       </pre>
     </div>

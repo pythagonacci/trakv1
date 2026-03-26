@@ -91,7 +91,7 @@ export default function ProjectDriveClient({
 
   if (!mappedFolder) {
     return (
-      <div className="rounded-md border border-[var(--border)] p-4">
+      <div className="rounded-[var(--radius-md)] border border-[var(--border)] p-4">
         <p className="text-sm text-[var(--muted-foreground)]">
           No canonical Drive folder mapped yet for this project.
         </p>
@@ -107,7 +107,7 @@ export default function ProjectDriveClient({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-md border border-[var(--border)] p-4">
+      <div className="rounded-[var(--radius-md)] border border-[var(--border)] p-4">
         <p className="text-sm font-medium">Mapped folder</p>
         <p className="text-sm text-[var(--muted-foreground)]">{mappedFolder.name}</p>
         {mappedFolder.web_view_link && (

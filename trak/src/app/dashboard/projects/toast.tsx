@@ -49,7 +49,7 @@ export default function Toast({
         <p className="text-sm font-medium leading-tight">{message}</p>
         <button
           onClick={onClose}
-          className="ml-2 rounded-md p-1 text-[var(--tertiary-foreground)] transition-colors hover:bg-surface-hover hover:text-[var(--foreground)]"
+          className="ml-2 rounded-[var(--radius-md)] p-1 text-[var(--tertiary-foreground)] transition-colors hover:bg-surface-hover hover:text-[var(--foreground)]"
         >
           <X className="h-4 w-4" />
         </button>

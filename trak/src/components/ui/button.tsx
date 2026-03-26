@@ -19,9 +19,9 @@ const buttonVariants = cva(
         // Primary: True semantic primary color
         default:
           "rounded-[var(--radius-sm)] bg-[var(--primary)] text-[var(--primary-foreground)] hover:bg-[var(--primary-hover)] active:opacity-90",
-        // Secondary: Flat with structural border
+        // Secondary: Flat semantic secondary surface
         secondary:
-          "rounded-[var(--radius-sm)] bg-[var(--surface)] border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--surface-hover)] hover:border-[var(--primary)]",
+          "rounded-[var(--radius-sm)] bg-[var(--secondary)] text-[var(--secondary-foreground)] hover:bg-[var(--surface-hover)]",
         // Ghost: Minimal, text-only appearance
         ghost:
           "rounded-[var(--radius-sm)] bg-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)]",

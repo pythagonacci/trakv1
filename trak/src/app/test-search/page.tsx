@@ -357,13 +357,13 @@ export default function TestSearchPage() {
 
     return (
       <div className="mt-6">
-        <div className="bg-white border rounded-lg p-4">
+        <div className="bg-[var(--surface)] border rounded-[var(--radius-lg)] p-4">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold">
               Results {data && `(${data.length})`}
             </h3>
             {totalCount !== undefined && (
-              <div className="text-sm text-gray-500">
+              <div className="text-sm text-[var(--tertiary-foreground)]">
                 Total: {totalCount} | Has More: {hasMore ? "Yes" : "No"}
               </div>
             )}
@@ -376,7 +376,7 @@ export default function TestSearchPage() {
           )}
 
           {!data || data.length === 0 ? (
-            <div className="text-gray-500 text-center py-8">
+            <div className="text-[var(--tertiary-foreground)] text-center py-8">
               No results found
             </div>
           ) : (
@@ -384,7 +384,7 @@ export default function TestSearchPage() {
               {data.map((item: any, idx: number) => (
                 <div
                   key={idx}
-                  className="border rounded p-3 hover:bg-gray-50 transition-colors"
+                  className="border rounded p-3 hover:bg-[var(--background)] transition-colors"
                 >
                   <pre className="text-xs overflow-x-auto whitespace-pre-wrap">
                     {JSON.stringify(item, null, 2)}
@@ -399,14 +399,14 @@ export default function TestSearchPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
+    <div className="min-h-screen bg-[var(--background)] p-8">
       <div className="max-w-6xl mx-auto">
         <h1 className="text-3xl font-bold mb-2">AI Search Testing</h1>
-        <p className="text-gray-600 mb-8">
+        <p className="text-[var(--muted-foreground)] mb-8">
           Test the new search functions with your existing data
         </p>
 
-        <div className="bg-white rounded-lg shadow-md p-6">
+        <div className="bg-[var(--surface)] rounded-[var(--radius-lg)] shadow-md p-6">
           {/* Test Function Selector */}
           <div className="mb-6">
             <label className="block text-sm font-medium mb-2">
@@ -691,7 +691,7 @@ export default function TestSearchPage() {
           <button
             onClick={runTest}
             disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-medium py-3 px-6 rounded-lg transition-colors"
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-medium py-3 px-6 rounded-[var(--radius-lg)] transition-colors"
           >
             {loading ? "Running..." : "Run Test"}
           </button>

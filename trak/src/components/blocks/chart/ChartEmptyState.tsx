@@ -14,7 +14,7 @@ export function ChartEmptyState({
   return (
     <div
       className={cn(
-        "flex h-48 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface)]",
+        "flex h-48 flex-col items-center justify-center gap-2 rounded-[var(--radius-lg)] border border-dashed border-[var(--border)] bg-[var(--surface)]",
         className
       )}
       aria-label="Chart empty state"

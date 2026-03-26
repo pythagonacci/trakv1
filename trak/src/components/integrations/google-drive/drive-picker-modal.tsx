@@ -115,7 +115,7 @@ export function DrivePickerModal({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={foldersOnly ? "Search folders" : "Search files and folders"}
-              className="flex-1 rounded-md border border-[var(--border)] px-3 py-2 text-sm"
+              className="flex-1 rounded-[var(--radius-md)] border border-[var(--border)] px-3 py-2 text-sm"
             />
             <Button type="button" variant="outline" onClick={load} disabled={loading}>
               {loading ? "Searching..." : "Search"}
@@ -148,7 +148,7 @@ export function DrivePickerModal({
 
           {error && <p className="text-sm text-red-600">{error}</p>}
 
-          <div className="max-h-96 overflow-y-auto rounded-md border border-[var(--border)]">
+          <div className="max-h-96 overflow-y-auto rounded-[var(--radius-md)] border border-[var(--border)]">
             {items.length === 0 && !loading ? (
               <div className="p-4 text-sm text-[var(--muted-foreground)]">No items found.</div>
             ) : (

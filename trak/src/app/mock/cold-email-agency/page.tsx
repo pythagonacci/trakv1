@@ -15,7 +15,7 @@ const statusBadge = (text: string, variant: "active" | "warning" | "default" = "
     default: "bg-slate-500/10 text-slate-400 border-slate-500/20",
   };
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium uppercase tracking-wider ${colors[variant]}`}>
+    <span className={`inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border px-2.5 py-1 text-[11px] font-medium uppercase tracking-wider ${colors[variant]}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${variant === "active" ? "bg-emerald-400 animate-pulse" : variant === "warning" ? "bg-amber-400" : "bg-slate-400"}`} />
       {text}
     </span>
@@ -73,13 +73,13 @@ export default function ColdEmailAgencyMock() {
               <Button 
                 variant="outline" 
                 size="sm"
-                className="border-slate-800 bg-slate-900/50 text-slate-300 hover:bg-slate-800 hover:text-white rounded-lg px-4"
+                className="border-slate-800 bg-slate-900/50 text-slate-300 hover:bg-slate-800 hover:text-white rounded-[var(--radius-lg)] px-4"
               >
                 View analytics
               </Button>
               <Button 
                 size="sm"
-                className="bg-violet-600 text-white hover:bg-violet-500 rounded-lg px-4"
+                className="bg-violet-600 text-white hover:bg-violet-500 rounded-[var(--radius-lg)] px-4"
               >
                 Export report
               </Button>

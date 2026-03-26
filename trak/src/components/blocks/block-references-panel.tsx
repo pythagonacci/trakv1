@@ -70,7 +70,7 @@ export default function BlockReferencesPanel({
       </div>
 
       {isOpen && (
-        <div className="mt-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 shadow-popover">
+        <div className="mt-1 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 shadow-popover">
           {visibleReferences.length === 0 ? (
             <div className="rounded-[4px] border border-dashed border-[var(--border)] px-2 py-1.5 text-[11px] text-[var(--muted-foreground)]">
               No attachments yet.

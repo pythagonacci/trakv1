@@ -84,10 +84,10 @@ export default function SearchTestPage() {
         <div className="p-8 max-w-4xl mx-auto space-y-8">
             <div>
                 <h1 className="text-2xl font-bold mb-2">Unstructured Search Test</h1>
-                <p className="text-gray-500">Test the RAG pipeline: Ingestion, Indexing, and Search</p>
+                <p className="text-[var(--tertiary-foreground)]">Test the RAG pipeline: Ingestion, Indexing, and Search</p>
             </div>
 
-            <div className="p-4 border rounded-lg bg-gray-50 space-y-4">
+            <div className="p-4 border rounded-[var(--radius-lg)] bg-[var(--background)] space-y-4">
                 <div className="flex items-center justify-between">
                     <h2 className="font-medium flex items-center gap-2">
                         <Loader2 className={`w-4 h-4 ${processing ? "animate-spin" : ""}`} />
@@ -113,7 +113,7 @@ export default function SearchTestPage() {
                 <div className="space-y-4">
                     <div className="border-b pb-4">
                         <h3 className="text-sm font-medium mb-1">1. Index Existing Data</h3>
-                        <p className="text-xs text-gray-600 mb-2">
+                        <p className="text-xs text-[var(--muted-foreground)] mb-2">
                             Backfill local DB index for all existing files/blocks/docs in this workspace.
                         </p>
                         <button
@@ -135,7 +135,7 @@ export default function SearchTestPage() {
                                 }
                             }}
                             disabled={processing || !currentWorkspace}
-                            className="px-4 py-2 bg-white border shadow-sm rounded-md text-sm hover:bg-gray-50 disabled:opacity-50"
+                            className="px-4 py-2 bg-[var(--surface)] border shadow-sm rounded-[var(--radius-md)] text-sm hover:bg-[var(--background)] disabled:opacity-50"
                         >
                             {processing ? "Starting Backfill..." : "Enqueue All Data"}
                         </button>
@@ -143,14 +143,14 @@ export default function SearchTestPage() {
 
                     <div>
                         <h3 className="text-sm font-medium mb-1">2. Process Queue</h3>
-                        <p className="text-xs text-gray-600 mb-2">
+                        <p className="text-xs text-[var(--muted-foreground)] mb-2">
                             Trigger the background worker manually (simulating Cron/Job).
                         </p>
                         <div className="flex gap-2">
                             <button
                                 onClick={triggerWorker}
                                 disabled={processing}
-                                className="px-4 py-2 bg-white border shadow-sm rounded-md text-sm hover:bg-gray-50 disabled:opacity-50"
+                                className="px-4 py-2 bg-[var(--surface)] border shadow-sm rounded-[var(--radius-md)] text-sm hover:bg-[var(--background)] disabled:opacity-50"
                             >
                                 {processing ? "Processing..." : "Process Once"}
                             </button>
@@ -198,7 +198,7 @@ export default function SearchTestPage() {
                                     }
                                 }}
                                 disabled={processing}
-                                className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50"
+                                className="px-4 py-2 bg-blue-600 text-white rounded-[var(--radius-md)] text-sm hover:bg-blue-700 disabled:opacity-50"
                             >
                                 {processing ? "Processing..." : "Process All Jobs"}
                             </button>
@@ -219,13 +219,13 @@ export default function SearchTestPage() {
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
                         placeholder="Ask a question..."
-                        className="flex-1 p-2 border rounded-md"
+                        className="flex-1 p-2 border rounded-[var(--radius-md)]"
                         onKeyDown={(e) => e.key === "Enter" && handleSearch()}
                     />
                     <select
                         value={mode}
                         onChange={(e) => setMode(e.target.value as any)}
-                        className="p-2 border rounded-md"
+                        className="p-2 border rounded-[var(--radius-md)]"
                     >
                         <option value="answer">Answer</option>
                         <option value="search">Search Only</option>
@@ -233,7 +233,7 @@ export default function SearchTestPage() {
                     <button
                         onClick={handleSearch}
                         disabled={loading}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                        className="px-4 py-2 bg-blue-600 text-white rounded-[var(--radius-md)] hover:bg-blue-700 disabled:opacity-50"
                     >
                         {loading ? "Searching..." : "Go"}
                     </button>
@@ -242,13 +242,13 @@ export default function SearchTestPage() {
                 {results && (
                     <div className="space-y-4">
                         {results.error && (
-                            <div className="p-4 bg-red-50 text-red-600 rounded-md">
+                            <div className="p-4 bg-red-50 text-red-600 rounded-[var(--radius-md)]">
                                 {results.error}
                             </div>
                         )}
 
                         {results.answer && (
-                            <div className="p-6 border rounded-lg bg-white shadow-sm prose max-w-none">
+                            <div className="p-6 border rounded-[var(--radius-lg)] bg-[var(--surface)] shadow-sm prose max-w-none">
                                 <div className="flex items-center gap-2 text-blue-600 mb-4">
                                     <Sparkles className="w-5 h-5" />
                                     <h3 className="text-lg font-medium m-0">AI Answer</h3>
@@ -263,25 +263,25 @@ export default function SearchTestPage() {
 
                         {results.sources && (
                             <div className="space-y-2">
-                                <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider">Sources</h3>
+                                <h3 className="text-sm font-medium text-[var(--tertiary-foreground)] uppercase tracking-wider">Sources</h3>
                                 {results.sources.map((source: any, i: number) => {
                                     const previewSource = typeof source.chunk_content === "string" ? source.chunk_content : "";
                                     const previewHtml = previewSource.trim()
                                         ? formatBlockText(previewSource, { preset: "compact" })
                                         : "";
                                     return (
-                                    <div key={i} className="p-3 border rounded bg-white text-sm">
+                                    <div key={i} className="p-3 border rounded bg-[var(--surface)] text-sm">
                                         <div className="font-medium text-gray-900 mb-1 flex items-center gap-2">
-                                            <FileText className="w-4 h-4 text-gray-400" />
+                                            <FileText className="w-4 h-4 text-[var(--tertiary-foreground)]" />
                                             {source.source_id}
                                         </div>
                                         {previewHtml && (
                                             <div
-                                                className="text-gray-600 line-clamp-2"
+                                                className="text-[var(--muted-foreground)] line-clamp-2"
                                                 dangerouslySetInnerHTML={{ __html: previewHtml }}
                                             />
                                         )}
-                                        <div className="mt-1 text-xs text-gray-400">Score: {Math.round(source.similarity * 100)}%</div>
+                                        <div className="mt-1 text-xs text-[var(--tertiary-foreground)]">Score: {Math.round(source.similarity * 100)}%</div>
                                     </div>
                                     );
                                 })}

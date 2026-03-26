@@ -12,7 +12,7 @@ export default function ClientAccountHeader() {
           </p>
           <Link
             href="/signup"
-            className="inline-flex items-center justify-center rounded-md bg-white px-3 py-1.5 text-xs font-medium text-[var(--foreground)] transition-colors hover:bg-white/90"
+            className="inline-flex items-center justify-center rounded-[var(--radius-md)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--surface)]/90"
           >
             Sign Up
           </Link>

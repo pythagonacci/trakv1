@@ -189,7 +189,7 @@ function ExpandableBreakdownRow({
           <span className="text-[12px] font-semibold text-[var(--foreground)] tabular-nums">
             {count} ({pct(percent)})
           </span>
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)]">
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)]">
             {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
           </span>
         </div>
@@ -209,7 +209,7 @@ function ExpandableBreakdownRow({
               {rows.map((row) => (
                 <div
                   key={row.id}
-                  className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 hover:bg-[var(--surface-hover)]"
+                  className="flex items-center justify-between gap-3 rounded-[var(--radius-lg)] px-2 py-1.5 hover:bg-[var(--surface-hover)]"
                 >
                   <div className="min-w-0">
                     <div className="truncate text-[12px] font-medium text-[var(--foreground)]">
@@ -224,7 +224,7 @@ function ExpandableBreakdownRow({
                   {!readOnly && (
                     <a
                       href={getTaskHref?.(row) ?? `#task-${row.id}`}
-                      className="shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+                      className="shrink-0 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
                     >
                       Open
                     </a>
@@ -566,7 +566,7 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
                   }
                 }}
                 autoFocus
-                className="w-full max-w-xs border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[15px] font-semibold tracking-tight text-[var(--foreground)] focus:outline-none rounded-md"
+                className="w-full max-w-xs border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[15px] font-semibold tracking-tight text-[var(--foreground)] focus:outline-none rounded-[var(--radius-md)]"
                 placeholder="Chart title"
               />
             ) : (
@@ -583,7 +583,7 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
               </button>
             )}
             {!readOnly && (
-              <span className="hidden sm:inline-flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-1 text-[11px] font-medium text-[var(--muted-foreground)]">
+              <span className="hidden sm:inline-flex items-center gap-1 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-muted)] px-2 py-1 text-[11px] font-medium text-[var(--muted-foreground)]">
                 <Sparkles className="h-3.5 w-3.5" />
                 Chart
               </span>
@@ -594,7 +594,7 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] shadow-[0_1px_0_rgba(0,0,0,0.03)] hover:bg-[var(--surface-hover)]"
+              className="inline-flex items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] shadow-[0_1px_0_rgba(0,0,0,0.03)] hover:bg-[var(--surface-hover)]"
               aria-label="Lock chart"
             >
               <Lock className="h-4 w-4" />
@@ -606,7 +606,7 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
                   type="button"
                   onClick={handleRefresh}
                   disabled={isRefreshing}
-                  className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] shadow-[0_1px_0_rgba(0,0,0,0.03)] hover:bg-[var(--surface-hover)] disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] shadow-[0_1px_0_rgba(0,0,0,0.03)] hover:bg-[var(--surface-hover)] disabled:opacity-50"
                 >
                   <RefreshCw className="h-4 w-4" />
                   {isRefreshing ? "Refreshing…" : "Refresh"}
@@ -615,7 +615,7 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
                   type="button"
                   onClick={handleSaveAsSnapshot}
                   disabled={isSavingSnapshot}
-                  className="hidden md:inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-[11px] font-medium text-[var(--foreground)] whitespace-nowrap shadow-[0_1px_0_rgba(0,0,0,0.03)] hover:bg-[var(--surface-hover)] disabled:opacity-50"
+                  className="hidden md:inline-flex items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-[11px] font-medium text-[var(--foreground)] whitespace-nowrap shadow-[0_1px_0_rgba(0,0,0,0.03)] hover:bg-[var(--surface-hover)] disabled:opacity-50"
                 >
                   <Save className="h-4 w-4" />
                   Save snapshot
@@ -676,7 +676,7 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
                     value={scope ?? "fixed"}
                     onChange={(e) => handleSetScope(e.target.value as "fixed" | "query")}
                     disabled={isSettingScope}
-                    className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] text-[var(--foreground)]"
+                    className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] text-[var(--foreground)]"
                   >
                     <option value="fixed">Track only these items</option>
                     <option value="query">Track future items</option>
@@ -696,7 +696,7 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
                   <button
                     type="button"
                     onClick={() => setShowBreakdown((v) => !v)}
-                    className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+                    className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
                   >
                     {showBreakdown ? "Hide breakdown" : "Show breakdown"}
                   </button>
@@ -843,7 +843,7 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
                   <button
                     type="button"
                     onClick={() => setShowConfig(true)}
-                    className="shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+                    className="shrink-0 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
                   >
                     Edit
                   </button>
@@ -871,7 +871,7 @@ function LegacyUnsupportedMessage({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        "rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--muted-foreground)]",
+        "rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--muted-foreground)]",
         className
       )}
     >

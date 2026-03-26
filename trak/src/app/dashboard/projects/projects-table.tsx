@@ -579,7 +579,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
                           <DropdownMenuTrigger asChild>
                             <button
                               onClick={(e) => e.stopPropagation()}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover"
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover"
                             >
                               <MoreHorizontal className="h-3.5 w-3.5" />
                             </button>
@@ -628,7 +628,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
                               <DropdownMenuTrigger asChild>
                                 <button
                                   onClick={(e) => e.stopPropagation()}
-                                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover"
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover"
                                 >
                                   <MoreHorizontal className="h-4 w-4" />
                                 </button>
@@ -707,7 +707,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
                             <DropdownMenuTrigger asChild>
                               <button
                                 onClick={(e) => e.stopPropagation()}
-                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover"
                               >
                                 <MoreHorizontal className="h-4 w-4" />
                               </button>

@@ -36,26 +36,26 @@ export default function QAClient() {
     <div className="max-w-3xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Quick Q&A</h1>
-        <p className="text-sm text-neutral-500">Ask a question. Get a response.</p>
+        <p className="text-sm text-[var(--tertiary-foreground)]">Ask a question. Get a response.</p>
       </div>
 
       <div className="space-y-3">
         <textarea
-          className="w-full min-h-[140px] rounded-lg border border-neutral-200 bg-white p-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-neutral-400"
+          className="w-full min-h-[140px] rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] p-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-neutral-400"
           placeholder="Type your question..."
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
         />
         <div className="flex items-center gap-3">
           <button
-            className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+            className="rounded-[var(--radius-md)] bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
             onClick={ask}
             disabled={loading || !question.trim()}
           >
             {loading ? "Asking..." : "Ask"}
           </button>
           <button
-            className="rounded-md border border-neutral-200 px-3 py-2 text-sm text-neutral-700 disabled:opacity-60"
+            className="rounded-[var(--radius-md)] border border-[var(--border)] px-3 py-2 text-sm text-neutral-700 disabled:opacity-60"
             onClick={() => {
               setQuestion("");
               setAnswer("");
@@ -68,13 +68,13 @@ export default function QAClient() {
         </div>
       </div>
 
-      <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-4 min-h-[140px]">
+      <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--background)] p-4 min-h-[140px]">
         {error ? (
           <p className="text-sm text-red-600">{error}</p>
         ) : answer ? (
           <p className="whitespace-pre-wrap text-sm text-neutral-900">{answer}</p>
         ) : (
-          <p className="text-sm text-neutral-400">Answer will appear here.</p>
+          <p className="text-sm text-[var(--tertiary-foreground)]">Answer will appear here.</p>
         )}
       </div>
     </div>

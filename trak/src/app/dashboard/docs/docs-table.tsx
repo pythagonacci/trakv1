@@ -424,7 +424,7 @@ export default function DocsTable({ docs: initialDocs, workspaceId, folders: ini
                       </div>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <button onClick={(e) => e.stopPropagation()} className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)]">
+                          <button onClick={(e) => e.stopPropagation()} className="inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)]">
                             <MoreHorizontal className="h-3.5 w-3.5" />
                           </button>
                         </DropdownMenuTrigger>

@@ -115,7 +115,7 @@ export function UnitsSoldWidget({ productId }: UnitsSoldWidgetProps) {
       {dateRange === "custom" && (
         <div className="flex gap-2 items-end">
           <div className="flex-1">
-            <label className="text-sm text-gray-600 mb-1 block">Start Date</label>
+            <label className="text-sm text-[var(--muted-foreground)] mb-1 block">Start Date</label>
             <input
               type="date"
               value={customStart}
@@ -124,7 +124,7 @@ export function UnitsSoldWidget({ productId }: UnitsSoldWidgetProps) {
             />
           </div>
           <div className="flex-1">
-            <label className="text-sm text-gray-600 mb-1 block">End Date</label>
+            <label className="text-sm text-[var(--muted-foreground)] mb-1 block">End Date</label>
             <input
               type="date"
               value={customEnd}
@@ -140,7 +140,7 @@ export function UnitsSoldWidget({ productId }: UnitsSoldWidgetProps) {
 
       {/* Loading State */}
       {loading && (
-        <div className="text-center py-8 text-gray-500">Loading sales data...</div>
+        <div className="text-center py-8 text-[var(--tertiary-foreground)]">Loading sales data...</div>
       )}
 
       {/* Error State */}
@@ -152,11 +152,11 @@ export function UnitsSoldWidget({ productId }: UnitsSoldWidgetProps) {
 
       {/* Data Display */}
       {data && !loading && (
-        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-100">
+        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-[var(--radius-lg)] p-6 border border-blue-100">
           <div className="text-center">
             <div className="text-5xl font-bold text-blue-900 mb-2">{data.unitsSold}</div>
             <div className="text-sm text-blue-700 font-medium">units sold</div>
-            <div className="text-xs text-gray-600 mt-2">
+            <div className="text-xs text-[var(--muted-foreground)] mt-2">
               {data.cached ? (
                 <>
                   Cached result from {new Date(data.computedAt).toLocaleString()}
@@ -176,7 +176,7 @@ export function UnitsSoldWidget({ productId }: UnitsSoldWidgetProps) {
 
       {/* Help Text */}
       {!data && !loading && !error && (
-        <div className="text-center py-8 text-gray-500 text-sm">
+        <div className="text-center py-8 text-[var(--tertiary-foreground)] text-sm">
           Select a date range to view sales data
         </div>
       )}

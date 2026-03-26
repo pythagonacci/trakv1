@@ -53,7 +53,7 @@ export default function ProjectTestPage() {
         <div className="space-y-6">
           
           {/* 1. CREATE PROJECT */}
-          <section className="border p-6 rounded-lg">
+          <section className="border p-6 rounded-[var(--radius-lg)]">
             <h2 className="text-xl font-semibold mb-4">1. Create Project</h2>
             <div className="space-y-3">
               <input
@@ -117,7 +117,7 @@ export default function ProjectTestPage() {
           </section>
 
           {/* 2. GET ALL PROJECTS */}
-          <section className="border p-6 rounded-lg">
+          <section className="border p-6 rounded-[var(--radius-lg)]">
             <h2 className="text-xl font-semibold mb-4">2. Get All Projects</h2>
             <div className="space-y-3">
               <input
@@ -189,7 +189,7 @@ export default function ProjectTestPage() {
           </section>
 
           {/* 3. GET SINGLE PROJECT */}
-          <section className="border p-6 rounded-lg">
+          <section className="border p-6 rounded-[var(--radius-lg)]">
             <h2 className="text-xl font-semibold mb-4">3. Get Single Project</h2>
             <div className="space-y-3">
               <input
@@ -210,7 +210,7 @@ export default function ProjectTestPage() {
           </section>
 
           {/* 4. UPDATE PROJECT */}
-          <section className="border p-6 rounded-lg">
+          <section className="border p-6 rounded-[var(--radius-lg)]">
             <h2 className="text-xl font-semibold mb-4">4. Update Project</h2>
             <div className="space-y-3">
               <input
@@ -277,7 +277,7 @@ export default function ProjectTestPage() {
           </section>
 
           {/* 5. DELETE PROJECT */}
-          <section className="border p-6 rounded-lg">
+          <section className="border p-6 rounded-[var(--radius-lg)]">
             <h2 className="text-xl font-semibold mb-4">5. Delete Project</h2>
             <div className="space-y-3">
               <input
@@ -294,7 +294,7 @@ export default function ProjectTestPage() {
               >
                 Delete Project (Admin Only)
               </button>
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-[var(--muted-foreground)]">
                 ⚠️ Only admins and owners can delete projects
               </p>
             </div>
@@ -306,15 +306,15 @@ export default function ProjectTestPage() {
         <div>
           <div className="sticky top-8">
             <h2 className="text-xl font-semibold mb-4">Results</h2>
-            <div className="border p-4 rounded-lg bg-gray-50">
+            <div className="border p-4 rounded-[var(--radius-lg)] bg-[var(--background)]">
               {loading ? (
-                <p className="text-gray-600">Loading...</p>
+                <p className="text-[var(--muted-foreground)]">Loading...</p>
               ) : result ? (
                 <pre className="text-sm overflow-auto max-h-[800px]">
                   {JSON.stringify(result, null, 2)}
                 </pre>
               ) : (
-                <p className="text-gray-400">No results yet. Run a test to see output.</p>
+                <p className="text-[var(--tertiary-foreground)]">No results yet. Run a test to see output.</p>
               )}
             </div>
           </div>
@@ -324,7 +324,7 @@ export default function ProjectTestPage() {
       {/* Quick Reference */}
       <div className="mt-8 border-t pt-8">
         <h2 className="text-xl font-semibold mb-4">Quick Reference</h2>
-        <div className="bg-blue-50 p-4 rounded-lg space-y-2 text-sm">
+        <div className="bg-blue-50 p-4 rounded-[var(--radius-lg)] space-y-2 text-sm">
           <p><strong>Tip:</strong> Get workspace ID and client ID from previous tests</p>
           <p><strong>Tip:</strong> Create a project, then copy its ID for update/delete/get tests</p>
           <p><strong>Status Options:</strong> not_started, in_progress, complete</p>

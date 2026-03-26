@@ -48,7 +48,7 @@ export function SharedTableBadge({ tableId, currentBlockId }: SharedTableBadgePr
     <TooltipProvider delayDuration={200}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <div className="mb-1.5 inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)]/80 px-2 py-0.5 text-[10px] text-[var(--muted-foreground)]">
+          <div className="mb-1.5 inline-flex items-center gap-1 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)]/80 px-2 py-0.5 text-[10px] text-[var(--muted-foreground)]">
             <LayoutGrid className="h-3 w-3" />
             <span>Also in {otherLocations.length} {otherLocations.length === 1 ? "tab" : "tabs"}</span>
           </div>

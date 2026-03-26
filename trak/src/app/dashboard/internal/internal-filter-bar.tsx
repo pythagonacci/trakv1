@@ -90,7 +90,7 @@ export default function InternalFilterBar({ currentView }: InternalFilterBarProp
           onChange={(e) => {
             setSearch(e.target.value);
           }}
-          className="w-full pl-8 pr-3 py-1.5 text-sm border border-[var(--border)] rounded-md bg-[var(--background)] text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)] focus:ring-offset-1"
+          className="w-full pl-8 pr-3 py-1.5 text-sm border border-[var(--border)] rounded-[var(--radius-md)] bg-[var(--background)] text-[var(--foreground)] placeholder:text-[var(--tertiary-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)] focus:ring-offset-1"
         />
         {isPending && (
           <div className="absolute right-2.5 top-1/2 transform -translate-y-1/2">
@@ -103,7 +103,7 @@ export default function InternalFilterBar({ currentView }: InternalFilterBarProp
       <select
         value={status}
         onChange={(e) => handleStatusChange(e.target.value)}
-        className="px-3 py-1.5 text-sm border border-[var(--border)] rounded-md bg-[var(--background)] text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)] focus:ring-offset-1"
+        className="px-3 py-1.5 text-sm border border-[var(--border)] rounded-[var(--radius-md)] bg-[var(--background)] text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)] focus:ring-offset-1"
       >
         <option value="">All Statuses</option>
         <option value="not_started">Draft</option>
@@ -115,7 +115,7 @@ export default function InternalFilterBar({ currentView }: InternalFilterBarProp
       {hasActiveFilters && (
         <button
           onClick={handleClearFilters}
-          className="px-3 py-1.5 text-sm font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] bg-[var(--surface-hover)] hover:bg-[var(--surface-hover)] rounded-md transition-colors flex items-center gap-1.5"
+          className="px-3 py-1.5 text-sm font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] bg-[var(--surface-hover)] hover:bg-[var(--surface-hover)] rounded-[var(--radius-md)] transition-colors flex items-center gap-1.5"
         >
           <X className="w-3.5 h-3.5" />
           Clear

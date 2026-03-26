@@ -120,7 +120,7 @@ export default async function PublicWorkflowPage({
       <div className="max-w-7xl mx-auto px-3 md:px-4 lg:px-5">
         <div className="pt-4 pb-2">
           <ClientPageHeader project={formattedProject} tabId={tab.id} />
-          <div className="mt-3 rounded-md border border-[#ba7b84]/20 bg-[#ba7b84]/5 px-3 py-2">
+          <div className="mt-3 rounded-[var(--radius-md)] border border-[#ba7b84]/20 bg-[#ba7b84]/5 px-3 py-2">
             <div className="text-[11px] uppercase tracking-widest text-[var(--muted-foreground)]">
               Workflow Page
             </div>

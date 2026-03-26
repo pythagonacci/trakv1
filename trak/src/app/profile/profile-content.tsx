@@ -137,7 +137,7 @@ export default function ProfileContent({ user, initialWorkspaces }: ProfileConte
                 >
                   <TableCell>
                     <div className="flex items-center gap-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-md bg-[var(--river-indigo)]/15 border border-[var(--river-indigo)]/20 text-[var(--river-indigo)] text-sm font-semibold">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] bg-[var(--river-indigo)]/15 border border-[var(--river-indigo)]/20 text-[var(--river-indigo)] text-sm font-semibold">
                         {getInitials(workspace.name)}
                       </div>
                       <span className="text-sm font-medium text-[var(--foreground)]">
@@ -152,18 +152,18 @@ export default function ProfileContent({ user, initialWorkspaces }: ProfileConte
                   </TableCell>
                   <TableCell>
                     {workspace.role === 'owner' && (
-                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[var(--dome-teal)]/10 border border-[var(--dome-teal)]/20 rounded-md">
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[var(--dome-teal)]/10 border border-[var(--dome-teal)]/20 rounded-[var(--radius-md)]">
                         <Check className="h-3.5 w-3.5 text-[var(--dome-teal)]" />
                         <span className="text-xs font-medium text-[var(--dome-teal)]">Owner</span>
                       </div>
                     )}
                     {workspace.role === 'admin' && (
-                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[var(--river-indigo)]/10 border border-[var(--river-indigo)]/20 rounded-md">
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[var(--river-indigo)]/10 border border-[var(--river-indigo)]/20 rounded-[var(--radius-md)]">
                         <span className="text-xs font-medium text-[var(--river-indigo)]">Admin</span>
                       </div>
                     )}
                     {workspace.role === 'teammate' && (
-                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[var(--muted)]/10 border border-[var(--border)] rounded-md">
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[var(--muted)]/10 border border-[var(--border)] rounded-[var(--radius-md)]">
                         <span className="text-xs font-medium text-[var(--muted-foreground)]">Teammate</span>
                       </div>
                     )}

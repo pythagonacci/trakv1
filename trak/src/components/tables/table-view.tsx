@@ -82,8 +82,8 @@ import { uploadFile } from "@/app/actions/file";
 function TableViewLoadingState() {
   return (
     <div className="space-y-2">
-      <div className="h-8 w-48 rounded-md border border-[var(--border)] bg-[var(--surface)]/60" />
-      <div className="h-40 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)]/40" />
+      <div className="h-8 w-48 rounded-md border border-neutral-200 bg-white/60" />
+      <div className="h-40 w-full rounded-lg border border-neutral-200 bg-white/40" />
     </div>
   );
 }
@@ -1773,8 +1773,8 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
         />
       </div>
       {hasSourceLinkedRows && (
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
-          <p className="text-[10px] text-[var(--muted-foreground)]">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-[8px] border border-neutral-200 bg-white px-3 py-2">
+          <p className="text-[10px] text-neutral-600">
             {sourceCopyPrefix} {renderedEntityLabel} {sourceLinkedRows.length === 1 ? "is" : "are"} sourced from{" "}
             {sourceOrigins.length > 0 ? (
               <>
@@ -1796,7 +1796,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
             .
           </p>
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-medium text-[var(--muted-foreground)]">Sync edits to source</span>
+            <span className="text-[10px] font-medium text-neutral-600">Sync edits to source</span>
             <Switch
               checked={liveSourceSyncEnabled}
               disabled={setSourceSyncMode.isPending || syncDialogResolving}
@@ -1839,14 +1839,14 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
       )}
 
       {viewType === "table" && hiddenFieldList.length > 0 && (
-        <div className="mb-2 px-3 py-2 text-xs text-[var(--muted-foreground)] flex items-center gap-2">
+        <div className="mb-2 px-3 py-2 text-xs text-neutral-600 flex items-center gap-2">
           <EyeOff className="h-4 w-4" />
           Hidden columns:
           {hiddenFieldList.map((f: any) => (
             <button
               key={f!.id}
               onClick={() => handleShowField(f!.id)}
-              className="px-2 py-1 rounded-md border border-[var(--border)] text-[var(--foreground)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)] transition-colors duration-150"
+              className="px-2 py-1 rounded-md border border-neutral-200 text-[var(--foreground)] hover:border-[var(--border-strong)] hover:bg-neutral-200 transition-colors duration-150"
             >
               Show {f!.name}
             </button>
@@ -1933,7 +1933,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
         onConfirm={confirmBulkDelete}
       />
       {viewType === "table" && (
-        <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] overflow-hidden w-full">
+        <div className="rounded-[8px] border border-neutral-200 bg-white overflow-hidden w-full">
           <BulkActionsToolbar
             selectedCount={selectedRows.size}
             fields={fields}
@@ -2169,14 +2169,14 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
                   )}
 
                   {rowDataFromQuery.hasNextPage && (
-                    <div ref={loadMoreRef} className="h-8 flex items-center justify-center p-2 text-sm text-[var(--muted-foreground)] border-t border-[var(--border)] w-full">
+                    <div ref={loadMoreRef} className="h-8 flex items-center justify-center p-2 text-sm text-neutral-600 border-t border-neutral-200 w-full">
                       {rowDataFromQuery.isFetchingNextPage ? "Loading more rows..." : "Scroll to load more"}
                     </div>
                   )}
                 </div>
 
                 {sortedRows.length === 0 && (
-                  <div className="p-6 text-sm text-[var(--muted-foreground)] flex flex-col gap-2 items-center">
+                  <div className="p-6 text-sm text-neutral-600 flex flex-col gap-2 items-center">
                     <div>No rows yet.</div>
                     <button
                       onClick={() => {
@@ -2185,7 +2185,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
                           onError: (err) => setError(err instanceof Error ? err.message : "Failed to create row"),
                         });
                       }}
-                      className="inline-flex items-center gap-1 rounded-[6px] border border-dashed border-[var(--border)] px-2.5 py-1 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
+                      className="inline-flex items-center gap-1 rounded-[6px] border border-dashed border-neutral-200 px-2.5 py-1 text-xs font-medium text-neutral-600 transition-colors hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
                     >
                       Add your first row
                     </button>
@@ -2197,7 +2197,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
           </div>
 
           {/* Add row button - always visible at bottom */}
-          <div className="sticky bottom-0 left-0 right-0 bg-[var(--surface)] border-t border-[var(--border)] px-2 py-2 z-10 flex items-center justify-start">
+          <div className="sticky bottom-0 left-0 right-0 bg-white border-t border-neutral-200 px-2 py-2 z-10 flex items-center justify-start">
             <button
               onClick={() => {
                 setError(null);
@@ -2205,7 +2205,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
                   onError: (err) => setError(err instanceof Error ? err.message : "Failed to create row"),
                 });
               }}
-              className="inline-flex items-center gap-1 rounded-[6px] border border-dashed border-[var(--border)] px-2.5 py-1 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
+              className="inline-flex items-center gap-1 rounded-[6px] border border-dashed border-neutral-200 px-2.5 py-1 text-xs font-medium text-neutral-600 transition-colors hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
             >
               <Plus className="h-3 w-3" />
               Add row
@@ -2215,7 +2215,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
       )}
 
       {viewType === "board" && (
-        <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] overflow-hidden w-full">
+        <div className="rounded-[8px] border border-neutral-200 bg-white overflow-hidden w-full">
           <BoardView
             fields={fields}
             rows={sortedRows}
@@ -2238,7 +2238,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
 
       {
         viewType === "timeline" && (
-          <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] overflow-hidden w-full">
+          <div className="rounded-[8px] border border-neutral-200 bg-white overflow-hidden w-full">
             <TableTimelineView
               fields={fields}
               rows={sortedRows}
@@ -2256,7 +2256,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
       }
 
       {viewType === "gallery" && (
-        <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface)] overflow-hidden w-full">
+        <div className="rounded-[8px] border border-neutral-200 bg-white overflow-hidden w-full">
           <GalleryView
             fields={fields}
             rows={sortedRows}
@@ -2290,7 +2290,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
 
       {
         ["list", "calendar"].includes(viewType) && (
-          <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] overflow-hidden w-full p-6 text-sm text-[var(--tertiary-foreground)]">
+          <div className="rounded-md border border-neutral-200 bg-white overflow-hidden w-full p-6 text-sm text-neutral-400">
             This view type is coming soon.
           </div>
         )
@@ -2308,7 +2308,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
               }}
             />
             <div
-              className="fixed z-[140] w-[320px] max-w-[calc(100vw-1rem)] rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-popover flex flex-col min-h-[200px] max-h-[min(72vh,560px)]"
+              className="fixed z-[140] w-[320px] max-w-[calc(100vw-1rem)] rounded-lg border border-neutral-200 bg-white shadow-popover flex flex-col min-h-[200px] max-h-[min(72vh,560px)]"
               style={getRowCommentsPanelPosition(commentsAnchorRect)}
               onClick={(e) => e.stopPropagation()}
               onMouseDown={(e) => e.stopPropagation()}

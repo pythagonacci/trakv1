@@ -182,7 +182,7 @@ export default function TestPage() {
       {result && (
         <div>
           <h2 className="font-bold mb-2">Result:</h2>
-          <pre className="bg-gray-100 p-4 rounded overflow-auto text-sm">
+          <pre className="bg-[var(--surface-muted)] p-4 rounded overflow-auto text-sm">
             {JSON.stringify(result, null, 2)}
           </pre>
         </div>

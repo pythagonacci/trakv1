@@ -137,7 +137,7 @@ export default async function ClientPage({
   };
 
   return (
-    <div className="min-h-0 bg-neutral-50 dark:bg-neutral-950">
+    <div className="min-h-0 bg-[var(--background)] dark:bg-neutral-950">
       <div className="w-full px-2 md:px-3 lg:px-4">
         <div className="pt-2 pb-1">
           <ClientHeader client={client} />

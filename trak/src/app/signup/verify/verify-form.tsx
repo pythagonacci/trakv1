@@ -49,17 +49,17 @@ export default function VerifyForm({ email, error, message }: VerifyFormProps) {
   return (
     <AuthShell title="Verify your email" subtitle={`Enter the 6-digit code sent to ${maskedEmail}`}>
       {error && (
-        <div className="mb-4 rounded-md border border-[var(--error)]/30 bg-[var(--error)]/10 px-3 py-2 text-sm text-[var(--error)]">
+        <div className="mb-4 rounded-[var(--radius-md)] border border-[var(--error)]/30 bg-[var(--error)]/10 px-3 py-2 text-sm text-[var(--error)]">
           {error}
         </div>
       )}
       {(message || resendMessage) && (
-        <div className="mb-4 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)]">
+        <div className="mb-4 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)]">
           {resendMessage || message}
         </div>
       )}
       {resendError && (
-        <div className="mb-4 rounded-md border border-[var(--error)]/30 bg-[var(--error)]/10 px-3 py-2 text-sm text-[var(--error)]">
+        <div className="mb-4 rounded-[var(--radius-md)] border border-[var(--error)]/30 bg-[var(--error)]/10 px-3 py-2 text-sm text-[var(--error)]">
           {resendError}
         </div>
       )}

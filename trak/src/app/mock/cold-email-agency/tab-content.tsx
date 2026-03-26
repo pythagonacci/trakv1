@@ -184,17 +184,17 @@ export default function TabContent() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-3 md:grid-cols-3">
-                  <div className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-4">
+                  <div className="rounded-[var(--radius-lg)] border border-slate-800 bg-slate-900 px-4 py-4">
                     <p className="text-[10px] uppercase tracking-wider text-slate-500">Target ICP</p>
                     <p className="mt-2 text-sm font-medium text-white">VP Eng, CTO, Director Eng</p>
                     <p className="mt-2 text-xs text-slate-500">100-500 employees, Series A-C, US & EU markets.</p>
                   </div>
-                  <div className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-4">
+                  <div className="rounded-[var(--radius-lg)] border border-slate-800 bg-slate-900 px-4 py-4">
                     <p className="text-[10px] uppercase tracking-wider text-slate-500">Campaign Goal</p>
                     <p className="mt-2 text-sm font-medium text-white">40 qualified meetings/month</p>
                     <p className="mt-2 text-xs text-slate-500">Feeding client's AE team with SQLs for pipeline.</p>
                   </div>
-                  <div className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-4">
+                  <div className="rounded-[var(--radius-lg)] border border-slate-800 bg-slate-900 px-4 py-4">
                     <p className="text-[10px] uppercase tracking-wider text-slate-500">Key Risks</p>
                     <ul className="mt-2 space-y-1 text-xs text-slate-500">
                       <li className="flex items-center gap-1.5">
@@ -224,7 +224,7 @@ export default function TabContent() {
                     { task: "Review EU deliverability metrics", done: false },
                     { task: "Client check-in call (Thursday)", done: false },
                   ].map((item) => (
-                    <div key={item.task} className="flex items-start gap-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2.5">
+                    <div key={item.task} className="flex items-start gap-3 rounded-[var(--radius-lg)] border border-slate-800 bg-slate-900 px-3 py-2.5">
                       <CheckCircle2 className={`mt-0.5 h-4 w-4 ${item.done ? 'text-emerald-400' : 'text-slate-700'}`} />
                       <p className={`text-sm ${item.done ? 'text-slate-500 line-through' : 'text-slate-300'}`}>{item.task}</p>
                     </div>
@@ -241,17 +241,17 @@ export default function TabContent() {
               </CardHeader>
               <CardContent className="space-y-3">
                 {CAMPAIGN_TIMELINE.map((item) => (
-                  <div key={item.milestone} className="flex items-start gap-4 rounded-lg border border-slate-800 bg-slate-900 px-4 py-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-800 text-xs font-mono font-medium text-slate-400">
+                  <div key={item.milestone} className="flex items-start gap-4 rounded-[var(--radius-lg)] border border-slate-800 bg-slate-900 px-4 py-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-lg)] bg-slate-800 text-xs font-mono font-medium text-slate-400">
                       {item.date.split(" ")[1] || item.date}
                     </div>
                     <div className="flex-1">
                       <p className="text-sm font-medium text-white">{item.milestone}</p>
                       <div className="mt-1 flex flex-wrap gap-2 text-[11px]">
-                        <span className="inline-flex items-center gap-1 rounded-md bg-slate-800 px-2 py-0.5 text-slate-400">
+                        <span className="inline-flex items-center gap-1 rounded-[var(--radius-md)] bg-slate-800 px-2 py-0.5 text-slate-400">
                           {item.owner}
                         </span>
-                        <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 ${
+                        <span className={`inline-flex items-center gap-1 rounded-[var(--radius-md)] px-2 py-0.5 ${
                           item.status === "Complete" ? "bg-emerald-500/10 text-emerald-400" :
                           item.status === "In progress" ? "bg-violet-500/10 text-violet-400" :
                           "bg-slate-800 text-slate-500"
@@ -273,13 +273,13 @@ export default function TabContent() {
                   <Card key={bucket.title} className="border-slate-800 bg-slate-900/50 shadow-none">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0">
                       <CardTitle className="text-sm font-medium text-slate-300">{bucket.title}</CardTitle>
-                      <span className="rounded-lg border border-slate-800 bg-slate-900 p-2 text-slate-500">
+                      <span className="rounded-[var(--radius-lg)] border border-slate-800 bg-slate-900 p-2 text-slate-500">
                         <Icon className="h-4 w-4" />
                       </span>
                     </CardHeader>
                     <CardContent className="space-y-2">
                       {bucket.items.map((item) => (
-                        <div key={item.label} className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2.5">
+                        <div key={item.label} className="rounded-[var(--radius-lg)] border border-slate-800 bg-slate-900 px-3 py-2.5">
                           <p className="text-sm text-slate-300">{item.label}</p>
                           <p className={`mt-1 text-[10px] uppercase tracking-wider ${
                             item.status === "Complete" ? "text-emerald-400" :
@@ -329,7 +329,7 @@ export default function TabContent() {
                         <TableCell className="text-slate-400">{seq.opened}</TableCell>
                         <TableCell className="text-slate-400">{seq.replied}</TableCell>
                         <TableCell>
-                          <span className={`rounded-md px-2 py-1 text-[11px] font-medium ${
+                          <span className={`rounded-[var(--radius-md)] px-2 py-1 text-[11px] font-medium ${
                             seq.status === "Active" ? "bg-emerald-500/10 text-emerald-400" :
                             seq.status === "Testing" ? "bg-violet-500/10 text-violet-400" :
                             "bg-amber-500/10 text-amber-400"
@@ -358,8 +358,8 @@ export default function TabContent() {
                     { step: 4, timing: "Day 12", type: "Soft bump", focus: "Quick question" },
                     { step: 5, timing: "Day 18", type: "Breakup", focus: "Final attempt + value" },
                   ].map((email) => (
-                    <div key={email.step} className="flex items-center gap-4 rounded-lg border border-slate-800 bg-slate-900 px-4 py-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500/10 text-sm font-mono font-bold text-violet-400">
+                    <div key={email.step} className="flex items-center gap-4 rounded-[var(--radius-lg)] border border-slate-800 bg-slate-900 px-4 py-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-lg)] bg-violet-500/10 text-sm font-mono font-bold text-violet-400">
                         {email.step}
                       </div>
                       <div className="flex-1">
@@ -387,7 +387,7 @@ export default function TabContent() {
                     { step: "Email 4", opens: "35%", replies: "0.9%", bar: 35 },
                     { step: "Email 5", opens: "29%", replies: "0.6%", bar: 29 },
                   ].map((perf) => (
-                    <div key={perf.step} className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-3">
+                    <div key={perf.step} className="rounded-[var(--radius-lg)] border border-slate-800 bg-slate-900 px-4 py-3">
                       <div className="flex items-center justify-between mb-2">
                         <p className="text-sm font-medium text-white">{perf.step}</p>
                         <div className="flex gap-4 text-xs">
@@ -433,7 +433,7 @@ export default function TabContent() {
                         <TableCell className="text-slate-400">{list.count.toLocaleString()}</TableCell>
                         <TableCell className="text-slate-400">{list.source}</TableCell>
                         <TableCell>
-                          <span className={`rounded-md px-2 py-1 text-[11px] font-mono font-bold ${
+                          <span className={`rounded-[var(--radius-md)] px-2 py-1 text-[11px] font-mono font-bold ${
                             list.quality === "A+" ? "bg-emerald-500/10 text-emerald-400" :
                             list.quality === "A" ? "bg-cyan-500/10 text-cyan-400" :
                             "bg-slate-800 text-slate-400"
@@ -442,7 +442,7 @@ export default function TabContent() {
                           </span>
                         </TableCell>
                         <TableCell>
-                          <span className={`rounded-md px-2 py-1 text-[11px] ${
+                          <span className={`rounded-[var(--radius-md)] px-2 py-1 text-[11px] ${
                             list.status === "Verified" ? "bg-emerald-500/10 text-emerald-400" :
                             list.status === "Fresh" ? "bg-violet-500/10 text-violet-400" :
                             "bg-amber-500/10 text-amber-400"
@@ -493,7 +493,7 @@ export default function TabContent() {
                 <CardDescription className="text-xs text-slate-500">Targeting parameters for lead sourcing.</CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-2">
-                <div className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-4">
+                <div className="rounded-[var(--radius-lg)] border border-slate-800 bg-slate-900 px-4 py-4">
                   <p className="text-sm font-medium text-white mb-3">Must-Have Criteria</p>
                   <ul className="space-y-2 text-sm text-slate-400">
                     <li>✓ Title: VP Engineering, CTO, Director of Eng</li>
@@ -503,7 +503,7 @@ export default function TabContent() {
                     <li>✓ Geography: US, UK, Germany, France</li>
                   </ul>
                 </div>
-                <div className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-4">
+                <div className="rounded-[var(--radius-lg)] border border-slate-800 bg-slate-900 px-4 py-4">
                   <p className="text-sm font-medium text-white mb-3">Nice-to-Have Signals</p>
                   <ul className="space-y-2 text-sm text-slate-400">
                     <li>+ Recent funding in last 6 months</li>
@@ -528,14 +528,14 @@ export default function TabContent() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                <div className="rounded-[var(--radius-lg)] border border-slate-800 bg-slate-900 p-4">
                   <div className="flex items-center justify-between mb-3">
                     <p className="text-sm font-medium text-white">VP Engineering - Email 1 (Pain Point)</p>
-                    <span className="rounded-md bg-emerald-500/10 px-2 py-1 text-[10px] text-emerald-400">62% open rate</span>
+                    <span className="rounded-[var(--radius-md)] bg-emerald-500/10 px-2 py-1 text-[10px] text-emerald-400">62% open rate</span>
                   </div>
                   <div className="space-y-2 text-sm">
                     <p className="text-slate-500"><span className="text-slate-400">Subject:</span> {`{{First Name}}`}, saw your team is scaling</p>
-                    <div className="rounded-lg bg-slate-950 p-3 text-slate-400 font-mono text-xs leading-relaxed">
+                    <div className="rounded-[var(--radius-lg)] bg-slate-950 p-3 text-slate-400 font-mono text-xs leading-relaxed">
                       <p>Hi {`{{First Name}}`},</p>
                       <p className="mt-2">Noticed {`{{Company}}`} just raised your Series {`{{Funding Round}}`} — congrats! Scaling engineering teams post-funding is exciting but comes with its own headaches.</p>
                       <p className="mt-2">We help companies like {`{{Similar Company}}`} cut their deployment time by 40% without adding headcount.</p>
@@ -545,14 +545,14 @@ export default function TabContent() {
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                <div className="rounded-[var(--radius-lg)] border border-slate-800 bg-slate-900 p-4">
                   <div className="flex items-center justify-between mb-3">
                     <p className="text-sm font-medium text-white">CTO - Email 1 (Case Study)</p>
-                    <span className="rounded-md bg-cyan-500/10 px-2 py-1 text-[10px] text-cyan-400">58% open rate</span>
+                    <span className="rounded-[var(--radius-md)] bg-cyan-500/10 px-2 py-1 text-[10px] text-cyan-400">58% open rate</span>
                   </div>
                   <div className="space-y-2 text-sm">
                     <p className="text-slate-500"><span className="text-slate-400">Subject:</span> Quick question about {`{{Company}}`} engineering</p>
-                    <div className="rounded-lg bg-slate-950 p-3 text-slate-400 font-mono text-xs leading-relaxed">
+                    <div className="rounded-[var(--radius-lg)] bg-slate-950 p-3 text-slate-400 font-mono text-xs leading-relaxed">
                       <p>Hi {`{{First Name}}`},</p>
                       <p className="mt-2">Just helped {`{{Case Study Company}}`} (similar stage to {`{{Company}}`}) ship 2x faster by streamlining their CI/CD pipeline.</p>
                       <p className="mt-2">Their CTO said it was "the easiest infrastructure decision we've made."</p>
@@ -571,7 +571,7 @@ export default function TabContent() {
                 <CardDescription className="text-xs text-slate-500">Voice and style rules for this client.</CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-2">
-                <div className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-4">
+                <div className="rounded-[var(--radius-lg)] border border-slate-800 bg-slate-900 px-4 py-4">
                   <p className="text-sm font-medium text-white mb-3">Do's</p>
                   <ul className="space-y-1 text-xs text-slate-400">
                     <li>✓ Keep it under 100 words</li>
@@ -581,7 +581,7 @@ export default function TabContent() {
                     <li>✓ Use specific numbers and results</li>
                   </ul>
                 </div>
-                <div className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-4">
+                <div className="rounded-[var(--radius-lg)] border border-slate-800 bg-slate-900 px-4 py-4">
                   <p className="text-sm font-medium text-white mb-3">Don'ts</p>
                   <ul className="space-y-1 text-xs text-slate-400">
                     <li>✗ No "hope you're doing well"</li>
@@ -644,7 +644,7 @@ export default function TabContent() {
                         <TableCell className="text-slate-400">{domain.sent}</TableCell>
                         <TableCell className="text-slate-400">{domain.inbox}</TableCell>
                         <TableCell>
-                          <span className={`rounded-md px-2 py-1 text-[11px] ${
+                          <span className={`rounded-[var(--radius-md)] px-2 py-1 text-[11px] ${
                             domain.status === "Primary" ? "bg-emerald-500/10 text-emerald-400" :
                             domain.status === "Warming" ? "bg-amber-500/10 text-amber-400" :
                             "bg-slate-800 text-slate-400"
@@ -671,12 +671,12 @@ export default function TabContent() {
                   { record: "DMARC", status: "Configured", details: "p=none, monitoring mode" },
                   { record: "Custom tracking domain", status: "Configured", details: "track.techflow.io" },
                 ].map((item) => (
-                  <div key={item.record} className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-900 px-4 py-3">
+                  <div key={item.record} className="flex items-center justify-between rounded-[var(--radius-lg)] border border-slate-800 bg-slate-900 px-4 py-3">
                     <div>
                       <p className="text-sm font-medium text-white">{item.record}</p>
                       <p className="text-xs text-slate-500 font-mono">{item.details}</p>
                     </div>
-                    <span className="rounded-md bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-400">
+                    <span className="rounded-[var(--radius-md)] bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-400">
                       {item.status}
                     </span>
                   </div>
@@ -697,10 +697,10 @@ export default function TabContent() {
               </CardHeader>
               <CardContent className="space-y-4">
                 {AB_TESTS.map((test) => (
-                  <div key={test.name} className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                  <div key={test.name} className="rounded-[var(--radius-lg)] border border-slate-800 bg-slate-900 p-4">
                     <div className="flex items-center justify-between mb-3">
                       <p className="text-sm font-medium text-white">{test.name}</p>
-                      <span className={`rounded-md px-2 py-1 text-[10px] ${
+                      <span className={`rounded-[var(--radius-md)] px-2 py-1 text-[10px] ${
                         test.status === "Concluded" ? "bg-emerald-500/10 text-emerald-400" :
                         "bg-violet-500/10 text-violet-400"
                       }`}>
@@ -708,7 +708,7 @@ export default function TabContent() {
                       </span>
                     </div>
                     <div className="grid gap-3 md:grid-cols-2">
-                      <div className={`rounded-lg border px-3 py-2 ${
+                      <div className={`rounded-[var(--radius-lg)] border px-3 py-2 ${
                         test.winner === "A" ? "border-emerald-500/30 bg-emerald-500/5" : "border-slate-800 bg-slate-950"
                       }`}>
                         <div className="flex items-center justify-between mb-1">
@@ -717,7 +717,7 @@ export default function TabContent() {
                         </div>
                         <p className="text-sm text-slate-300">{test.variant_a}</p>
                       </div>
-                      <div className={`rounded-lg border px-3 py-2 ${
+                      <div className={`rounded-[var(--radius-lg)] border px-3 py-2 ${
                         test.winner === "B" ? "border-emerald-500/30 bg-emerald-500/5" : "border-slate-800 bg-slate-950"
                       }`}>
                         <div className="flex items-center justify-between mb-1">
@@ -747,7 +747,7 @@ export default function TabContent() {
                   { test: "Personalization: Company news vs funding data", hypothesis: "Recent news mentions feel more relevant" },
                   { test: "Email length: 50 words vs 100 words", hypothesis: "Shorter emails may get more replies" },
                 ].map((item) => (
-                  <div key={item.test} className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-3">
+                  <div key={item.test} className="rounded-[var(--radius-lg)] border border-slate-800 bg-slate-900 px-4 py-3">
                     <p className="text-sm font-medium text-white">{item.test}</p>
                     <p className="mt-1 text-xs text-slate-500">Hypothesis: {item.hypothesis}</p>
                   </div>
@@ -807,7 +807,7 @@ export default function TabContent() {
                         <TableCell className="text-slate-400">{meeting.date}</TableCell>
                         <TableCell className="text-slate-400">{meeting.source}</TableCell>
                         <TableCell>
-                          <span className={`rounded-md px-2 py-1 text-[11px] ${
+                          <span className={`rounded-[var(--radius-md)] px-2 py-1 text-[11px] ${
                             meeting.outcome === "Demo scheduled" ? "bg-emerald-500/10 text-emerald-400" :
                             meeting.outcome === "Proposal sent" ? "bg-cyan-500/10 text-cyan-400" :
                             "bg-slate-800 text-slate-400"
@@ -836,7 +836,7 @@ export default function TabContent() {
                   { stage: "Meeting Booked", count: 23, pct: "0.28%" },
                 ].map((item, idx) => (
                   <div key={item.stage} className="flex items-center gap-4">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-800 text-sm font-mono font-bold text-slate-400">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-lg)] bg-slate-800 text-sm font-mono font-bold text-slate-400">
                       {idx + 1}
                     </div>
                     <div className="flex-1">
@@ -877,11 +877,11 @@ export default function TabContent() {
                   { date: "Jan 10", type: "Email report", summary: "Sent week 1 metrics. Highlighted subject line test results.", action: "Implement winning variant" },
                   { date: "Jan 6", type: "Kickoff call", summary: "Campaign launched. Walked through sequences and lead lists. Set expectations for ramp.", action: "Begin outreach" },
                 ].map((log) => (
-                  <div key={log.date} className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                  <div key={log.date} className="rounded-[var(--radius-lg)] border border-slate-800 bg-slate-900 p-4">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-3">
                         <span className="text-xs font-mono text-slate-500">{log.date}</span>
-                        <span className="rounded-md bg-slate-800 px-2 py-0.5 text-[10px] text-slate-400">{log.type}</span>
+                        <span className="rounded-[var(--radius-md)] bg-slate-800 px-2 py-0.5 text-[10px] text-slate-400">{log.type}</span>
                       </div>
                     </div>
                     <p className="text-sm text-slate-300">{log.summary}</p>
@@ -935,7 +935,7 @@ export default function TabContent() {
                     { task: "Propose Q2 expansion", due: "Feb 15", owner: "Account Lead" },
                     { task: "Final report + case study draft", due: "Mar 31", owner: "Account Lead" },
                   ].map((item) => (
-                    <div key={item.task} className="flex items-start gap-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2.5">
+                    <div key={item.task} className="flex items-start gap-3 rounded-[var(--radius-lg)] border border-slate-800 bg-slate-900 px-3 py-2.5">
                       <Clock className="mt-0.5 h-4 w-4 text-slate-600" />
                       <div className="flex-1">
                         <p className="text-sm text-slate-300">{item.task}</p>

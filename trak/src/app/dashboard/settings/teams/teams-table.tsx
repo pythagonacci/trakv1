@@ -81,7 +81,7 @@ export default function TeamsTable({
         )}
       </div>
 
-      <div className="rounded-md border border-[var(--border)]">
+      <div className="rounded-[var(--radius-md)] border border-[var(--border)]">
         {teams.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--river-indigo)]/10 text-[var(--river-indigo)] mb-4">

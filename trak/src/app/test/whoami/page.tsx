@@ -27,16 +27,16 @@ export default function WhoAmIPage() {
       <h1 className="text-3xl font-bold mb-8">Who Am I? 🤔</h1>
 
       {loading ? (
-        <p className="text-gray-600">Loading your info...</p>
+        <p className="text-[var(--muted-foreground)]">Loading your info...</p>
       ) : info?.error ? (
-        <div className="bg-red-50 border border-red-200 p-6 rounded-lg">
+        <div className="bg-red-50 border border-red-200 p-6 rounded-[var(--radius-lg)]">
           <p className="text-red-800 font-semibold">Error: {info.error}</p>
           <p className="text-red-600 text-sm mt-2">You might not be logged in. Check Supabase auth.</p>
         </div>
       ) : (
         <>
           {/* User Info */}
-          <section className="border p-6 rounded-lg mb-6">
+          <section className="border p-6 rounded-[var(--radius-lg)] mb-6">
             <h2 className="text-xl font-semibold mb-4 flex items-center">
               👤 Your Account
             </h2>
@@ -57,28 +57,28 @@ export default function WhoAmIPage() {
           </section>
 
           {/* Workspaces */}
-          <section className="border p-6 rounded-lg mb-6">
+          <section className="border p-6 rounded-[var(--radius-lg)] mb-6">
             <h2 className="text-xl font-semibold mb-4 flex items-center">
               🏢 Your Workspaces ({info.data.total_workspaces})
             </h2>
             
             {info.data.workspaces.length === 0 ? (
-              <p className="text-gray-600">You&apos;re not a member of any workspaces yet.</p>
+              <p className="text-[var(--muted-foreground)]">You&apos;re not a member of any workspaces yet.</p>
             ) : (
               <div className="space-y-4">
                 {info.data.workspaces.map((workspace: any, index: number) => (
-                  <div key={index} className="border-l-4 border-blue-500 pl-4 py-2 bg-gray-50 rounded">
+                  <div key={index} className="border-l-4 border-blue-500 pl-4 py-2 bg-[var(--background)] rounded">
                     <div className="flex items-center justify-between mb-2">
                       <h3 className="font-semibold text-lg">{workspace.workspace_name}</h3>
                       <span className={`px-3 py-1 rounded text-sm font-medium ${
                         workspace.your_role === 'owner' ? 'bg-purple-100 text-purple-800' :
                         workspace.your_role === 'admin' ? 'bg-blue-100 text-blue-800' :
-                        'bg-gray-100 text-gray-800'
+                        'bg-[var(--surface-muted)] text-gray-800'
                       }`}>
                         {workspace.your_role.toUpperCase()}
                       </span>
                     </div>
-                    <div className="space-y-1 text-sm text-gray-600">
+                    <div className="space-y-1 text-sm text-[var(--muted-foreground)]">
                       <div className="flex items-center gap-2">
                         <span className="font-mono bg-gray-200 px-2 py-0.5 rounded text-xs">
                           {workspace.workspace_id}
@@ -98,19 +98,19 @@ export default function WhoAmIPage() {
           </section>
 
           {/* Quick Actions */}
-          <section className="border p-6 rounded-lg bg-blue-50">
+          <section className="border p-6 rounded-[var(--radius-lg)] bg-blue-50">
             <h2 className="text-xl font-semibold mb-4">📋 Quick Copy</h2>
             <div className="space-y-2">
               <button
                 onClick={() => navigator.clipboard.writeText(info.data.user.id)}
-                className="block w-full text-left p-2 bg-white border rounded hover:bg-gray-50"
+                className="block w-full text-left p-2 bg-[var(--surface)] border rounded hover:bg-[var(--background)]"
               >
                 📋 Copy Your User ID
               </button>
               {info.data.workspaces.length > 0 && (
                 <button
                   onClick={() => navigator.clipboard.writeText(info.data.workspaces[0].workspace_id)}
-                  className="block w-full text-left p-2 bg-white border rounded hover:bg-gray-50"
+                  className="block w-full text-left p-2 bg-[var(--surface)] border rounded hover:bg-[var(--background)]"
                 >
                   📋 Copy First Workspace ID
                 </button>
@@ -120,9 +120,9 @@ export default function WhoAmIPage() {
 
           {/* Raw JSON */}
           <section className="mt-6">
-            <details className="border p-4 rounded-lg">
+            <details className="border p-4 rounded-[var(--radius-lg)]">
               <summary className="cursor-pointer font-semibold">View Raw JSON</summary>
-              <pre className="mt-4 text-sm overflow-auto bg-gray-50 p-4 rounded">
+              <pre className="mt-4 text-sm overflow-auto bg-[var(--background)] p-4 rounded">
                 {JSON.stringify(info.data, null, 2)}
               </pre>
             </details>

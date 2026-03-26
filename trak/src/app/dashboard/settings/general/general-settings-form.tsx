@@ -128,7 +128,7 @@ export default function GeneralSettingsForm({
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Error Alert */}
         {error && (
-          <div className="flex items-start gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <div className="flex items-start gap-3 rounded-[var(--radius-md)] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
             <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
             <p>{error}</p>
           </div>
@@ -136,14 +136,14 @@ export default function GeneralSettingsForm({
 
         {/* Success Alert */}
         {success && (
-          <div className="flex items-start gap-3 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+          <div className="flex items-start gap-3 rounded-[var(--radius-md)] border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
             <CheckCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
             <p>Workspace settings updated successfully</p>
           </div>
         )}
 
         {/* Workspace Name Card */}
-        <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-6 space-y-4">
+        <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-6 space-y-4">
           <div className="space-y-2">
             <label htmlFor="workspace-name" className="block text-sm font-medium">
               Workspace Name
@@ -155,7 +155,7 @@ export default function GeneralSettingsForm({
               onChange={(e) => setName(e.target.value)}
               placeholder="My Workspace"
               disabled={!canManage || isSubmitting}
-              className="w-full px-3 py-2.5 rounded-md border border-[var(--border)] bg-[var(--background)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--river-indigo)]/50 focus:border-[var(--river-indigo)] disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full px-3 py-2.5 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--background)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--river-indigo)]/50 focus:border-[var(--river-indigo)] disabled:opacity-50 disabled:cursor-not-allowed"
             />
             {!canManage && (
               <p className="text-xs text-[var(--muted-foreground)]">
@@ -165,7 +165,7 @@ export default function GeneralSettingsForm({
           </div>
         </div>
 
-        <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-6 space-y-4">
+        <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-6 space-y-4">
           <div>
             <h3 className="text-sm font-medium">Billing</h3>
             <p className="mt-1 text-sm text-[var(--muted-foreground)]">
@@ -189,7 +189,7 @@ export default function GeneralSettingsForm({
                     type="button"
                     onClick={() => handleBillingAction("checkout_standard")}
                     disabled={isRedirectingBilling !== null}
-                    className="px-4 py-2 text-sm font-medium text-white bg-[var(--river-indigo)] hover:bg-[var(--river-indigo)]/90 rounded-md transition-colors disabled:opacity-50"
+                    className="px-4 py-2 text-sm font-medium text-white bg-[var(--river-indigo)] hover:bg-[var(--river-indigo)]/90 rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
                   >
                     {isRedirectingBilling === "checkout_standard" ? "Opening..." : "Upgrade to Standard"}
                   </button>
@@ -197,7 +197,7 @@ export default function GeneralSettingsForm({
                     type="button"
                     onClick={() => handleBillingAction("checkout_business")}
                     disabled={isRedirectingBilling !== null}
-                    className="px-4 py-2 text-sm font-medium border border-[var(--border)] hover:bg-[var(--surface-hover)] rounded-md transition-colors disabled:opacity-50"
+                    className="px-4 py-2 text-sm font-medium border border-[var(--border)] hover:bg-[var(--surface-hover)] rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
                   >
                     {isRedirectingBilling === "checkout_business" ? "Opening..." : "Upgrade to Business"}
                   </button>
@@ -210,7 +210,7 @@ export default function GeneralSettingsForm({
                     type="button"
                     onClick={() => handleBillingAction("portal")}
                     disabled={isRedirectingBilling !== null}
-                    className="px-4 py-2 text-sm font-medium text-white bg-[var(--river-indigo)] hover:bg-[var(--river-indigo)]/90 rounded-md transition-colors disabled:opacity-50"
+                    className="px-4 py-2 text-sm font-medium text-white bg-[var(--river-indigo)] hover:bg-[var(--river-indigo)]/90 rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
                   >
                     {isRedirectingBilling === "portal" ? "Opening..." : "Manage Billing"}
                   </button>
@@ -218,7 +218,7 @@ export default function GeneralSettingsForm({
                     type="button"
                     onClick={() => handleBillingAction("checkout_business")}
                     disabled={isRedirectingBilling !== null}
-                    className="px-4 py-2 text-sm font-medium border border-[var(--border)] hover:bg-[var(--surface-hover)] rounded-md transition-colors disabled:opacity-50"
+                    className="px-4 py-2 text-sm font-medium border border-[var(--border)] hover:bg-[var(--surface-hover)] rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
                   >
                     {isRedirectingBilling === "checkout_business" ? "Opening..." : "Upgrade to Business"}
                   </button>
@@ -230,7 +230,7 @@ export default function GeneralSettingsForm({
                   type="button"
                   onClick={() => handleBillingAction("portal")}
                   disabled={isRedirectingBilling !== null}
-                  className="px-4 py-2 text-sm font-medium text-white bg-[var(--river-indigo)] hover:bg-[var(--river-indigo)]/90 rounded-md transition-colors disabled:opacity-50"
+                  className="px-4 py-2 text-sm font-medium text-white bg-[var(--river-indigo)] hover:bg-[var(--river-indigo)]/90 rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
                 >
                   {isRedirectingBilling === "portal" ? "Opening..." : "Manage Billing"}
                 </button>
@@ -245,7 +245,7 @@ export default function GeneralSettingsForm({
             <button
               type="submit"
               disabled={isSubmitting || !isDirty}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[var(--river-indigo)] hover:bg-[var(--river-indigo)]/90 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[var(--river-indigo)] hover:bg-[var(--river-indigo)]/90 rounded-[var(--radius-md)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
               {isSubmitting ? "Saving..." : "Save Changes"}
@@ -255,7 +255,7 @@ export default function GeneralSettingsForm({
       </form>
 
       {/* Future Settings Placeholder */}
-      <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-6">
+      <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-6">
         <h3 className="text-sm font-medium mb-2">Additional Settings</h3>
         <p className="text-sm text-[var(--muted-foreground)]">
           More workspace settings coming soon

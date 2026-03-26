@@ -124,7 +124,7 @@ export default function WorkflowPageLayout(props: {
                 onClick={() => void onCreate()}
                 disabled={newPageLoading}
                 className={cn(
-                  "inline-flex items-center gap-2 rounded-md border px-3 py-2 text-xs font-medium transition-colors",
+                  "inline-flex items-center gap-2 rounded-[var(--radius-md)] border px-3 py-2 text-xs font-medium transition-colors",
                   "border-[var(--primary)]/30 bg-[var(--primary)]/10 text-white hover:bg-[var(--primary)]/15 disabled:opacity-50"
                 )}
                 title="Create a new workflow page"
@@ -137,7 +137,7 @@ export default function WorkflowPageLayout(props: {
                 onClick={() => void onShare()}
                 disabled={shareLoading}
                 className={cn(
-                  "inline-flex items-center gap-2 rounded-md border px-3 py-2 text-xs font-medium transition-colors",
+                  "inline-flex items-center gap-2 rounded-[var(--radius-md)] border px-3 py-2 text-xs font-medium transition-colors",
                   "border-[var(--primary)]/30 bg-[var(--primary)]/10 text-white hover:bg-[var(--primary)]/15 disabled:opacity-50"
                 )}
               >
@@ -148,7 +148,7 @@ export default function WorkflowPageLayout(props: {
                 type="button"
                 onClick={() => setChatOpen((v) => !v)}
                 className={cn(
-                  "inline-flex items-center gap-2 rounded-md border px-3 py-2 text-xs font-medium transition-colors",
+                  "inline-flex items-center gap-2 rounded-[var(--radius-md)] border px-3 py-2 text-xs font-medium transition-colors",
                   "border-[var(--primary)]/30 bg-[var(--primary)]/10 text-white hover:bg-[var(--primary)]/15"
                 )}
               >

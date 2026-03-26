@@ -189,7 +189,7 @@ export function EverythingView({ workspaceId }: EverythingViewProps) {
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
           <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]" />
-          <p className="mt-4 text-sm text-neutral-600 dark:text-neutral-400">
+          <p className="mt-4 text-sm text-[var(--muted-foreground)] dark:text-[var(--tertiary-foreground)]">
             Loading everything...
           </p>
         </div>
@@ -202,7 +202,7 @@ export function EverythingView({ workspaceId }: EverythingViewProps) {
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
           <p className="text-red-600 dark:text-red-400">Failed to load items</p>
-          <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-2">
+          <p className="text-sm text-[var(--muted-foreground)] dark:text-[var(--tertiary-foreground)] mt-2">
             {error.message}
           </p>
         </div>
@@ -214,10 +214,10 @@ export function EverythingView({ workspaceId }: EverythingViewProps) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
-          <p className="text-neutral-600 dark:text-neutral-400">
+          <p className="text-[var(--muted-foreground)] dark:text-[var(--tertiary-foreground)]">
             No items with properties found in your workspace
           </p>
-          <p className="text-sm text-neutral-500 dark:text-neutral-500 mt-2">
+          <p className="text-sm text-[var(--tertiary-foreground)] dark:text-[var(--tertiary-foreground)] mt-2">
             Items will appear here when they have status, priority, assignees, due dates, or tags
           </p>
         </div>
@@ -247,9 +247,9 @@ export function EverythingView({ workspaceId }: EverythingViewProps) {
       />
 
       {filteredItems.length === 0 ? (
-        <div className="flex items-center justify-center min-h-[300px] border border-neutral-300 dark:border-neutral-700 rounded-lg">
+        <div className="flex items-center justify-center min-h-[300px] border border-neutral-300 dark:border-neutral-700 rounded-[var(--radius-lg)]">
           <div className="text-center">
-            <p className="text-neutral-600 dark:text-neutral-400">
+            <p className="text-[var(--muted-foreground)] dark:text-[var(--tertiary-foreground)]">
               No items match your filters
             </p>
             <button
@@ -264,7 +264,7 @@ export function EverythingView({ workspaceId }: EverythingViewProps) {
           </div>
         </div>
       ) : (
-        <div className="border border-neutral-300 dark:border-neutral-700 rounded-lg overflow-hidden bg-white dark:bg-neutral-900">
+        <div className="border border-neutral-300 dark:border-neutral-700 rounded-[var(--radius-lg)] overflow-hidden bg-[var(--surface)] dark:bg-neutral-900">
           {viewType === "table" ? (
             <EverythingTableView
               items={filteredItems}

@@ -62,18 +62,18 @@ export function ShopifyStoresClient({
       {/* Header - same format as products page */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-2">Shopify Stores</h1>
-        <p className="text-gray-600">Connect and manage your Shopify stores</p>
+        <p className="text-[var(--muted-foreground)]">Connect and manage your Shopify stores</p>
       </div>
 
       {/* Success/Error Messages */}
       {showMessage && success && (
-        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-green-800">
+        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-[var(--radius-lg)] text-green-800">
           ✓ Shopify store connected successfully!
         </div>
       )}
 
       {showMessage && error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-[var(--radius-lg)] text-red-800">
           ✗ Connection failed: {getErrorMessage(error)}
         </div>
       )}
@@ -91,7 +91,7 @@ export function ShopifyStoresClient({
           </div>
           {connections.length === 0 ? (
             <div className="text-center py-12">
-              <div className="text-gray-400 mb-4">
+              <div className="text-[var(--tertiary-foreground)] mb-4">
                 <svg
                   className="w-16 h-16 mx-auto"
                   fill="none"
@@ -106,7 +106,7 @@ export function ShopifyStoresClient({
                   />
                 </svg>
               </div>
-              <p className="text-gray-600 mb-4">No Shopify stores connected yet</p>
+              <p className="text-[var(--muted-foreground)] mb-4">No Shopify stores connected yet</p>
               <Button onClick={() => setShowConnectDialog(true)} variant="outline">
                 Connect Your First Store
               </Button>

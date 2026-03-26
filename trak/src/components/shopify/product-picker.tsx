@@ -173,9 +173,9 @@ export function ShopifyProductPicker({
           {/* Products List */}
           <div className="flex-1 overflow-y-auto mt-4">
             {loading && products.length === 0 ? (
-              <div className="text-center py-12 text-gray-500">Loading products...</div>
+              <div className="text-center py-12 text-[var(--tertiary-foreground)]">Loading products...</div>
             ) : products.length === 0 ? (
-              <div className="text-center py-12 text-gray-500">
+              <div className="text-center py-12 text-[var(--tertiary-foreground)]">
                 No products found. Try adjusting your search.
               </div>
             ) : (
@@ -186,7 +186,7 @@ export function ShopifyProductPicker({
                     checked={selected.size === products.length && products.length > 0}
                     onCheckedChange={handleSelectAll}
                   />
-                  <span className="text-sm text-gray-600">
+                  <span className="text-sm text-[var(--muted-foreground)]">
                     Select All ({selected.size} of {products.length} selected)
                   </span>
                 </div>
@@ -197,7 +197,7 @@ export function ShopifyProductPicker({
                     <button
                       key={product.id}
                       onClick={() => handleToggle(product.id)}
-                      className="w-full flex items-center gap-3 p-3 hover:bg-gray-50 rounded-lg border border-transparent hover:border-gray-200 transition-colors text-left"
+                      className="w-full flex items-center gap-3 p-3 hover:bg-[var(--background)] rounded-[var(--radius-lg)] border border-transparent hover:border-[var(--border)] transition-colors text-left"
                     >
                       <Checkbox checked={selected.has(product.id)} />
 
@@ -211,11 +211,11 @@ export function ShopifyProductPicker({
 
                       <div className="flex-1 min-w-0">
                         <div className="font-medium truncate">{product.title}</div>
-                        <div className="text-sm text-gray-500">
+                        <div className="text-sm text-[var(--tertiary-foreground)]">
                           {product.status} • {product.variantsCount} variants
                         </div>
                         {product.productType && (
-                          <div className="text-xs text-gray-400">{product.productType}</div>
+                          <div className="text-xs text-[var(--tertiary-foreground)]">{product.productType}</div>
                         )}
                       </div>
                     </button>
@@ -241,7 +241,7 @@ export function ShopifyProductPicker({
 
           {/* Actions */}
           <div className="pt-4 border-t mt-4 flex justify-between items-center">
-            <div className="text-sm text-gray-600">
+            <div className="text-sm text-[var(--muted-foreground)]">
               {selected.size} product{selected.size !== 1 ? "s" : ""} selected
             </div>
             <div className="flex gap-2">

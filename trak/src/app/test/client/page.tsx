@@ -49,7 +49,7 @@ export default function ClientTestPage() {
         <div className="space-y-6">
           
           {/* 1. CREATE CLIENT */}
-          <section className="border p-6 rounded-lg">
+          <section className="border p-6 rounded-[var(--radius-lg)]">
             <h2 className="text-xl font-semibold mb-4">1. Create Client</h2>
             <div className="space-y-3">
               <input
@@ -127,7 +127,7 @@ export default function ClientTestPage() {
           </section>
 
           {/* 2. GET ALL CLIENTS */}
-          <section className="border p-6 rounded-lg">
+          <section className="border p-6 rounded-[var(--radius-lg)]">
             <h2 className="text-xl font-semibold mb-4">2. Get All Clients</h2>
             <div className="space-y-3">
               <input
@@ -148,7 +148,7 @@ export default function ClientTestPage() {
           </section>
 
           {/* 3. GET SINGLE CLIENT */}
-          <section className="border p-6 rounded-lg">
+          <section className="border p-6 rounded-[var(--radius-lg)]">
             <h2 className="text-xl font-semibold mb-4">3. Get Single Client</h2>
             <div className="space-y-3">
               <input
@@ -169,7 +169,7 @@ export default function ClientTestPage() {
           </section>
 
           {/* 4. UPDATE CLIENT */}
-          <section className="border p-6 rounded-lg">
+          <section className="border p-6 rounded-[var(--radius-lg)]">
             <h2 className="text-xl font-semibold mb-4">4. Update Client</h2>
             <div className="space-y-3">
               <input
@@ -225,7 +225,7 @@ export default function ClientTestPage() {
           </section>
 
           {/* 5. DELETE CLIENT */}
-          <section className="border p-6 rounded-lg">
+          <section className="border p-6 rounded-[var(--radius-lg)]">
             <h2 className="text-xl font-semibold mb-4">5. Delete Client</h2>
             <div className="space-y-3">
               <input
@@ -242,7 +242,7 @@ export default function ClientTestPage() {
               >
                 Delete Client (Admin Only)
               </button>
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-[var(--muted-foreground)]">
                 ⚠️ Will fail if client has projects
               </p>
             </div>
@@ -254,15 +254,15 @@ export default function ClientTestPage() {
         <div>
           <div className="sticky top-8">
             <h2 className="text-xl font-semibold mb-4">Results</h2>
-            <div className="border p-4 rounded-lg bg-gray-50">
+            <div className="border p-4 rounded-[var(--radius-lg)] bg-[var(--background)]">
               {loading ? (
-                <p className="text-gray-600">Loading...</p>
+                <p className="text-[var(--muted-foreground)]">Loading...</p>
               ) : result ? (
                 <pre className="text-sm overflow-auto max-h-[800px]">
                   {JSON.stringify(result, null, 2)}
                 </pre>
               ) : (
-                <p className="text-gray-400">No results yet. Run a test to see output.</p>
+                <p className="text-[var(--tertiary-foreground)]">No results yet. Run a test to see output.</p>
               )}
             </div>
           </div>
@@ -272,7 +272,7 @@ export default function ClientTestPage() {
       {/* Quick Reference */}
       <div className="mt-8 border-t pt-8">
         <h2 className="text-xl font-semibold mb-4">Quick Reference</h2>
-        <div className="bg-blue-50 p-4 rounded-lg space-y-2 text-sm">
+        <div className="bg-blue-50 p-4 rounded-[var(--radius-lg)] space-y-2 text-sm">
           <p><strong>Tip:</strong> Get workspace ID from workspace tests first</p>
           <p><strong>Tip:</strong> Create a client, then copy its ID for update/delete/get single tests</p>
           <p><strong>Note:</strong> Project count will show 0 until Task 1.3 is complete</p>

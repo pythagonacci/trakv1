@@ -34,17 +34,17 @@ export const PRIORITY_OPTIONS: { value: Priority; label: string; color: string }
 ];
 
 export const STATUS_COLORS: Record<Status, string> = {
-  todo: 'bg-[var(--surface-muted)] text-[var(--muted-foreground)]',
-  in_progress: 'bg-[var(--primary)]/10 text-[var(--primary)]',
-  done: 'bg-[var(--success)]/10 text-[var(--success)]',
-  blocked: 'bg-[var(--error)]/10 text-[var(--error)]',
+  todo: 'bg-[var(--status-todo-bg)] text-[var(--status-todo-text)]',
+  in_progress: 'bg-[var(--status-inprogress-bg)] text-[var(--status-inprogress-text)]',
+  done: 'bg-[var(--status-done-bg)] text-[var(--status-done-text)]',
+  blocked: 'bg-[var(--status-blocked-bg)] text-[var(--status-blocked-text)]',
 };
 
 export const PRIORITY_COLORS: Record<Priority, string> = {
-  low: 'bg-[var(--surface-muted)] text-[var(--tertiary-foreground)]',
-  medium: 'bg-[var(--warning)]/10 text-[var(--warning)]',
-  high: 'bg-[var(--tile-orange)]/10 text-[var(--tile-orange)]',
-  urgent: 'bg-[var(--error)]/10 text-[var(--error)]',
+  low: 'bg-[var(--priority-low-bg)] text-[var(--priority-low-text)]',
+  medium: 'bg-[var(--priority-medium-bg)] text-[var(--priority-medium-text)]',
+  high: 'bg-[var(--priority-high-bg)] text-[var(--priority-high-text)]',
+  urgent: 'bg-[var(--priority-urgent-bg)] text-[var(--priority-urgent-text)]',
 };
 
 // ============================================================================

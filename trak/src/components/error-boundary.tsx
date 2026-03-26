@@ -46,7 +46,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
       return (
         <div className="flex min-h-[400px] items-center justify-center p-8">
-          <div className="w-full max-w-md rounded-lg border border-red-200 bg-red-50 p-6 text-center">
+          <div className="w-full max-w-md rounded-[var(--radius-lg)] border border-red-200 bg-red-50 p-6 text-center">
             <div className="mb-4">
               <svg
                 className="mx-auto h-12 w-12 text-red-500"
@@ -87,7 +87,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 this.setState({ hasError: false, error: undefined });
                 window.location.reload();
               }}
-              className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+              className="rounded-[var(--radius-md)] bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
             >
               Reload page
             </button>

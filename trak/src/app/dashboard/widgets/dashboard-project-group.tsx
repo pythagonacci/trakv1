@@ -182,7 +182,7 @@ export default function DashboardProjectGroup({
           {(["not_started", "in_progress", "complete"] as const).map((status) => (
             <div
               key={status}
-              className="rounded-md border border-[var(--border)] bg-[var(--surface-muted)]/50 p-2 min-h-[80px]"
+              className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface-muted)]/50 p-2 min-h-[80px]"
             >
               <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)] mb-2">
                 {status === "not_started"
@@ -251,7 +251,7 @@ export default function DashboardProjectGroup({
                     type="button"
                     onClick={() => router.push(buildProjectPath(project.id, project.name))}
                     className={cn(
-                      "w-full flex items-center justify-between gap-2 rounded-md border border-border/60 bg-transparent px-3 py-2 text-left text-xs transition hover:bg-[var(--secondary)]/5 hover:border-[var(--secondary)]/30 text-[var(--foreground)]"
+                      "w-full flex items-center justify-between gap-2 rounded-[var(--radius-md)] border border-border/60 bg-transparent px-3 py-2 text-left text-xs transition hover:bg-[var(--secondary)]/5 hover:border-[var(--secondary)]/30 text-[var(--foreground)]"
                     )}
                   >
                     <div className="min-w-0 flex-1">

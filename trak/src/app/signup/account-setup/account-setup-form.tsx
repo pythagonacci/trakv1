@@ -11,7 +11,7 @@ export default function AccountSetupForm({ error }: { error?: string }) {
   return (
     <AuthShell title="Set up your account" subtitle="Almost there. Tell us about yourself.">
       {error && (
-        <div className="mb-4 rounded-md border border-[var(--error)]/30 bg-[var(--error)]/10 px-3 py-2 text-sm text-[var(--error)]">
+        <div className="mb-4 rounded-[var(--radius-md)] border border-[var(--error)]/30 bg-[var(--error)]/10 px-3 py-2 text-sm text-[var(--error)]">
           {error}
         </div>
       )}

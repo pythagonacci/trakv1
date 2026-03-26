@@ -11,7 +11,7 @@ export default function PasswordForm({ error }: { error?: string }) {
   return (
     <AuthShell title="Create your password" subtitle="This will be your login credential.">
       {error && (
-        <div className="mb-4 rounded-md border border-[var(--error)]/30 bg-[var(--error)]/10 px-3 py-2 text-sm text-[var(--error)]">
+        <div className="mb-4 rounded-[var(--radius-md)] border border-[var(--error)]/30 bg-[var(--error)]/10 px-3 py-2 text-sm text-[var(--error)]">
           {error}
         </div>
       )}

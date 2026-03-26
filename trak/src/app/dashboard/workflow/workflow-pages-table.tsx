@@ -136,7 +136,7 @@ export default function WorkflowPagesTable({ pages: initialPages }: WorkflowPage
 
   if (pages.length === 0) {
     return (
-      <div className="rounded-md border border-[var(--primary)]/20 bg-[var(--primary)]/5 p-4 text-sm text-[var(--muted-foreground)]">
+      <div className="rounded-[var(--radius-md)] border border-[var(--primary)]/20 bg-[var(--primary)]/5 p-4 text-sm text-[var(--muted-foreground)]">
         No workflow pages yet.
       </div>
     );
@@ -212,7 +212,7 @@ export default function WorkflowPagesTable({ pages: initialPages }: WorkflowPage
                   <DropdownMenuTrigger asChild>
                     <button
                       onClick={(e) => e.stopPropagation()}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] transition-colors hover:bg-surface-hover"
                     >
                       <MoreHorizontal className="h-4 w-4" />
                     </button>

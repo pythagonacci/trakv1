@@ -23,7 +23,7 @@ export default async function InviteAcceptPage({ searchParams }: PageProps) {
     return (
       <AuthShell title="Invalid invitation" subtitle="This invite link is missing or invalid.">
         <div className="flex flex-col gap-4">
-          <div className="flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <div className="flex items-start gap-3 rounded-[var(--radius-md)] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
             <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
             <p>No invitation token was provided. Use the link from your invitation email.</p>
           </div>
@@ -42,7 +42,7 @@ export default async function InviteAcceptPage({ searchParams }: PageProps) {
     return (
       <AuthShell title="Invitation not found" subtitle="This invite may have been removed or the link is incorrect.">
         <div className="flex flex-col gap-4">
-          <div className="flex items-start gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <div className="flex items-start gap-3 rounded-[var(--radius-md)] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
             <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
             <p>We couldn’t find this invitation. Ask your teammate to send a new one.</p>
           </div>
@@ -65,7 +65,7 @@ export default async function InviteAcceptPage({ searchParams }: PageProps) {
     return (
       <AuthShell title="Invitation expired" subtitle="This invite link has expired.">
         <div className="flex flex-col gap-4">
-          <div className="flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <div className="flex items-start gap-3 rounded-[var(--radius-md)] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
             <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
             <p>Invitations expire after 7 days. Ask someone from {invite.workspaceName} to send you a new invite.</p>
           </div>
@@ -86,7 +86,7 @@ export default async function InviteAcceptPage({ searchParams }: PageProps) {
       subtitle={`You have been invited to ${invite.workspaceName}. Create your account to join.`}
     >
       {errorParam && (
-        <div className="mb-4 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <div className="mb-4 flex items-start gap-3 rounded-[var(--radius-md)] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
           <p>{decodeURIComponent(errorParam)}</p>
         </div>

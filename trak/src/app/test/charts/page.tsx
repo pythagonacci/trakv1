@@ -174,7 +174,7 @@ export default function ChartTestPage() {
               key={i}
               type="button"
               onClick={() => { setSelectedIdx(i); setEditedSpec(null); }}
-              className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+              className={`rounded-[var(--radius-md)] border px-3 py-1.5 text-xs font-medium transition-colors ${
                 i === selectedIdx
                   ? "border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-foreground)]"
                   : "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
@@ -187,7 +187,7 @@ export default function ChartTestPage() {
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_300px]">
           {/* Chart */}
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
+          <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] p-6">
             <div className="mb-3">
               <h2 className="text-base font-semibold">{scenario.label}</h2>
               <p className="text-xs text-[var(--muted-foreground)]">{scenario.description}</p>
@@ -207,7 +207,7 @@ export default function ChartTestPage() {
             )}
 
             {chartData && (
-              <div className="mt-4 rounded-md bg-[var(--background)] p-3 text-xs text-[var(--muted-foreground)]">
+              <div className="mt-4 rounded-[var(--radius-md)] bg-[var(--background)] p-3 text-xs text-[var(--muted-foreground)]">
                 <strong className="text-[var(--foreground)]">Meta:</strong>{" "}
                 type={chartData.type} | focus={chartData.meta.totalFocus} | universe={chartData.meta.totalUniverse ?? "n/a"}
                 {chartData.meta.normalizationWarning && (
@@ -236,10 +236,10 @@ export default function ChartTestPage() {
             View active spec + raw data
           </summary>
           <div className="mt-2 grid grid-cols-2 gap-4">
-            <pre className="overflow-auto rounded-md bg-[var(--surface)] p-4 text-xs">
+            <pre className="overflow-auto rounded-[var(--radius-md)] bg-[var(--surface)] p-4 text-xs">
               {JSON.stringify(activeSpec, null, 2)}
             </pre>
-            <pre className="overflow-auto rounded-md bg-[var(--surface)] p-4 text-xs">
+            <pre className="overflow-auto rounded-[var(--radius-md)] bg-[var(--surface)] p-4 text-xs">
               {JSON.stringify(chartData?.data?.slice(0, 10), null, 2)}
             </pre>
           </div>

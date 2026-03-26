@@ -965,7 +965,7 @@ export function PropertyMenu({
       {(focusedGroup === undefined || focusedGroup === "status" || focusedGroup === "priority") && (
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
                       {(focusedGroup === undefined || focusedGroup === "status") && (
-                        <div className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 space-y-2">
+                        <div className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 space-y-2">
                       <div className="flex items-center justify-between gap-2">
                         <Label className="text-xs font-medium text-[var(--foreground)]">
                           Statuses
@@ -992,7 +992,7 @@ export function PropertyMenu({
                         )}
                       </div>
                       {statusDisabled ? (
-                        <div className="rounded-md border border-dashed border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--muted-foreground)]">
+                        <div className="rounded-[var(--radius-md)] border border-dashed border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--muted-foreground)]">
                           {(displayStatus ?? direct?.status)
                             ? STATUS_OPTIONS.find((o) => o.value === (displayStatus ?? direct?.status))?.label || (displayStatus ?? direct?.status)
                             : "None"}{" "}
@@ -1063,7 +1063,7 @@ export function PropertyMenu({
                       )}
       
                       {(focusedGroup === undefined || focusedGroup === "priority") && (
-                        <div className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 space-y-2">
+                        <div className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 space-y-2">
                           <div className="flex items-center justify-between gap-2">
                             <Label className="text-xs font-medium text-[var(--foreground)]">
                               Priorities
@@ -1169,7 +1169,7 @@ export function PropertyMenu({
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
                       {/* Assignees (named fields) */}
                       {(focusedGroup === undefined || focusedGroup === "assignees") && (
-                        <div className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 space-y-2">
+                        <div className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 space-y-2">
                           <div className="flex items-center justify-between gap-2">
                             <Label className="text-xs font-medium text-[var(--foreground)]">
                               Assignees
@@ -1196,7 +1196,7 @@ export function PropertyMenu({
                             )}
                           </div>
                           {assigneesDisabled ? (
-                            <div className="rounded-md border border-dashed border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--muted-foreground)]">
+                            <div className="rounded-[var(--radius-md)] border border-dashed border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--muted-foreground)]">
                               {(() => {
                                 const ids = displayAssigneeIds ?? [];
                                 const names = ids
@@ -1220,7 +1220,7 @@ export function PropertyMenu({
                               })()}
                             </div>
                           ) : assigneeDrafts.length === 0 ? (
-                            <div className="rounded-md border border-dashed border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--muted-foreground)]">
+                            <div className="rounded-[var(--radius-md)] border border-dashed border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--muted-foreground)]">
                               No assignee fields yet
                             </div>
                           ) : (
@@ -1234,7 +1234,7 @@ export function PropertyMenu({
                                   return (
                                     <div
                                       key={field.id}
-                                      className="space-y-1.5 rounded-md border border-[var(--border)] bg-[var(--background)] p-2"
+                                      className="space-y-1.5 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--background)] p-2"
                                     >
                                       <div className="flex items-center gap-1.5">
                                         <Input
@@ -1334,7 +1334,7 @@ export function PropertyMenu({
       
                       {/* Due Dates (named fields) */}
                       {(focusedGroup === undefined || focusedGroup === "due_date") && (
-                        <div className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 space-y-2">
+                        <div className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 space-y-2">
                           <div className="flex items-center justify-between gap-2">
                             <Label className="text-xs font-medium text-[var(--foreground)]">
                               Due Dates
@@ -1361,7 +1361,7 @@ export function PropertyMenu({
                             )}
                           </div>
                           {dueDateDrafts.length === 0 ? (
-                            <div className="rounded-md border border-dashed border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--muted-foreground)]">
+                            <div className="rounded-[var(--radius-md)] border border-dashed border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--muted-foreground)]">
                               No date fields yet
                             </div>
                           ) : (
@@ -1373,7 +1373,7 @@ export function PropertyMenu({
                                 .map((field) => (
                                   <div
                                     key={field.id}
-                                    className="space-y-1.5 rounded-md border border-[var(--border)] bg-[var(--background)] p-2"
+                                    className="space-y-1.5 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--background)] p-2"
                                   >
                                     <div className="flex items-center gap-1.5">
                                       <Input
@@ -1556,7 +1556,7 @@ export function PropertyMenu({
         <div className="fixed inset-0 z-[99]" onPointerDown={() => onOpenChange(false)} />
         <div
           className={cn(
-            "z-[100] rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-popover flex flex-col",
+            "z-[100] rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] shadow-popover flex flex-col",
             popoverWidthClass,
             popoverMaxHeightClass
           )}

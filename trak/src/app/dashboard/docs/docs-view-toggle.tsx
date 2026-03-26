@@ -21,7 +21,7 @@ export default function DocsViewToggle({ currentView }: DocsViewToggleProps) {
   return (
     <button
       onClick={handleViewChange}
-      className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
+      className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors"
       title={currentView === "list" ? "Grid view" : "List view"}
     >
       {currentView === "list" ? (

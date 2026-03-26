@@ -182,7 +182,7 @@ export default function FileActionsTestPage() {
   return (
     <div className="p-8 max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">File Actions Test</h1>
-      <p className="text-gray-600 mb-6">Simple test interface for file actions</p>
+      <p className="text-[var(--muted-foreground)] mb-6">Simple test interface for file actions</p>
 
       <div className="space-y-4 mb-6">
         <div>
@@ -267,7 +267,7 @@ export default function FileActionsTestPage() {
         </button>
       </div>
 
-      <pre className="p-4 bg-gray-100 rounded whitespace-pre-wrap font-mono text-sm max-h-96 overflow-y-auto">
+      <pre className="p-4 bg-[var(--surface-muted)] rounded whitespace-pre-wrap font-mono text-sm max-h-96 overflow-y-auto">
         {result || 'Enter IDs above and click buttons to test...'}
       </pre>
     </div>

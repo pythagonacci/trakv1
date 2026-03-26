@@ -513,7 +513,7 @@ export default function InternalGrid({ spaces: initialSpaces, files: initialFile
                   </button>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <button className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] flex-shrink-0">
+                      <button className="inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] flex-shrink-0">
                         <MoreHorizontal className="h-3.5 w-3.5" />
                       </button>
                     </DropdownMenuTrigger>

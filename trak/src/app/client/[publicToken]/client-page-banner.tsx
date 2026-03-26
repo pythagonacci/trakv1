@@ -22,7 +22,7 @@ export default function ClientPageBanner() {
           </div>
           
           <div className="flex items-center gap-2">
-            <button className="rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-1 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors">
+            <button className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--background)] px-3 py-1 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors">
               Learn more →
             </button>
             

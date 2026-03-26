@@ -73,7 +73,7 @@ export default async function ProjectPage({
   }
 
   return (
-    <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
+    <div className="min-h-screen bg-[var(--background)] dark:bg-neutral-950">
       <div className="max-w-7xl mx-auto">
         {/* Project Header */}
         <ProjectHeader project={projectWithTags} workspaceId={workspaceId} />

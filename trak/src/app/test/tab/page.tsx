@@ -138,11 +138,11 @@ export default function TabTestPage() {
       <div key={tab.id} style={{ marginLeft: depth * 20 }}>
         <div className="border p-2 mb-2 rounded">
           <div className="flex items-center gap-2">
-            <span className="font-mono text-xs text-gray-500">
+            <span className="font-mono text-xs text-[var(--tertiary-foreground)]">
               {tab.id.slice(0, 8)}
             </span>
             <span className="font-semibold">{tab.name}</span>
-            <span className="text-xs text-gray-500">pos: {tab.position}</span>
+            <span className="text-xs text-[var(--tertiary-foreground)]">pos: {tab.position}</span>
             {tab.parent_tab_id && (
               <span className="text-xs text-blue-500">
                 parent: {tab.parent_tab_id.slice(0, 8)}
@@ -202,7 +202,7 @@ export default function TabTestPage() {
         {/* LEFT COLUMN: Actions */}
         <div className="space-y-6">
           {/* Test 1: Create Tab */}
-          <div className="border p-4 rounded-lg">
+          <div className="border p-4 rounded-[var(--radius-lg)]">
             <h2 className="text-xl font-semibold mb-4">1. Create Tab</h2>
             <div className="space-y-2">
               <input
@@ -230,7 +230,7 @@ export default function TabTestPage() {
           </div>
 
           {/* Test 2: Get Tabs */}
-          <div className="border p-4 rounded-lg">
+          <div className="border p-4 rounded-[var(--radius-lg)]">
             <h2 className="text-xl font-semibold mb-4">2. Get Project Tabs</h2>
             <button
               onClick={handleGetTabs}
@@ -242,7 +242,7 @@ export default function TabTestPage() {
           </div>
 
           {/* Test 3: Update Tab */}
-          <div className="border p-4 rounded-lg">
+          <div className="border p-4 rounded-[var(--radius-lg)]">
             <h2 className="text-xl font-semibold mb-4">3. Update Tab</h2>
             <div className="space-y-2">
               <input
@@ -270,7 +270,7 @@ export default function TabTestPage() {
           </div>
 
           {/* Test 4: Reorder Tabs */}
-          <div className="border p-4 rounded-lg">
+          <div className="border p-4 rounded-[var(--radius-lg)]">
             <h2 className="text-xl font-semibold mb-4">4. Reorder Tabs</h2>
             <div className="space-y-2">
               <input
@@ -280,7 +280,7 @@ export default function TabTestPage() {
                 placeholder="Tab IDs separated by commas (e.g., id1,id2,id3)"
                 className="w-full px-3 py-2 border rounded"
               />
-              <p className="text-xs text-gray-600">
+              <p className="text-xs text-[var(--muted-foreground)]">
                 Note: Only reorders tabs at the same level (same parent)
               </p>
               <button
@@ -294,7 +294,7 @@ export default function TabTestPage() {
           </div>
 
           {/* Test 5: Delete Tab */}
-          <div className="border p-4 rounded-lg border-red-300">
+          <div className="border p-4 rounded-[var(--radius-lg)] border-red-300">
             <h2 className="text-xl font-semibold mb-4 text-red-600">
               5. Delete Tab
             </h2>
@@ -323,25 +323,25 @@ export default function TabTestPage() {
         {/* RIGHT COLUMN: Results & Tab Tree */}
         <div className="space-y-6">
           {/* Tab Tree Visualization */}
-          <div className="border p-4 rounded-lg">
+          <div className="border p-4 rounded-[var(--radius-lg)]">
             <h2 className="text-xl font-semibold mb-4">Tab Tree</h2>
             {tabs.length > 0 ? (
               <div className="max-h-96 overflow-y-auto">
                 {renderTabTree(tabs)}
               </div>
             ) : (
-              <p className="text-gray-500 text-sm">
+              <p className="text-[var(--tertiary-foreground)] text-sm">
                 Click "Get Tabs" to load tabs
               </p>
             )}
           </div>
 
           {/* Result Display */}
-          <div className="border p-4 rounded-lg">
+          <div className="border p-4 rounded-[var(--radius-lg)]">
             <h2 className="text-xl font-semibold mb-4">Result</h2>
             {loading && <p className="text-blue-600">Loading...</p>}
             {result && (
-              <pre className="bg-gray-50 p-4 rounded overflow-auto text-xs">
+              <pre className="bg-[var(--background)] p-4 rounded overflow-auto text-xs">
                 {JSON.stringify(result, null, 2)}
               </pre>
             )}

@@ -40,7 +40,7 @@ const DUE_DATE_PRESET_LABELS: Record<string, string> = {
 /** Pill background/border/text classes by status/priority color name (Tailwind safe) */
 const PILL_COLOR_CLASSES: Record<string, string> = {
   gray:
-    "bg-gray-100 border-gray-300 text-gray-800 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200",
+    "bg-[var(--surface-muted)] border-gray-300 text-gray-800 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200",
   blue:
     "bg-blue-100 border-blue-300 text-blue-800 dark:bg-blue-900/40 dark:border-blue-700 dark:text-blue-200",
   green:
@@ -211,26 +211,26 @@ export function EverythingHeader({
             <button
               type="button"
               onClick={() => setViewDropdownOpen((o) => !o)}
-              className="flex items-center gap-2 px-3 py-2 rounded-md border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-800 text-sm font-medium min-w-[140px] justify-between"
+              className="flex items-center gap-2 px-3 py-2 rounded-[var(--radius-md)] border border-neutral-300 dark:border-neutral-700 bg-[var(--surface)] dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 hover:bg-[var(--background)] dark:hover:bg-neutral-800 text-sm font-medium min-w-[140px] justify-between"
             >
               <span className="truncate">{viewLabel}</span>
               <ChevronDown className="h-4 w-4 shrink-0 opacity-60" />
             </button>
             {viewDropdownOpen && (
-              <div className="absolute left-0 top-full mt-1 z-50 w-56 py-1 rounded-md border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-lg">
+              <div className="absolute left-0 top-full mt-1 z-50 w-56 py-1 rounded-[var(--radius-md)] border border-neutral-300 dark:border-neutral-700 bg-[var(--surface)] dark:bg-neutral-900 shadow-lg">
                 <button
                   type="button"
                   onClick={() => {
                     onSelectView(null);
                     setViewDropdownOpen(false);
                   }}
-                  className={`w-full px-3 py-2 text-left text-sm ${!activeViewId ? "bg-neutral-100 dark:bg-neutral-800 font-medium" : "hover:bg-neutral-50 dark:hover:bg-neutral-800"}`}
+                  className={`w-full px-3 py-2 text-left text-sm ${!activeViewId ? "bg-[var(--surface-muted)] dark:bg-neutral-800 font-medium" : "hover:bg-[var(--background)] dark:hover:bg-neutral-800"}`}
                 >
                   Default view
                 </button>
                 {savedViews.length > 0 && (
                   <>
-                    <div className="border-t border-neutral-200 dark:border-neutral-700 my-1" />
+                    <div className="border-t border-[var(--border)] dark:border-neutral-700 my-1" />
                     {savedViews.map((v) => (
                       <button
                         key={v.id}
@@ -239,21 +239,21 @@ export function EverythingHeader({
                           onSelectView(v.id);
                           setViewDropdownOpen(false);
                         }}
-                        className={`w-full px-3 py-2 text-left text-sm truncate ${activeViewId === v.id ? "bg-neutral-100 dark:bg-neutral-800 font-medium" : "hover:bg-neutral-50 dark:hover:bg-neutral-800"}`}
+                        className={`w-full px-3 py-2 text-left text-sm truncate ${activeViewId === v.id ? "bg-[var(--surface-muted)] dark:bg-neutral-800 font-medium" : "hover:bg-[var(--background)] dark:hover:bg-neutral-800"}`}
                       >
                         {v.name}
                       </button>
                     ))}
                   </>
                 )}
-                <div className="border-t border-neutral-200 dark:border-neutral-700 my-1" />
+                <div className="border-t border-[var(--border)] dark:border-neutral-700 my-1" />
                 <button
                   type="button"
                   onClick={() => {
                     onSaveCurrentView();
                     setViewDropdownOpen(false);
                   }}
-                  className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-neutral-50 dark:hover:bg-neutral-800 text-blue-600 dark:text-blue-400"
+                  className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-[var(--background)] dark:hover:bg-neutral-800 text-blue-600 dark:text-blue-400"
                 >
                   <Save className="h-3.5 w-3.5" />
                   Save current view
@@ -264,7 +264,7 @@ export function EverythingHeader({
                     onManageViews();
                     setViewDropdownOpen(false);
                   }}
-                  className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-neutral-50 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-400"
+                  className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-[var(--background)] dark:hover:bg-neutral-800 text-[var(--muted-foreground)] dark:text-[var(--tertiary-foreground)]"
                 >
                   <Settings2 className="h-3.5 w-3.5" />
                   Manage views
@@ -274,13 +274,13 @@ export function EverythingHeader({
           </div>
 
           {/* View Type Toggle */}
-          <div className="flex items-center rounded-md border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900">
+          <div className="flex items-center rounded-[var(--radius-md)] border border-neutral-300 dark:border-neutral-700 bg-[var(--surface)] dark:bg-neutral-900">
             <button
               onClick={() => onViewTypeChange("table")}
               className={`p-2 ${
                 viewType === "table"
-                  ? "bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100"
-                  : "text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
+                  ? "bg-[var(--surface-muted)] dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100"
+                  : "text-[var(--muted-foreground)] dark:text-[var(--tertiary-foreground)] hover:text-neutral-900 dark:hover:text-neutral-100"
               }`}
               title="Table view"
             >
@@ -290,8 +290,8 @@ export function EverythingHeader({
               onClick={() => onViewTypeChange("board")}
               className={`p-2 ${
                 viewType === "board"
-                  ? "bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100"
-                  : "text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
+                  ? "bg-[var(--surface-muted)] dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100"
+                  : "text-[var(--muted-foreground)] dark:text-[var(--tertiary-foreground)] hover:text-neutral-900 dark:hover:text-neutral-100"
               }`}
               title="Board view"
             >
@@ -316,7 +316,7 @@ export function EverythingHeader({
               <button
                 type="button"
                 onClick={pill.onRemove}
-                className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 focus:outline-none focus:ring-1 focus:ring-current shrink-0 -mr-0.5"
+                className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-[var(--surface)]/10 focus:outline-none focus:ring-1 focus:ring-current shrink-0 -mr-0.5"
                 aria-label={`Remove ${pill.label} filter`}
               >
                 <X className="h-3 w-3" />
@@ -329,19 +329,19 @@ export function EverythingHeader({
       {/* Search and Filter */}
       <div className="flex items-center gap-2">
         <div className="flex-1 relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-neutral-400" />
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-[var(--tertiary-foreground)]" />
           <input
             type="text"
             placeholder="Search items..."
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 rounded-md border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full pl-10 pr-4 py-2 rounded-[var(--radius-md)] border border-neutral-300 dark:border-neutral-700 bg-[var(--surface)] dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
 
         <button
           onClick={onFilterClick}
-          className="flex items-center gap-2 px-4 py-2 rounded-md border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-800"
+          className="flex items-center gap-2 px-4 py-2 rounded-[var(--radius-md)] border border-neutral-300 dark:border-neutral-700 bg-[var(--surface)] dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 hover:bg-[var(--background)] dark:hover:bg-neutral-800"
         >
           <Filter className="h-4 w-4" />
           <span className="text-sm font-medium">Filters</span>

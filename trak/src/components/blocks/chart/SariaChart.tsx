@@ -87,7 +87,7 @@ function CustomTooltip({
 
   return (
     <div
-      className="rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 shadow-md"
+      className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--background)] px-3 py-2 shadow-md"
       role="tooltip"
     >
       {label && (

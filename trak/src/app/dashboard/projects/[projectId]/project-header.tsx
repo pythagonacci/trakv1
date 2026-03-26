@@ -278,7 +278,7 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
           {canCollapseHeader && (
             <button
               onClick={handleCollapseToggle}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[11px] font-medium text-[var(--foreground)] transition-all duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] shadow-sm"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] text-[11px] font-medium text-[var(--foreground)] transition-all duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] shadow-sm"
               title="Collapse header"
               aria-label="Collapse header"
             >
@@ -300,7 +300,7 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
-                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] transition-all duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] shadow-sm"
+                className="inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] transition-all duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] shadow-sm"
                 title="Project settings"
               >
                 <Settings className="h-3.5 w-3.5" />
@@ -328,7 +328,7 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
         <div className="flex justify-end pt-2 pb-0.5">
           <button
             onClick={() => tabContents?.setTocExpanded((prev) => !prev)}
-            className="hidden lg:inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] transition-all duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] shadow-sm"
+            className="hidden lg:inline-flex h-7 items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] transition-all duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] shadow-sm"
             title={tabContents?.tocExpanded ? "Collapse table of contents" : "Show table of contents"}
           >
             {tabContents?.tocExpanded ? (

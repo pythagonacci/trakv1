@@ -343,7 +343,7 @@ export default function ProjectDialog({
           <div>
             <label htmlFor="due-date" className="mb-1.5 block text-xs font-medium text-[var(--foreground)]">
               Due Date{" "}
-              <span className="text-neutral-400 text-[10px]">(optional)</span>
+              <span className="text-[var(--tertiary-foreground)] text-[10px]">(optional)</span>
             </label>
             <input
               id="due-date"
@@ -360,7 +360,7 @@ export default function ProjectDialog({
           <div>
             <label htmlFor="priority" className="mb-1.5 block text-xs font-medium text-[var(--foreground)]">
               Priority{" "}
-              <span className="text-neutral-400 text-[10px]">(optional)</span>
+              <span className="text-[var(--tertiary-foreground)] text-[10px]">(optional)</span>
             </label>
             <select
               id="priority"

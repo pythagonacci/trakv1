@@ -17,7 +17,7 @@ const badgeVariants = cva(
       variant: {
         // Default: Subtle gray for neutral states
         default:
-          "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]",
+          "border-[var(--border)] bg-[var(--status-todo-bg)] text-[var(--status-todo-text)] hover:bg-[var(--surface-hover)]",
         // Secondary: Slightly more prominent
         secondary:
           "border-[var(--border-strong)] bg-[var(--surface-hover)] text-[var(--muted-foreground)]",

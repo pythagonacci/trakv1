@@ -212,7 +212,7 @@ export default function DashboardConfigModal({
           <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
             Widget order
           </p>
-          <ul className="space-y-1 rounded-md border border-[var(--border)] bg-[var(--surface)] divide-y divide-[var(--border)]">
+          <ul className="space-y-1 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] divide-y divide-[var(--border)]">
             {config.widgets.map((w, i) => (
               <li
                 key={w.id}
@@ -390,7 +390,7 @@ function AddProjectCardForm({
 }) {
   const [projectId, setProjectId] = useState("");
   return (
-    <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-4 space-y-3">
+    <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-4 space-y-3">
       <p className="text-sm font-medium">Add project card</p>
       <select
         value={projectId}
@@ -451,7 +451,7 @@ function AddProjectGroupForm({
         : [];
 
   return (
-    <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-4 space-y-3">
+    <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-4 space-y-3">
       <p className="text-sm font-medium">Add project group</p>
       <div>
         <label className="text-xs text-[var(--muted-foreground)]">Filter</label>
@@ -546,7 +546,7 @@ function AddTaskListForm({
   const [filter, setFilter] = useState<TaskWidgetFilter>("due_soon");
   const [limit, setLimit] = useState(10);
   return (
-    <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-4 space-y-3">
+    <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-4 space-y-3">
       <p className="text-sm font-medium">Add task list</p>
       <div>
         <label className="text-xs text-[var(--muted-foreground)]">Show</label>
@@ -626,7 +626,7 @@ function AddChartForm({
   const [breakdownField, setBreakdownField] = useState<DashboardChartQuery["breakdownField"]>("status");
   const [title, setTitle] = useState("");
   return (
-    <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-4 space-y-3">
+    <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-4 space-y-3">
       <p className="text-sm font-medium">Add chart</p>
       <p className="text-xs text-[var(--muted-foreground)]">
         Generate a chart from your tasks (same data as AI charts). Choose type, scope, and what to group by.

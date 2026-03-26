@@ -6,7 +6,7 @@ These rules define how chart blocks must look to match native Trak blocks.
 - Use the same container styling as native blocks:
   - Background: `var(--surface)` (no gradients)
   - Border: `1px solid var(--border)`
-  - Radius: `rounded-lg` (`var(--radius-md)`)
+  - Radius: `rounded-[var(--radius-lg)]` (`var(--radius-md)`)
   - Shadow: `0 1px 2px rgba(0,0,0,0.02)`
   - Padding: `px-3 py-2.5`
   - Transition: `transition-all duration-150 ease-out`

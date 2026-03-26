@@ -60,12 +60,12 @@ export default async function LoginPage({ searchParams }: PageProps) {
   return (
     <AuthShell title="Sign in" subtitle="Welcome back.">
       {errorMessage && (
-        <div className="mb-4 rounded-md border border-[var(--error)]/30 bg-[var(--error)]/10 px-3 py-2 text-sm text-[var(--error)]">
+        <div className="mb-4 rounded-[var(--radius-md)] border border-[var(--error)]/30 bg-[var(--error)]/10 px-3 py-2 text-sm text-[var(--error)]">
           {errorMessage}
         </div>
       )}
       {infoMessage && (
-        <div className="mb-4 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)]">
+        <div className="mb-4 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)]">
           {infoMessage}
         </div>
       )}

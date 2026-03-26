@@ -50,7 +50,7 @@ export function EverythingBoardView({
         <select
           value={groupBy}
           onChange={(e) => onGroupByChange(e.target.value as GroupByField)}
-          className="px-3 py-1.5 rounded-md border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm"
+          className="px-3 py-1.5 rounded-[var(--radius-md)] border border-neutral-300 dark:border-neutral-700 bg-[var(--surface)] dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm"
         >
           <option value="status">Status</option>
           <option value="priority">Priority</option>
@@ -68,18 +68,18 @@ export function EverythingBoardView({
         {groups.map((group) => (
           <div
             key={group.id}
-            className="flex-shrink-0 w-80 bg-neutral-50 dark:bg-neutral-900/50 rounded-lg border border-neutral-200 dark:border-neutral-800"
+            className="flex-shrink-0 w-80 bg-[var(--background)] dark:bg-neutral-900/50 rounded-[var(--radius-lg)] border border-[var(--border)] dark:border-neutral-800"
           >
             {/* Group Header */}
             <button
               onClick={() => toggleGroup(group.id)}
-              className="w-full flex items-center justify-between px-4 py-3 border-b border-neutral-200 dark:border-neutral-800"
+              className="w-full flex items-center justify-between px-4 py-3 border-b border-[var(--border)] dark:border-neutral-800"
             >
               <div className="flex items-center gap-2">
                 {group.collapsed ? (
-                  <ChevronRight className="h-4 w-4 text-neutral-500" />
+                  <ChevronRight className="h-4 w-4 text-[var(--tertiary-foreground)]" />
                 ) : (
-                  <ChevronDown className="h-4 w-4 text-neutral-500" />
+                  <ChevronDown className="h-4 w-4 text-[var(--tertiary-foreground)]" />
                 )}
                 <span
                   className={`w-2 h-2 rounded-full bg-${group.color}-500`}
@@ -87,7 +87,7 @@ export function EverythingBoardView({
                 <span className="font-semibold text-sm text-neutral-900 dark:text-neutral-100">
                   {group.label}
                 </span>
-                <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                <span className="text-xs text-[var(--tertiary-foreground)] dark:text-[var(--tertiary-foreground)]">
                   {group.count}
                 </span>
               </div>
@@ -105,7 +105,7 @@ export function EverythingBoardView({
                   />
                 ))}
                 {group.items.length === 0 && (
-                  <div className="py-8 text-center text-sm text-neutral-400">
+                  <div className="py-8 text-center text-sm text-[var(--tertiary-foreground)]">
                     No items
                   </div>
                 )}
@@ -139,18 +139,18 @@ function BoardCard({ item, members, onUpdate }: BoardCardProps) {
   return (
     <Link
       href={item.source.url}
-      className="block p-3 bg-white dark:bg-neutral-900 rounded-md border border-neutral-200 dark:border-neutral-800 hover:border-neutral-300 dark:hover:border-neutral-700 transition-colors"
+      className="block p-3 bg-[var(--surface)] dark:bg-neutral-900 rounded-[var(--radius-md)] border border-[var(--border)] dark:border-neutral-800 hover:border-neutral-300 dark:hover:border-neutral-700 transition-colors"
     >
       {/* Title */}
       <div className="flex items-start gap-2 mb-2">
-        <ItemTypeIcon type={item.type} className="h-4 w-4 text-neutral-400 mt-0.5 flex-shrink-0" />
+        <ItemTypeIcon type={item.type} className="h-4 w-4 text-[var(--tertiary-foreground)] mt-0.5 flex-shrink-0" />
         <h3 className="font-medium text-sm text-neutral-900 dark:text-neutral-100 line-clamp-2">
           {item.name}
         </h3>
       </div>
 
       {/* Source */}
-      <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-3">
+      <div className="text-xs text-[var(--tertiary-foreground)] dark:text-[var(--tertiary-foreground)] mb-3">
         {item.source.tabName} › {item.source.name}
       </div>
 
@@ -177,7 +177,7 @@ function BoardCard({ item, members, onUpdate }: BoardCardProps) {
             {assignedMembers.slice(0, 3).map((member) => (
               <div
                 key={member.id}
-                className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-neutral-100 dark:bg-neutral-800 text-xs"
+                className="flex items-center gap-1 px-2 py-0.5 rounded-[var(--radius-md)] bg-[var(--surface-muted)] dark:bg-neutral-800 text-xs"
                 title={member.email || undefined}
               >
                 {member.avatar_url && (
@@ -193,7 +193,7 @@ function BoardCard({ item, members, onUpdate }: BoardCardProps) {
               </div>
             ))}
             {assignedMembers.length > 3 && (
-              <span className="text-xs text-neutral-500">
+              <span className="text-xs text-[var(--tertiary-foreground)]">
                 +{assignedMembers.length - 3}
               </span>
             )}
@@ -212,7 +212,7 @@ function BoardCard({ item, members, onUpdate }: BoardCardProps) {
               </span>
             ))}
             {item.properties.tags.length > 3 && (
-              <span className="text-xs text-neutral-500">
+              <span className="text-xs text-[var(--tertiary-foreground)]">
                 +{item.properties.tags.length - 3}
               </span>
             )}
@@ -230,7 +230,7 @@ function StatusBadge({ status }: { status: Status }) {
       className={`px-2 py-0.5 rounded text-xs font-medium ${
         option
           ? `bg-${option.color}-100 text-${option.color}-700 dark:bg-${option.color}-900/30 dark:text-${option.color}-400`
-          : "bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
+          : "bg-[var(--surface-muted)] text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
       }`}
     >
       {option?.label || status}
@@ -245,7 +245,7 @@ function PriorityBadge({ priority }: { priority: Priority }) {
       className={`px-2 py-0.5 rounded text-xs font-medium ${
         option
           ? `bg-${option.color}-100 text-${option.color}-700 dark:bg-${option.color}-900/30 dark:text-${option.color}-400`
-          : "bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
+          : "bg-[var(--surface-muted)] text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
       }`}
     >
       {option?.label || priority}
@@ -270,7 +270,7 @@ function DueDateBadge({ dueDate }: { dueDate: EverythingItem["properties"]["due_
             ? "text-red-600 dark:text-red-400 font-medium"
             : isToday
             ? "text-orange-600 dark:text-orange-400 font-medium"
-            : "text-neutral-600 dark:text-neutral-400"
+            : "text-[var(--muted-foreground)] dark:text-[var(--tertiary-foreground)]"
         }`}
       >
         📅 {formatted}

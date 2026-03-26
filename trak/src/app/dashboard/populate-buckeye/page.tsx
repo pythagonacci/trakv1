@@ -37,7 +37,7 @@ export default function PopulateBuckeyePage() {
       </Button>
 
       {result && (
-        <div className={`mt-6 p-4 rounded-md ${result.error ? "bg-red-50 dark:bg-red-900/20" : "bg-green-50 dark:bg-green-900/20"}`}>
+        <div className={`mt-6 p-4 rounded-[var(--radius-md)] ${result.error ? "bg-red-50 dark:bg-red-900/20" : "bg-green-50 dark:bg-green-900/20"}`}>
           {result.error ? (
             <p className="text-red-600 dark:text-red-400">Error: {result.error}</p>
           ) : (

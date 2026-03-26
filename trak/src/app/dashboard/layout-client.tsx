@@ -349,23 +349,22 @@ function AICommandButton({ collapsed }: { collapsed: boolean }) {
       <button
         onClick={openCommandPalette}
         className={cn(
-          "flex items-center rounded-md border transition-all duration-150",
-          "border-[var(--primary)]/30 bg-[var(--primary)]/10",
-          "hover:bg-[var(--primary-hover)]/90 hover:border-[var(--primary-hover)]/50",
-          "text-[var(--primary)]",
+          "flex items-center rounded-[var(--radius-md)] transition-all duration-150",
+          "bg-[var(--primary)] text-[var(--primary-foreground)]",
+          "hover:bg-[var(--primary-hover)]",
           collapsed
             ? "h-7 w-7 justify-center shrink-0"
             : "w-full gap-3 px-3 py-1.5"
         )}
         title="Ask AI (⌘K)"
       >
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--primary)]">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-md)] text-[var(--primary-foreground)]">
           <Sparkles className="h-4 w-4" />
         </span>
         {!collapsed && (
           <>
-            <span className="flex-1 text-left text-sm font-medium text-[var(--primary)]">Ask AI</span>
-            <kbd className="text-[10px] font-mono bg-[var(--primary)]/20 text-[var(--primary)] px-1.5 py-0.5 rounded">
+            <span className="flex-1 text-left text-sm font-medium text-[var(--primary-foreground)]">Ask AI</span>
+            <kbd className="rounded-[var(--radius-sm)] bg-[var(--primary-foreground)]/15 px-1.5 py-0.5 text-[10px] font-mono text-[var(--primary-foreground)]">
               ⌘K
             </kbd>
           </>
@@ -432,8 +431,7 @@ function Sidebar({
   return (
     <aside
       className={cn(
-        // Sidebar slightly lighter than page background
-        "flex h-full flex-col border-r border-[var(--border)] bg-[var(--surface)] transition-all duration-200 ease-out flex-shrink-0 relative z-50 font-semibold",
+        "relative z-50 flex h-full flex-shrink-0 flex-col border-r border-[var(--border)] bg-[var(--sidebar-bg)] transition-all duration-200 ease-out",
         collapsed ? "w-16" : "w-56"
       )}
     >
@@ -455,7 +453,7 @@ function Sidebar({
             setCollapsed();
           }}
           type="button"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--primary)] z-50 relative"
+          className="relative z-50 inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? <Menu className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
@@ -564,7 +562,7 @@ function Sidebar({
         {collapsed ? (
           <button
             onClick={() => setTheme(theme === "default" ? "dark" : "default")}
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] transition-colors duration-150 hover:bg-[var(--primary)]/10 hover:border-[var(--primary)] hover:text-[var(--primary)]"
+            className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] transition-colors duration-150 hover:bg-[var(--primary)]/10 hover:border-[var(--primary)] hover:text-[var(--primary)]"
             title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
           >
             <Palette className="h-4 w-4" />
@@ -572,7 +570,7 @@ function Sidebar({
         ) : (
           <button
             onClick={() => setTheme(theme === "default" ? "dark" : "default")}
-            className="flex w-full items-center gap-2.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors duration-150 hover:bg-[var(--primary)]/10 hover:border-[var(--primary)] hover:text-[var(--primary)]"
+            className="flex w-full items-center gap-2.5 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors duration-150 hover:bg-[var(--primary)]/10 hover:border-[var(--primary)] hover:text-[var(--primary)]"
           >
             <Palette className="h-3.5 w-3.5" />
             <span className="text-xs font-medium text-[var(--foreground)]">
@@ -586,17 +584,17 @@ function Sidebar({
         {collapsed ? (
           <button
             onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] text-xs font-semibold transition-colors duration-150 hover:bg-[var(--primary)]/10 hover:border-[var(--primary)] hover:text-[var(--primary)]"
+            className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] text-xs font-semibold transition-colors duration-150 hover:bg-[var(--primary)]/10 hover:border-[var(--primary)] hover:text-[var(--primary)]"
           >
             {getUserInitials()}
           </button>
         ) : (
           <button
             onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-            className="flex w-full items-center justify-between rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm font-medium text-[var(--foreground)] transition-colors duration-150 hover:bg-[var(--primary)]/10 hover:border-[var(--primary)] hover:text-[var(--primary)]"
+            className="flex w-full items-center justify-between rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm font-medium text-[var(--foreground)] transition-colors duration-150 hover:bg-[var(--primary)]/10 hover:border-[var(--primary)] hover:text-[var(--primary)]"
           >
             <div className="flex items-center gap-2.5">
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-[var(--surface)] border border-[var(--border)] text-[var(--foreground)] text-xs font-semibold">
+              <div className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md)] bg-[var(--surface)] border border-[var(--border)] text-[var(--foreground)] text-xs font-semibold">
                 {getUserInitials()}
               </div>
               <div className="min-w-0 text-left">
@@ -614,7 +612,7 @@ function Sidebar({
         )}
 
         {userDropdownOpen && (
-          <div className="mt-2 space-y-2 rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.04)]">
+          <div className="mt-2 space-y-2 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.04)]">
             {/* Workspace switcher */}
             {workspaces.length > 0 && (
               <div className="space-y-1">
@@ -623,9 +621,9 @@ function Sidebar({
                     key={workspace.id}
                     onClick={() => handleWorkspaceSwitch(workspace)}
                     disabled={isSwitching}
-                    className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-[13px] text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] disabled:opacity-50"
+                    className="flex w-full items-center gap-2.5 rounded-[var(--radius-md)] px-3 py-2 text-[13px] text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] disabled:opacity-50"
                   >
-                    <div className="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--river-indigo)]/15 border border-[var(--river-indigo)]/20 text-[var(--river-indigo)] text-xs font-semibold">
+                    <div className="flex h-6 w-6 items-center justify-center rounded-[var(--radius-md)] bg-[var(--river-indigo)]/15 border border-[var(--river-indigo)]/20 text-[var(--river-indigo)] text-xs font-semibold">
                       {isSwitching && currentWorkspace?.id === workspace.id ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
                       ) : (
@@ -650,7 +648,7 @@ function Sidebar({
             {/* View All Workspaces */}
             <Link
               href="/profile"
-              className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+              className="flex w-full items-center gap-2.5 rounded-[var(--radius-md)] px-3 py-2 text-sm text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
               onClick={() => setUserDropdownOpen(false)}
             >
               <User className="h-3.5 w-3.5" />
@@ -663,7 +661,7 @@ function Sidebar({
             {/* Logout Button */}
             <button
               onClick={handleLogout}
-              className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+              className="flex w-full items-center gap-2.5 rounded-[var(--radius-md)] px-3 py-2 text-sm text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
             >
               <LogOut className="h-3.5 w-3.5" />
               Log out
@@ -695,21 +693,20 @@ function NavLink({
       href={href}
       prefetch={prefetch}
       className={cn(
-        // Nav links with primary accent for active/hover
-        "group flex w-full items-center rounded-md text-base font-medium transition-colors duration-150",
+        "group flex w-full items-center rounded-[var(--radius-md)] border-l-[2.5px] border-l-transparent text-base transition-colors duration-150",
         collapsed ? "justify-center px-2 py-1.5" : "gap-3 px-3 py-1.5",
         active
-          ? "bg-[var(--primary)]/10 text-[var(--primary)] border-l-2 border-[var(--primary)]"
-          : "text-[var(--muted-foreground)] hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]"
+          ? "border-l-[var(--primary)] bg-[var(--surface)] font-medium text-[var(--foreground)]"
+          : "text-[var(--muted-foreground)] hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
       )}
       title={collapsed ? (children as string) : undefined}
     >
       <span
         className={cn(
-          "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors duration-150",
+          "flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-md)] transition-colors duration-150",
           active
-            ? "bg-[var(--primary)]/15 text-[var(--primary)]"
-            : "text-[var(--muted-foreground)] group-hover:text-[var(--primary)]"
+            ? "text-[var(--nav-icon-active)]"
+            : "text-[var(--nav-icon)] group-hover:text-[var(--nav-icon-active)]"
         )}
       >
         {icon}

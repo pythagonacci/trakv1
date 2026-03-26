@@ -219,7 +219,7 @@ export default function DocsGrid({ docs: initialDocs, workspaceId, folders }: Do
               key={doc.id}
               onClick={() => handleDocClick(doc.id)}
               className={cn(
-                "group relative cursor-pointer rounded-lg border border-[var(--border)] bg-[var(--surface)] hover:border-[var(--border-strong)] hover:shadow-lg transition-all",
+                "group relative cursor-pointer rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] hover:border-[var(--border-strong)] hover:shadow-lg transition-all",
                 isTemp && "opacity-70 pointer-events-none"
               )}
             >

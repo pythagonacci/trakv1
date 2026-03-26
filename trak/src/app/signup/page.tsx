@@ -31,7 +31,7 @@ export default async function SignupPage({ searchParams }: PageProps) {
   return (
     <AuthShell title="Create account" subtitle="Enter your email to get started.">
       {params.error && (
-        <div className="mb-4 rounded-md border border-[var(--error)]/30 bg-[var(--error)]/10 px-3 py-2 text-sm text-[var(--error)]">
+        <div className="mb-4 rounded-[var(--radius-md)] border border-[var(--error)]/30 bg-[var(--error)]/10 px-3 py-2 text-sm text-[var(--error)]">
           {params.error}
         </div>
       )}

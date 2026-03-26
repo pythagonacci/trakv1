@@ -475,7 +475,7 @@ export function TableTimelineView({
   };
 
   if (!dateField) {
-    return <div className="p-6 text-sm text-[var(--tertiary-foreground)]">Add a date field to enable timeline view.</div>;
+    return <div className="p-6 text-sm text-neutral-400">Add a date field to enable timeline view.</div>;
   }
 
   const todayOffset = range ? getOffsetForDate(new Date()) : null;
@@ -485,9 +485,9 @@ export function TableTimelineView({
       {/* Header: same structure as timeline block */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0 flex items-center gap-3">
-          <label className="text-[11px] text-[var(--muted-foreground)]">Date field</label>
+          <label className="text-[11px] text-neutral-600">Date field</label>
           <select
-            className="rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-sm text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]"
+            className="rounded-[4px] border border-neutral-200 bg-white px-2 py-1 text-sm text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--focus-ring)]"
             value={dateField.id}
             onChange={(e) => onDateFieldChange(e.target.value)}
           >
@@ -498,14 +498,14 @@ export function TableTimelineView({
             ))}
           </select>
           {range && (
-            <div className="text-[11px] text-[var(--muted-foreground)]">
+            <div className="text-[11px] text-neutral-600">
               {format(range.start, "MMM d")} – {format(range.end, "MMM d, yyyy")}
             </div>
           )}
         </div>
         <div className="flex items-center gap-1.5">
           {/* Zoom controls – match timeline block */}
-          <div className="flex items-center gap-0.5 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] p-0.5">
+          <div className="flex items-center gap-0.5 rounded-[4px] border border-neutral-200 bg-white p-0.5">
             {(["day", "week", "month"] as TimelineScale[]).map((level) => (
               <button
                 key={level}
@@ -515,7 +515,7 @@ export function TableTimelineView({
                   "px-2 py-1 text-[10px] font-medium rounded-[2px] transition-colors",
                   zoomLevel === level
                     ? "bg-[var(--foreground)] text-[var(--background)]"
-                    : "text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+                    : "text-neutral-600 hover:text-[var(--foreground)] hover:bg-neutral-200"
                 )}
               >
                 {level[0].toUpperCase()}
@@ -526,22 +526,22 @@ export function TableTimelineView({
       </div>
 
       {!range && (
-        <div className="rounded-[var(--radius-md)] border border-dashed border-[var(--border)] p-4 text-sm text-[var(--tertiary-foreground)]">
+        <div className="rounded-md border border-dashed border-neutral-200 p-4 text-sm text-neutral-400">
           No dates set yet. Add a date to see items on the timeline.
         </div>
       )}
 
       {range && (
-        <div className={cn("grid border border-[var(--border)] bg-[var(--surface)] w-full overflow-hidden", "grid-cols-[280px_1fr]")}>
+        <div className={cn("grid border border-neutral-200 bg-white w-full overflow-hidden", "grid-cols-[280px_1fr]")}>
           {/* Left rail: row labels (match timeline block) */}
-          <div className="border-r border-[var(--border)] bg-[var(--surface)] flex flex-col min-w-[280px] w-[280px] shrink-0">
+          <div className="border-r border-neutral-200 bg-white flex flex-col min-w-[280px] w-[280px] shrink-0">
             <div
-              className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--surface)] shrink-0"
+              className="sticky top-0 z-10 border-b border-neutral-200 bg-white shrink-0"
               style={{ minHeight: zoomLevel === "day" ? 56 : 44 }}
             />
             <div className="flex flex-col min-h-0">
               {flatRows.length === 0 ? (
-                <div className="min-h-[44px] border-b border-[var(--border)] flex items-center px-3 text-sm text-[var(--muted-foreground)]">
+                <div className="min-h-[44px] border-b border-neutral-200 flex items-center px-3 text-sm text-neutral-600">
                   No items with dates
                 </div>
               ) : (
@@ -553,8 +553,8 @@ export function TableTimelineView({
                     <div
                       key={row.id}
                       className={cn(
-                        "min-h-[44px] border-b border-[var(--border)] flex flex-col gap-1 px-3 py-2",
-                        rowIndex % 2 === 1 ? "bg-[var(--surface-hover)]/50" : "bg-[var(--surface)]"
+                        "min-h-[44px] border-b border-neutral-200 flex flex-col gap-1 px-3 py-2",
+                        rowIndex % 2 === 1 ? "bg-neutral-200/50" : "bg-white"
                       )}
                       style={{ minHeight: ROW_HEIGHT_BASE }}
                     >
@@ -562,12 +562,12 @@ export function TableTimelineView({
                         <div className="flex-1 min-w-0">
                           <div className="truncate text-sm text-[var(--foreground)] font-medium">{title}</div>
                           {person && (
-                            <div className="truncate text-[10px] text-[var(--muted-foreground)] mt-0.5">
+                            <div className="truncate text-[10px] text-neutral-600 mt-0.5">
                               {formatUserDisplay(person)}
                             </div>
                           )}
                         </div>
-                        <div className="shrink-0 text-[10px] text-[var(--tertiary-foreground)] whitespace-nowrap">
+                        <div className="shrink-0 text-[10px] text-neutral-400 whitespace-nowrap">
                           {format(startDate, "MMM d")}
                           {startDate.getTime() !== endDate.getTime() && ` – ${format(endDate, "MMM d")}`}
                         </div>
@@ -584,7 +584,7 @@ export function TableTimelineView({
             <div className="inline-block min-w-0" style={{ minWidth: `${timelineWidth}px` }}>
               {/* Sticky date header – same as timeline block */}
               <div
-                className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--surface)] overflow-hidden"
+                className="sticky top-0 z-10 border-b border-neutral-200 bg-white overflow-hidden"
                 style={{ height: zoomLevel === "day" ? 56 : 44 }}
               >
                 {zoomLevel === "day" && monthSegments.length > 0 ? (
@@ -597,7 +597,7 @@ export function TableTimelineView({
                       {monthSegments.map((seg) => (
                         <div
                           key={seg.key}
-                          className="flex items-center pl-1.5 pt-1 text-[10px] text-[var(--muted-foreground)] border-l border-[var(--border)] first:border-l-0"
+                          className="flex items-center pl-1.5 pt-1 text-[10px] text-neutral-600 border-l border-neutral-200 first:border-l-0"
                           style={{ gridColumn: `span ${seg.span}` }}
                         >
                           {seg.label}
@@ -612,7 +612,7 @@ export function TableTimelineView({
                       {grid.map((c) => (
                         <div
                           key={c.key}
-                          className="flex h-[28px] items-center justify-center border-l border-[var(--border)] text-[10px] text-[var(--tertiary-foreground)] first:border-l-0"
+                          className="flex h-[28px] items-center justify-center border-l border-neutral-200 text-[10px] text-neutral-400 first:border-l-0"
                         >
                           {c.dayLabel}
                         </div>
@@ -627,10 +627,10 @@ export function TableTimelineView({
                     {grid.map((c) => (
                       <div
                         key={c.key}
-                        className="flex h-[44px] flex-col items-center justify-center border-l border-[var(--border)] py-2 text-[10px] text-[var(--tertiary-foreground)] first:border-l-0"
+                        className="flex h-[44px] flex-col items-center justify-center border-l border-neutral-200 py-2 text-[10px] text-neutral-400 first:border-l-0"
                       >
                         {c.monthLabel ? (
-                          <span className="mb-0.5 text-[11px] font-medium text-[var(--muted-foreground)]">
+                          <span className="mb-0.5 text-[11px] font-medium text-neutral-600">
                             {c.monthLabel}
                           </span>
                         ) : (
@@ -768,9 +768,9 @@ export function TableTimelineView({
 
                       {showTooltip && (
                         <div className="absolute left-0 top-full mt-2 z-30">
-                          <div className="min-w-[220px] max-w-[320px] rounded-[6px] border border-[var(--border)] bg-[var(--surface)] p-3 text-xs text-[var(--foreground)] shadow-lg">
+                          <div className="min-w-[220px] max-w-[320px] rounded-[6px] border border-neutral-200 bg-white p-3 text-xs text-[var(--foreground)] shadow-lg">
                             <div className="truncate font-medium">{title}</div>
-                            <div className="mt-0.5 truncate text-[11px] text-[var(--muted-foreground)]">
+                            <div className="mt-0.5 truncate text-[11px] text-neutral-600">
                               {format(startDate, "MMM d")}
                               {startDate.getTime() !== endDate.getTime() && ` – ${format(endDate, "MMM d, yyyy")}`}
                             </div>
@@ -781,9 +781,9 @@ export function TableTimelineView({
                                 onChange={(e) =>
                                   onSelectRow(row.id, e as unknown as React.MouseEvent<HTMLInputElement>)
                                 }
-                                className="rounded border-[var(--border)]"
+                                className="rounded border-neutral-200"
                               />
-                              <span className="text-[11px] text-[var(--muted-foreground)]">Select row</span>
+                              <span className="text-[11px] text-neutral-600">Select row</span>
                             </div>
                           </div>
                         </div>
@@ -799,7 +799,7 @@ export function TableTimelineView({
 
       {unscheduledRows.length > 0 && (
         <div className="mt-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-[var(--tertiary-foreground)] mb-2">
+          <div className="text-xs font-semibold uppercase tracking-wide text-neutral-400 mb-2">
             Unscheduled
           </div>
           <div className="space-y-2">
@@ -808,7 +808,7 @@ export function TableTimelineView({
               return (
                 <div
                   key={row.id}
-                  className="bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius-md)] p-2 hover:shadow-sm transition-all cursor-pointer flex items-center justify-between"
+                  className="bg-white border border-neutral-200 rounded-md p-2 hover:shadow-sm transition-all cursor-pointer flex items-center justify-between"
                   onContextMenu={(e) => {
                     e.preventDefault();
                     onContextMenu?.(e, row.id);
@@ -816,7 +816,7 @@ export function TableTimelineView({
                 >
                   <div className="min-w-0">
                     <div className="text-sm font-medium text-[var(--foreground)] truncate">{title}</div>
-                    <div className="text-xs text-[var(--tertiary-foreground)]">No date set</div>
+                    <div className="text-xs text-neutral-400">No date set</div>
                   </div>
                   <input
                     type="checkbox"
@@ -824,7 +824,7 @@ export function TableTimelineView({
                     onChange={(e) =>
                       onSelectRow(row.id, e as unknown as React.MouseEvent<HTMLInputElement>)
                     }
-                    className="w-4 h-4 rounded-[var(--radius-sm)] border-[var(--border)] text-[var(--foreground)] focus:ring-2 focus:ring-[var(--primary)] focus:ring-offset-0"
+                    className="w-4 h-4 rounded-[var(--radius-sm)] border-neutral-200 text-[var(--foreground)] focus:ring-2 focus:ring-[var(--primary)] focus:ring-offset-0"
                   />
                 </div>
               );

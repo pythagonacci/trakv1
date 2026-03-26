@@ -96,7 +96,7 @@ export default function ClientPayments({ clientId, clientName }: ClientPaymentsP
       paid: "text-green-600",
       pending: "text-yellow-600",
       overdue: "text-red-600",
-      cancelled: "text-gray-600",
+      cancelled: "text-[var(--muted-foreground)]",
     };
 
     const IconComponent = icons[status];
@@ -115,7 +115,7 @@ export default function ClientPayments({ clientId, clientName }: ClientPaymentsP
       paid: "bg-green-100 text-green-800 border-green-200",
       pending: "bg-yellow-100 text-yellow-800 border-yellow-200",
       overdue: "bg-red-100 text-red-800 border-red-200",
-      cancelled: "bg-gray-100 text-gray-800 border-gray-200",
+      cancelled: "bg-[var(--surface-muted)] text-gray-800 border-[var(--border)]",
     };
 
     return (

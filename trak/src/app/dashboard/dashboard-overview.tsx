@@ -410,7 +410,7 @@ function TaskRowButton({
   return (
     <button
       onClick={onNavigate}
-      className="w-full rounded-md border border-border/60 bg-transparent px-3 py-2 text-left text-xs transition hover:bg-[var(--secondary)]/5 hover:border-[var(--secondary)]/30 text-[var(--foreground)]"
+      className="w-full rounded-[var(--radius-md)] border border-border/60 bg-transparent px-3 py-2 text-left text-xs transition hover:bg-[var(--secondary)]/5 hover:border-[var(--secondary)]/30 text-[var(--foreground)]"
     >
       <div className="flex items-center justify-between gap-2">
         <p className="font-medium text-[13px] line-clamp-1">{task.text}</p>
@@ -554,7 +554,7 @@ function UpdateRow({
   return (
     <button
       onClick={onClick}
-      className="group flex w-full items-start gap-2 rounded-md border border-border/60 px-3 py-2 text-left transition hover:bg-[var(--secondary)]/5 hover:border-[var(--secondary)]/30"
+      className="group flex w-full items-start gap-2 rounded-[var(--radius-md)] border border-border/60 px-3 py-2 text-left transition hover:bg-[var(--secondary)]/5 hover:border-[var(--secondary)]/30"
     >
       {icon ? (
         <span className="flex h-4 w-4 shrink-0 items-center justify-center text-[var(--foreground)]">

@@ -317,7 +317,7 @@ export default function ClientPageToggle({
         }}
         disabled={isLoading}
         className={cn(
-          "inline-flex h-7 items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-medium shadow-sm transition-all duration-150",
+          "inline-flex h-7 items-center gap-1 rounded-[var(--radius-md)] border px-2.5 py-1.5 text-[11px] font-medium shadow-sm transition-all duration-150",
           isEnabled
             ? "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
             : "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)]",

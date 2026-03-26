@@ -426,7 +426,7 @@ export function TaskDetailCard({
           <div className="space-y-1.5">
             <p className="text-xs font-semibold text-[var(--foreground)]">Notes</p>
             {(notes.length > 0 || textNotes.length > 0) && (
-              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 space-y-0.5 overflow-visible min-h-0 max-h-[none]">
+              <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 space-y-0.5 overflow-visible min-h-0 max-h-[none]">
                 {notes.map((ref) => (
                   <div
                     key={ref.id}
@@ -504,7 +504,7 @@ export function TaskDetailCard({
           {task.description && (
             <div className="space-y-1.5">
               <p className="text-xs font-semibold text-[var(--foreground)]">Description</p>
-              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
+              <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
                 <p className="text-sm text-[var(--foreground)] whitespace-pre-wrap">
                   {task.description}
                 </p>
@@ -524,7 +524,7 @@ export function TaskDetailCard({
                     const children = commentsByParent.get(String(comment.id)) ?? [];
                     return (
                       <div key={String(comment.id)} id={`comment-${comment.id}`} className={cn("space-y-2", depth > 0 && "ml-8")}>
-                        <div className={cn("flex gap-2 rounded-md px-2 py-1.5", focusCommentId === String(comment.id) && "bg-[var(--surface-hover)]")}>
+                        <div className={cn("flex gap-2 rounded-[var(--radius-md)] px-2 py-1.5", focusCommentId === String(comment.id) && "bg-[var(--surface-hover)]")}>
                           <div
                             className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--surface-hover)] text-[10px] font-medium text-[var(--foreground)]"
                             aria-hidden
@@ -565,7 +565,7 @@ export function TaskDetailCard({
             {canAdd && onAddComment && (
               <div className="space-y-2 pt-1">
                 {replyTarget && (
-                  <div className="flex items-center justify-between rounded-md border border-[var(--border)] bg-[var(--surface-hover)] px-2 py-1">
+                  <div className="flex items-center justify-between rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface-hover)] px-2 py-1">
                     <span className="text-[10px] text-[var(--muted-foreground)]">
                       Replying to <span className="font-medium text-[var(--foreground)]">{replyTarget.author || "Unknown"}</span>
                     </span>

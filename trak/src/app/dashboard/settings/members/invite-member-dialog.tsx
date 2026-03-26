@@ -82,13 +82,13 @@ export default function InviteMemberDialog({
       />
 
       {/* Dialog */}
-      <div className="relative z-10 w-full max-w-md rounded-md border border-[var(--border)] bg-[var(--surface)] shadow-[0_4px_24px_rgba(0,0,0,0.1)]">
+      <div className="relative z-10 w-full max-w-md rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] shadow-[0_4px_24px_rgba(0,0,0,0.1)]">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[var(--border)] px-6 py-4">
           <h2 className="text-lg font-semibold">Invite Team Member</h2>
           <button
             onClick={onClose}
-            className="rounded-md p-1 hover:bg-[var(--surface-hover)] transition-colors"
+            className="rounded-[var(--radius-md)] p-1 hover:bg-[var(--surface-hover)] transition-colors"
           >
             <X className="h-5 w-5" />
           </button>
@@ -98,7 +98,7 @@ export default function InviteMemberDialog({
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {/* Error Alert */}
           {error && (
-            <div className="flex items-start gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <div className="flex items-start gap-3 rounded-[var(--radius-md)] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
               <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
               <p>{error}</p>
             </div>
@@ -106,7 +106,7 @@ export default function InviteMemberDialog({
 
           {/* Success: added vs invite sent */}
           {success && (
-            <div className="rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+            <div className="rounded-[var(--radius-md)] border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
               {success === "added" ? (
                 <p>They already have a Saria account and have been added to this workspace. No email was sent.</p>
               ) : (
@@ -126,7 +126,7 @@ export default function InviteMemberDialog({
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="colleague@company.com"
-              className="w-full px-3 py-2.5 rounded-md border border-[var(--border)] bg-[var(--background)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--river-indigo)]/50 focus:border-[var(--river-indigo)]"
+              className="w-full px-3 py-2.5 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--background)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--river-indigo)]/50 focus:border-[var(--river-indigo)]"
               disabled={isSubmitting}
               autoFocus
             />
@@ -144,7 +144,7 @@ export default function InviteMemberDialog({
               id="role"
               value={role}
               onChange={(e) => setRole(e.target.value as "admin" | "teammate")}
-              className="w-full px-3 py-2.5 rounded-md border border-[var(--border)] bg-[var(--background)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--river-indigo)]/50 focus:border-[var(--river-indigo)]"
+              className="w-full px-3 py-2.5 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--background)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--river-indigo)]/50 focus:border-[var(--river-indigo)]"
               disabled={isSubmitting}
             >
               <option value="teammate">Teammate - Can view and edit projects</option>
@@ -158,14 +158,14 @@ export default function InviteMemberDialog({
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className="px-4 py-2 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] rounded-md transition-colors disabled:opacity-50"
+              className="px-4 py-2 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[var(--river-indigo)] hover:bg-[var(--river-indigo)]/90 rounded-md transition-colors disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[var(--river-indigo)] hover:bg-[var(--river-indigo)]/90 rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
             >
               {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
               {isSubmitting ? "Inviting..." : "Invite Member"}

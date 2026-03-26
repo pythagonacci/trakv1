@@ -31,19 +31,19 @@ export default async function SlackLinkPage({ searchParams }: PageProps) {
 
   if (!teamId || !slackUserId) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="max-w-md w-full bg-white shadow-lg rounded-lg p-8">
+      <div className="min-h-screen flex items-center justify-center bg-[var(--background)]">
+        <div className="max-w-md w-full bg-[var(--surface)] shadow-lg rounded-[var(--radius-lg)] p-8">
           <div className="text-center">
             <div className="text-red-500 text-5xl mb-4">❌</div>
             <h1 className="text-2xl font-bold text-gray-900 mb-2">
               Invalid Link
             </h1>
-            <p className="text-gray-600 mb-6">
+            <p className="text-[var(--muted-foreground)] mb-6">
               Missing required parameters. Please use the link provided in Slack.
             </p>
             <a
               href="/dashboard/settings/integrations"
-              className="inline-block bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors"
+              className="inline-block bg-blue-600 text-white px-6 py-2 rounded-[var(--radius-md)] hover:bg-blue-700 transition-colors"
             >
               Go to Integrations
             </a>
@@ -64,19 +64,19 @@ export default async function SlackLinkPage({ searchParams }: PageProps) {
 
   if (!connection) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="max-w-md w-full bg-white shadow-lg rounded-lg p-8">
+      <div className="min-h-screen flex items-center justify-center bg-[var(--background)]">
+        <div className="max-w-md w-full bg-[var(--surface)] shadow-lg rounded-[var(--radius-lg)] p-8">
           <div className="text-center">
             <div className="text-red-500 text-5xl mb-4">❌</div>
             <h1 className="text-2xl font-bold text-gray-900 mb-2">
               Workspace Not Connected
             </h1>
-            <p className="text-gray-600 mb-6">
+            <p className="text-[var(--muted-foreground)] mb-6">
               This Slack workspace is not connected to Saria. Please ask your workspace admin to connect it first.
             </p>
             <a
               href="/dashboard/settings/integrations"
-              className="inline-block bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors"
+              className="inline-block bg-blue-600 text-white px-6 py-2 rounded-[var(--radius-md)] hover:bg-blue-700 transition-colors"
             >
               Go to Integrations
             </a>
@@ -97,19 +97,19 @@ export default async function SlackLinkPage({ searchParams }: PageProps) {
 
   if (existingLink?.link_status === "active") {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="max-w-md w-full bg-white shadow-lg rounded-lg p-8">
+      <div className="min-h-screen flex items-center justify-center bg-[var(--background)]">
+        <div className="max-w-md w-full bg-[var(--surface)] shadow-lg rounded-[var(--radius-lg)] p-8">
           <div className="text-center">
             <div className="text-green-500 text-5xl mb-4">✅</div>
             <h1 className="text-2xl font-bold text-gray-900 mb-2">
               Already Linked
             </h1>
-            <p className="text-gray-600 mb-6">
-              Your Slack account is already linked to Saria. You can now use <code className="bg-gray-100 px-2 py-1 rounded">/saria</code> commands in Slack.
+            <p className="text-[var(--muted-foreground)] mb-6">
+              Your Slack account is already linked to Saria. You can now use <code className="bg-[var(--surface-muted)] px-2 py-1 rounded">/saria</code> commands in Slack.
             </p>
             <a
               href="/dashboard/settings/integrations"
-              className="inline-block bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors"
+              className="inline-block bg-blue-600 text-white px-6 py-2 rounded-[var(--radius-md)] hover:bg-blue-700 transition-colors"
             >
               View Integrations
             </a>
@@ -138,19 +138,19 @@ export default async function SlackLinkPage({ searchParams }: PageProps) {
   if (linkError) {
     console.error("Error linking Slack account:", linkError);
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="max-w-md w-full bg-white shadow-lg rounded-lg p-8">
+      <div className="min-h-screen flex items-center justify-center bg-[var(--background)]">
+        <div className="max-w-md w-full bg-[var(--surface)] shadow-lg rounded-[var(--radius-lg)] p-8">
           <div className="text-center">
             <div className="text-red-500 text-5xl mb-4">❌</div>
             <h1 className="text-2xl font-bold text-gray-900 mb-2">
               Linking Failed
             </h1>
-            <p className="text-gray-600 mb-6">
+            <p className="text-[var(--muted-foreground)] mb-6">
               An error occurred while linking your Slack account. Please try again.
             </p>
             <a
               href="/dashboard/settings/integrations"
-              className="inline-block bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors"
+              className="inline-block bg-blue-600 text-white px-6 py-2 rounded-[var(--radius-md)] hover:bg-blue-700 transition-colors"
             >
               Go to Integrations
             </a>
@@ -162,25 +162,25 @@ export default async function SlackLinkPage({ searchParams }: PageProps) {
 
   // 6. Success!
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="max-w-md w-full bg-white shadow-lg rounded-lg p-8">
+    <div className="min-h-screen flex items-center justify-center bg-[var(--background)]">
+      <div className="max-w-md w-full bg-[var(--surface)] shadow-lg rounded-[var(--radius-lg)] p-8">
         <div className="text-center">
           <div className="text-green-500 text-5xl mb-4">🎉</div>
           <h1 className="text-2xl font-bold text-gray-900 mb-2">
             Account Linked Successfully!
           </h1>
-          <p className="text-gray-600 mb-6">
-            Your Slack account has been linked to Saria. You can now use <code className="bg-gray-100 px-2 py-1 rounded">/saria</code> commands in {connection.slack_team_name}.
+          <p className="text-[var(--muted-foreground)] mb-6">
+            Your Slack account has been linked to Saria. You can now use <code className="bg-[var(--surface-muted)] px-2 py-1 rounded">/saria</code> commands in {connection.slack_team_name}.
           </p>
           <div className="space-y-3">
             <a
               href="/dashboard/settings/integrations"
-              className="block w-full bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors"
+              className="block w-full bg-blue-600 text-white px-6 py-2 rounded-[var(--radius-md)] hover:bg-blue-700 transition-colors"
             >
               View Integrations
             </a>
-            <p className="text-sm text-gray-500">
-              Try it out: Type <code className="bg-gray-100 px-2 py-1 rounded">/saria search tasks</code> in Slack!
+            <p className="text-sm text-[var(--tertiary-foreground)]">
+              Try it out: Type <code className="bg-[var(--surface-muted)] px-2 py-1 rounded">/saria search tasks</code> in Slack!
             </p>
           </div>
         </div>

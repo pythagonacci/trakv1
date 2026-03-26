@@ -61,7 +61,7 @@ export function ShopifyConnectionCard({ connection, onUpdate, canManage }: Shopi
       case "error":
         return <Badge className="bg-red-100 text-red-800">Error</Badge>;
       case "disconnected":
-        return <Badge className="bg-gray-100 text-gray-800">Disconnected</Badge>;
+        return <Badge className="bg-[var(--surface-muted)] text-gray-800">Disconnected</Badge>;
       default:
         return <Badge>{connection.sync_status}</Badge>;
     }
@@ -80,7 +80,7 @@ export function ShopifyConnectionCard({ connection, onUpdate, canManage }: Shopi
                 {getStatusBadge()}
               </div>
 
-              <div className="text-sm text-gray-600 space-y-1">
+              <div className="text-sm text-[var(--muted-foreground)] space-y-1">
                 <div>
                   <span className="font-medium">Domain:</span> {connection.shop_domain}
                 </div>

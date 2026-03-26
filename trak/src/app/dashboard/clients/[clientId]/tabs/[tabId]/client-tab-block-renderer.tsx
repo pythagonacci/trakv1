@@ -15,7 +15,7 @@ import DividerBlock from "@/app/dashboard/projects/[projectId]/tabs/[tabId]/divi
 function BlockLoadingState() {
   return (
     <div className="p-5 flex items-center justify-center">
-      <div className="flex items-center gap-2 text-neutral-400">
+      <div className="flex items-center gap-2 text-[var(--tertiary-foreground)]">
         <div className="w-4 h-4 border-2 border-neutral-300 border-t-neutral-600 rounded-full animate-spin" />
         <span className="text-sm">Loading...</span>
       </div>
@@ -144,13 +144,13 @@ export default function ClientTabBlockRenderer({
         return tabId ? (
           <SectionBlock block={blockForComponents} workspaceId={workspaceId} projectId={clientId} tabId={tabId} onUpdate={() => onUpdate?.()} />
         ) : (
-          <div className="p-5 text-sm text-neutral-500">Section requires tabId</div>
+          <div className="p-5 text-sm text-[var(--tertiary-foreground)]">Section requires tabId</div>
         );
       case "doc_reference":
         return <DocReferenceBlock block={blockForComponents} onDelete={() => onDelete?.(block.id)} onOpenDoc={onOpenDoc} />;
       default:
         return (
-          <div className="p-5 text-sm text-neutral-500">
+          <div className="p-5 text-sm text-[var(--tertiary-foreground)]">
             Unknown block type: {block.type}
           </div>
         );

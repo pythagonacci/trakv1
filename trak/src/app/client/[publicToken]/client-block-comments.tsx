@@ -236,7 +236,7 @@ export function ClientBlockCommentsPanel({
                         Client
                       </span>
                     ) : (
-                      <span className="text-[9px] uppercase tracking-wide rounded-full bg-neutral-100 text-neutral-600 px-1.5 py-0.5">
+                      <span className="text-[9px] uppercase tracking-wide rounded-full bg-[var(--surface-muted)] text-[var(--muted-foreground)] px-1.5 py-0.5">
                         Team
                       </span>
                     )}

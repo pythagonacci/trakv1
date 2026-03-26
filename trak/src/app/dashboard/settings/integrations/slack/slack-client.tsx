@@ -52,7 +52,7 @@ export default function SlackClient({
   // Not connected
   if (!connection || connection.connection_status !== "active") {
     return (
-      <div className="bg-white rounded-lg shadow-md p-6">
+      <div className="bg-[var(--surface)] rounded-[var(--radius-lg)] shadow-md p-6">
         <div className="flex items-start space-x-4">
           <div className="flex-shrink-0">
             <svg className="w-12 h-12" viewBox="0 0 24 24" fill="none">
@@ -63,18 +63,18 @@ export default function SlackClient({
             <h3 className="text-xl font-semibold text-gray-900 mb-2">
               Connect Slack
             </h3>
-            <p className="text-gray-600 mb-4">
+            <p className="text-[var(--muted-foreground)] mb-4">
               Install the Saria app to your Slack workspace and use AI-powered commands directly in Slack.
             </p>
             {canManage ? (
               <button
                 onClick={handleInstall}
-                className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors font-medium"
+                className="bg-blue-600 text-white px-6 py-2 rounded-[var(--radius-md)] hover:bg-blue-700 transition-colors font-medium"
               >
                 Install Slack App
               </button>
             ) : (
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-[var(--tertiary-foreground)]">
                 Only workspace owners and admins can install the Slack integration.
               </p>
             )}
@@ -88,13 +88,13 @@ export default function SlackClient({
   return (
     <div className="space-y-6">
       {/* Connection Status */}
-      <div className="bg-white rounded-lg shadow-md p-6">
+      <div className="bg-[var(--surface)] rounded-[var(--radius-lg)] shadow-md p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="text-xl font-semibold text-gray-900">
               Connected to Slack
             </h3>
-            <p className="text-sm text-gray-500 mt-1">
+            <p className="text-sm text-[var(--tertiary-foreground)] mt-1">
               Workspace: {connection.slack_team_name}
             </p>
           </div>
@@ -104,16 +104,16 @@ export default function SlackClient({
           </span>
         </div>
 
-        <div className="border-t border-gray-200 pt-4 mt-4">
+        <div className="border-t border-[var(--border)] pt-4 mt-4">
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
-              <span className="text-gray-500">Connected:</span>
+              <span className="text-[var(--tertiary-foreground)]">Connected:</span>
               <span className="ml-2 text-gray-900">
                 {new Date(connection.created_at).toLocaleDateString()}
               </span>
             </div>
             <div>
-              <span className="text-gray-500">Scopes:</span>
+              <span className="text-[var(--tertiary-foreground)]">Scopes:</span>
               <span className="ml-2 text-gray-900">
                 {connection.scopes.join(", ")}
               </span>
@@ -122,7 +122,7 @@ export default function SlackClient({
         </div>
 
         {canManage && (
-          <div className="mt-4 pt-4 border-t border-gray-200">
+          <div className="mt-4 pt-4 border-t border-[var(--border)]">
             <button
               onClick={handleDisconnect}
               disabled={isDisconnecting}
@@ -135,7 +135,7 @@ export default function SlackClient({
       </div>
 
       {/* Account Linking Status */}
-      <div className="bg-white rounded-lg shadow-md p-6">
+      <div className="bg-[var(--surface)] rounded-[var(--radius-lg)] shadow-md p-6">
         <h3 className="text-xl font-semibold text-gray-900 mb-4">
           Your Account Link
         </h3>
@@ -151,7 +151,7 @@ export default function SlackClient({
               <p className="text-sm text-gray-900 font-medium">
                 Your Slack account is linked
               </p>
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-[var(--tertiary-foreground)]">
                 Linked on {new Date(userLink.linked_at).toLocaleDateString()}
               </p>
             </div>
@@ -167,8 +167,8 @@ export default function SlackClient({
               <p className="text-sm text-gray-900 font-medium">
                 Your Slack account is not linked
               </p>
-              <p className="text-sm text-gray-500">
-                You need to link your account to use <code className="bg-gray-100 px-1 rounded">/saria</code> commands
+              <p className="text-sm text-[var(--tertiary-foreground)]">
+                You need to link your account to use <code className="bg-[var(--surface-muted)] px-1 rounded">/saria</code> commands
               </p>
             </div>
           </div>
@@ -176,7 +176,7 @@ export default function SlackClient({
       </div>
 
       {/* Usage Instructions */}
-      <div className="bg-blue-50 rounded-lg p-6">
+      <div className="bg-blue-50 rounded-[var(--radius-lg)] p-6">
         <h3 className="text-lg font-semibold text-blue-900 mb-3">
           Using Saria in Slack
         </h3>

@@ -111,7 +111,7 @@ export const TableRow = memo(function TableRow({
 
   return (
     <div
-      className="grid border-b border-l border-[var(--border)] row-hover-teal transition-colors duration-150 bg-[var(--surface)] w-full last:border-b-0"
+      className="grid border-b border-l border-neutral-200 row-hover-teal transition-colors duration-150 bg-white w-full last:border-b-0"
       style={{ gridTemplateColumns: template }}
       onContextMenu={(e) => {
         e.preventDefault();
@@ -121,7 +121,7 @@ export const TableRow = memo(function TableRow({
       onDragStart={(e) => onDragStart?.(rowId, e)}
     >
       {showSelection && (
-        <div className="flex items-center justify-center border-r border-[var(--border-strong)] bg-[var(--surface)] sticky left-0 z-20">
+        <div className="flex items-center justify-center border-r border-[var(--border-strong)] bg-white sticky left-0 z-20">
           <input
             type="checkbox"
             checked={Boolean(isSelected)}
@@ -141,7 +141,7 @@ export const TableRow = memo(function TableRow({
         return (
           <div
             key={field.id}
-            className={`px-3 py-2 border-r border-[var(--border-strong)] last:border-r-0 min-w-0 ${isPinned ? "sticky z-10 bg-[var(--surface)]" : ""}`}
+            className={`px-3 py-2 border-r border-[var(--border-strong)] last:border-r-0 min-w-0 ${isPinned ? "sticky z-10 bg-white" : ""}`}
             style={isPinned ? {
               left: `${pinnedOffsets[field.id]}px`,
               boxShadow: idx > 0 ? '2px 0 4px rgba(0,0,0,0.1)' : 'none'
@@ -159,7 +159,7 @@ export const TableRow = memo(function TableRow({
               {showSubtaskToggle && (
                 <button
                   type="button"
-                  className="h-4 w-4 shrink-0 flex items-center justify-center rounded-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] mt-0.5"
+                  className="h-4 w-4 shrink-0 flex items-center justify-center rounded-sm text-neutral-600 hover:text-[var(--foreground)] mt-0.5"
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -193,7 +193,7 @@ export const TableRow = memo(function TableRow({
           </div>
         );
       })}
-      <div className="px-2 py-2 border-l border-[var(--border)] sticky right-0 z-10 bg-[var(--surface)] flex items-center justify-center">
+      <div className="px-2 py-2 border-l border-neutral-200 sticky right-0 z-10 bg-white flex items-center justify-center">
         <button
           type="button"
           onClick={(e) => {
@@ -204,7 +204,7 @@ export const TableRow = memo(function TableRow({
             "relative inline-flex h-7 w-7 items-center justify-center rounded-md border transition-colors",
             (commentCount || 0) > 0 || isCommentsOpen
               ? "border-blue-200 bg-blue-50 text-blue-700"
-              : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+              : "border-neutral-200 bg-white text-neutral-400 hover:bg-neutral-200 hover:text-[var(--foreground)]"
           )}
           title={(commentCount || 0) > 0 ? `${commentCount} comment${(commentCount || 0) === 1 ? "" : "s"}` : "Add comment"}
           aria-label={(commentCount || 0) > 0 ? `${commentCount} comment${(commentCount || 0) === 1 ? "" : "s"}` : "Add comment"}

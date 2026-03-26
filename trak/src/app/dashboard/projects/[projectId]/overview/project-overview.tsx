@@ -315,7 +315,7 @@ export default function ProjectOverview({
                   <button
                     key={feedback.id}
                     onClick={() => goToTab(feedback.tabId, feedback.tabName)}
-                    className="group flex w-full items-start gap-2 rounded-md border border-border/60 px-3 py-2 text-left transition hover:bg-[var(--secondary)]/5 hover:border-[var(--secondary)]/30"
+                    className="group flex w-full items-start gap-2 rounded-[var(--radius-md)] border border-border/60 px-3 py-2 text-left transition hover:bg-[var(--secondary)]/5 hover:border-[var(--secondary)]/30"
                   >
                     <MessageSquare className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 text-[var(--foreground)]" />
                     <div className="flex-1 min-w-0 space-y-0.5">
@@ -358,7 +358,7 @@ function TaskRow({
     <button
       onClick={onClick}
       className={cn(
-        "w-full rounded-md border px-3 py-2 text-left text-xs transition hover:bg-[var(--secondary)]/5 hover:border-[var(--secondary)]/30 text-[var(--foreground)]",
+        "w-full rounded-[var(--radius-md)] border px-3 py-2 text-left text-xs transition hover:bg-[var(--secondary)]/5 hover:border-[var(--secondary)]/30 text-[var(--foreground)]",
         isOverdue
           ? "border-[var(--tile-orange)]/40 bg-[var(--tile-orange)]/5"
           : "border-border/60 bg-transparent"

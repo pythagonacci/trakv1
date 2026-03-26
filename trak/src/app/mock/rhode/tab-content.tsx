@@ -159,7 +159,7 @@ export default function TabContent() {
           <div className="space-y-6">
             {/* Hero Stats */}
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.8fr,1fr]">
-              <Card className="border-[#EBE5E0] bg-white shadow-none">
+              <Card className="border-[#EBE5E0] bg-[var(--surface)] shadow-none">
                 <CardHeader className="space-y-1">
                   <CardTitle className="text-lg font-medium text-[#3D3937]">Launch Snapshot</CardTitle>
                   <CardDescription className="text-xs text-[#A69690]">
@@ -188,7 +188,7 @@ export default function TabContent() {
                 </CardContent>
               </Card>
 
-              <Card className="border-[#EBE5E0] bg-white shadow-none">
+              <Card className="border-[#EBE5E0] bg-[var(--surface)] shadow-none">
                 <CardHeader className="space-y-1">
                   <CardTitle className="text-lg font-medium text-[#3D3937]">Pre-Launch Checklist</CardTitle>
                   <CardDescription className="text-xs text-[#A69690]">
@@ -202,7 +202,7 @@ export default function TabContent() {
                     "Influencer kits shipped",
                     "Sephora inventory allocated",
                   ].map((item, idx) => (
-                    <div key={item} className="flex items-start gap-3 rounded-lg border border-[#EBE5E0] bg-[#FDFCFA] px-3 py-2.5">
+                    <div key={item} className="flex items-start gap-3 rounded-[var(--radius-lg)] border border-[#EBE5E0] bg-[#FDFCFA] px-3 py-2.5">
                       <CheckCircle2 className={`mt-0.5 h-4 w-4 ${idx < 2 ? 'text-[#7D9E8A]' : 'text-[#D4C8C3]'}`} />
                       <p className="text-sm text-[#5D534F]">{item}</p>
                     </div>
@@ -212,7 +212,7 @@ export default function TabContent() {
             </div>
 
             {/* Timeline */}
-            <Card className="border-[#EBE5E0] bg-white shadow-none">
+            <Card className="border-[#EBE5E0] bg-[var(--surface)] shadow-none">
               <CardHeader className="space-y-1">
                 <CardTitle className="text-lg font-medium text-[#3D3937]">Development Timeline</CardTitle>
                 <CardDescription className="text-xs text-[#A69690]">From concept to counter.</CardDescription>
@@ -248,7 +248,7 @@ export default function TabContent() {
               {TASK_BUCKETS.map((bucket) => {
                 const Icon = getIcon(bucket.iconType);
                 return (
-                  <Card key={bucket.title} className="border-[#EBE5E0] bg-white shadow-none">
+                  <Card key={bucket.title} className="border-[#EBE5E0] bg-[var(--surface)] shadow-none">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0">
                       <CardTitle className="text-sm font-medium text-[#5D534F]">{bucket.title}</CardTitle>
                       <span className="rounded-full border border-[#EBE5E0] bg-[#FDFCFA] p-2 text-[#A69690]">
@@ -257,7 +257,7 @@ export default function TabContent() {
                     </CardHeader>
                     <CardContent className="space-y-2">
                       {bucket.items.map((item) => (
-                        <div key={item.label} className="rounded-lg border border-[#EBE5E0] bg-[#FDFCFA] px-3 py-2.5">
+                        <div key={item.label} className="rounded-[var(--radius-lg)] border border-[#EBE5E0] bg-[#FDFCFA] px-3 py-2.5">
                           <p className="text-sm text-[#5D534F]">{item.label}</p>
                           <p className={`mt-1 text-[10px] uppercase tracking-wider ${
                             item.status === "Complete" ? "text-[#7D9E8A]" :
@@ -279,7 +279,7 @@ export default function TabContent() {
 
         {activeTab === "formulation" && (
           <div className="space-y-6">
-            <Card className="border-[#EBE5E0] bg-white shadow-none">
+            <Card className="border-[#EBE5E0] bg-[var(--surface)] shadow-none">
               <CardHeader className="space-y-1">
                 <CardTitle className="text-lg font-medium text-[#3D3937]">Peptide Lip Shape Formula</CardTitle>
                 <CardDescription className="text-xs text-[#A69690]">
@@ -361,7 +361,7 @@ export default function TabContent() {
               </CardContent>
             </Card>
 
-            <Card className="border-[#EBE5E0] bg-white shadow-none">
+            <Card className="border-[#EBE5E0] bg-[var(--surface)] shadow-none">
               <CardHeader className="space-y-1">
                 <CardTitle className="text-lg font-medium text-[#3D3937]">Clinical Results</CardTitle>
                 <CardDescription className="text-xs text-[#A69690]">
@@ -387,7 +387,7 @@ export default function TabContent() {
 
         {activeTab === "shades" && (
           <div className="space-y-6">
-            <Card className="border-[#EBE5E0] bg-white shadow-none">
+            <Card className="border-[#EBE5E0] bg-[var(--surface)] shadow-none">
               <CardHeader className="space-y-1">
                 <CardTitle className="text-lg font-medium text-[#3D3937]">Shade Range</CardTitle>
                 <CardDescription className="text-xs text-[#A69690]">
@@ -422,7 +422,7 @@ export default function TabContent() {
               </CardContent>
             </Card>
 
-            <Card className="border-[#EBE5E0] bg-white shadow-none">
+            <Card className="border-[#EBE5E0] bg-[var(--surface)] shadow-none">
               <CardHeader className="space-y-1">
                 <CardTitle className="text-lg font-medium text-[#3D3937]">Shade Development Notes</CardTitle>
                 <CardDescription className="text-xs text-[#A69690]">
@@ -455,7 +455,7 @@ export default function TabContent() {
 
         {activeTab === "creative" && (
           <div className="space-y-6">
-            <Card className="border-[#EBE5E0] bg-white shadow-none">
+            <Card className="border-[#EBE5E0] bg-[var(--surface)] shadow-none">
               <CardHeader className="space-y-1">
                 <CardTitle className="text-lg font-medium text-[#3D3937]">Content Calendar</CardTitle>
                 <CardDescription className="text-xs text-[#A69690]">Launch content rollout plan.</CardDescription>
@@ -480,7 +480,7 @@ export default function TabContent() {
               </CardContent>
             </Card>
 
-            <Card className="border-[#EBE5E0] bg-white shadow-none">
+            <Card className="border-[#EBE5E0] bg-[var(--surface)] shadow-none">
               <CardHeader className="space-y-1">
                 <CardTitle className="text-lg font-medium text-[#3D3937]">Campaign Visual Direction</CardTitle>
                 <CardDescription className="text-xs text-[#A69690]">Creative guidelines for all launch assets.</CardDescription>
@@ -514,7 +514,7 @@ export default function TabContent() {
               </CardContent>
             </Card>
 
-            <Card className="border-[#EBE5E0] bg-white shadow-none">
+            <Card className="border-[#EBE5E0] bg-[var(--surface)] shadow-none">
               <CardHeader className="space-y-1">
                 <CardTitle className="text-lg font-medium text-[#3D3937]">Asset Checklist</CardTitle>
                 <CardDescription className="text-xs text-[#A69690]">Required creative deliverables.</CardDescription>
@@ -545,7 +545,7 @@ export default function TabContent() {
 
         {activeTab === "influencers" && (
           <div className="space-y-6">
-            <Card className="border-[#EBE5E0] bg-white shadow-none">
+            <Card className="border-[#EBE5E0] bg-[var(--surface)] shadow-none">
               <CardHeader className="space-y-1">
                 <CardTitle className="text-lg font-medium text-[#3D3937]">Influencer Seeding Strategy</CardTitle>
                 <CardDescription className="text-xs text-[#A69690]">
@@ -585,7 +585,7 @@ export default function TabContent() {
             </Card>
 
             <div className="grid gap-4 md:grid-cols-2">
-              <Card className="border-[#EBE5E0] bg-white shadow-none">
+              <Card className="border-[#EBE5E0] bg-[var(--surface)] shadow-none">
                 <CardHeader className="space-y-1">
                   <CardTitle className="text-lg font-medium text-[#3D3937]">PR Seeding Kit</CardTitle>
                   <CardDescription className="text-xs text-[#A69690]">What's inside each kit.</CardDescription>
@@ -598,7 +598,7 @@ export default function TabContent() {
                     "Personalized note from Hailey",
                     "Recyclable branded box",
                   ].map((item) => (
-                    <div key={item} className="flex items-center gap-2 rounded-lg border border-[#EBE5E0] bg-[#FDFCFA] px-3 py-2">
+                    <div key={item} className="flex items-center gap-2 rounded-[var(--radius-lg)] border border-[#EBE5E0] bg-[#FDFCFA] px-3 py-2">
                       <div className="h-1.5 w-1.5 rounded-full bg-[#C9A38B]" />
                       <p className="text-sm text-[#5D534F]">{item}</p>
                     </div>
@@ -606,21 +606,21 @@ export default function TabContent() {
                 </CardContent>
               </Card>
 
-              <Card className="border-[#EBE5E0] bg-white shadow-none">
+              <Card className="border-[#EBE5E0] bg-[var(--surface)] shadow-none">
                 <CardHeader className="space-y-1">
                   <CardTitle className="text-lg font-medium text-[#3D3937]">Posting Guidelines</CardTitle>
                   <CardDescription className="text-xs text-[#A69690]">Briefing notes for creators.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <div className="rounded-lg border border-[#EBE5E0] bg-[#FDFCFA] px-3 py-2.5">
+                  <div className="rounded-[var(--radius-lg)] border border-[#EBE5E0] bg-[#FDFCFA] px-3 py-2.5">
                     <p className="text-xs font-medium text-[#3D3937]">Embargo Date</p>
                     <p className="text-sm text-[#6B5F5A]">January 15, 2025 at 9am EST</p>
                   </div>
-                  <div className="rounded-lg border border-[#EBE5E0] bg-[#FDFCFA] px-3 py-2.5">
+                  <div className="rounded-[var(--radius-lg)] border border-[#EBE5E0] bg-[#FDFCFA] px-3 py-2.5">
                     <p className="text-xs font-medium text-[#3D3937]">Required Tags</p>
                     <p className="text-sm text-[#6B5F5A]">@rhode #peptidelipshape #rhodepartner</p>
                   </div>
-                  <div className="rounded-lg border border-[#EBE5E0] bg-[#FDFCFA] px-3 py-2.5">
+                  <div className="rounded-[var(--radius-lg)] border border-[#EBE5E0] bg-[#FDFCFA] px-3 py-2.5">
                     <p className="text-xs font-medium text-[#3D3937]">Key Messages</p>
                     <p className="text-sm text-[#6B5F5A]">Focus on peptide plumping, glazed finish, shade versatility</p>
                   </div>
@@ -632,7 +632,7 @@ export default function TabContent() {
 
         {activeTab === "production" && (
           <div className="space-y-6">
-            <Card className="border-[#EBE5E0] bg-white shadow-none">
+            <Card className="border-[#EBE5E0] bg-[var(--surface)] shadow-none">
               <CardHeader className="space-y-1">
                 <CardTitle className="text-lg font-medium text-[#3D3937]">Production Schedule</CardTitle>
                 <CardDescription className="text-xs text-[#A69690]">Manufacturing timeline and inventory planning.</CardDescription>
@@ -674,7 +674,7 @@ export default function TabContent() {
             </Card>
 
             <div className="grid gap-4 md:grid-cols-3">
-              <Card className="border-[#EBE5E0] bg-white shadow-none">
+              <Card className="border-[#EBE5E0] bg-[var(--surface)] shadow-none">
                 <CardHeader className="space-y-1">
                   <CardTitle className="text-sm font-medium text-[#5D534F]">Total Initial Run</CardTitle>
                 </CardHeader>
@@ -683,7 +683,7 @@ export default function TabContent() {
                   <p className="text-xs text-[#8A7E79]">units across 6 shades</p>
                 </CardContent>
               </Card>
-              <Card className="border-[#EBE5E0] bg-white shadow-none">
+              <Card className="border-[#EBE5E0] bg-[var(--surface)] shadow-none">
                 <CardHeader className="space-y-1">
                   <CardTitle className="text-sm font-medium text-[#5D534F]">Reorder Point</CardTitle>
                 </CardHeader>
@@ -692,7 +692,7 @@ export default function TabContent() {
                   <p className="text-xs text-[#8A7E79]">inventory threshold for reorder</p>
                 </CardContent>
               </Card>
-              <Card className="border-[#EBE5E0] bg-white shadow-none">
+              <Card className="border-[#EBE5E0] bg-[var(--surface)] shadow-none">
                 <CardHeader className="space-y-1">
                   <CardTitle className="text-sm font-medium text-[#5D534F]">Lead Time</CardTitle>
                 </CardHeader>
@@ -707,7 +707,7 @@ export default function TabContent() {
 
         {activeTab === "launch" && (
           <div className="space-y-6">
-            <Card className="border-[#EBE5E0] bg-white shadow-none">
+            <Card className="border-[#EBE5E0] bg-[var(--surface)] shadow-none">
               <CardHeader className="space-y-1">
                 <CardTitle className="text-lg font-medium text-[#3D3937]">Launch Day Playbook</CardTitle>
                 <CardDescription className="text-xs text-[#A69690]">Hour-by-hour execution plan.</CardDescription>
@@ -735,7 +735,7 @@ export default function TabContent() {
               </CardContent>
             </Card>
 
-            <Card className="border-[#EBE5E0] bg-white shadow-none">
+            <Card className="border-[#EBE5E0] bg-[var(--surface)] shadow-none">
               <CardHeader className="space-y-1">
                 <CardTitle className="text-lg font-medium text-[#3D3937]">Retail Distribution</CardTitle>
                 <CardDescription className="text-xs text-[#A69690]">Channel launch strategy.</CardDescription>
@@ -762,7 +762,7 @@ export default function TabContent() {
 
         {activeTab === "metrics" && (
           <div className="space-y-6">
-            <Card className="border-[#EBE5E0] bg-white shadow-none">
+            <Card className="border-[#EBE5E0] bg-[var(--surface)] shadow-none">
               <CardHeader className="space-y-1">
                 <CardTitle className="text-lg font-medium text-[#3D3937]">Success Metrics</CardTitle>
                 <CardDescription className="text-xs text-[#A69690]">KPIs we're tracking for the first 30 days.</CardDescription>
@@ -783,7 +783,7 @@ export default function TabContent() {
               </CardContent>
             </Card>
 
-            <Card className="border-[#EBE5E0] bg-white shadow-none">
+            <Card className="border-[#EBE5E0] bg-[var(--surface)] shadow-none">
               <CardHeader className="space-y-1">
                 <CardTitle className="text-lg font-medium text-[#3D3937]">Tracking Dashboard</CardTitle>
                 <CardDescription className="text-xs text-[#A69690]">Real-time metrics post-launch.</CardDescription>
@@ -834,7 +834,7 @@ export default function TabContent() {
               </CardContent>
             </Card>
 
-            <Card className="border-[#EBE5E0] bg-white shadow-none">
+            <Card className="border-[#EBE5E0] bg-[var(--surface)] shadow-none">
               <CardHeader className="space-y-1">
                 <CardTitle className="text-lg font-medium text-[#3D3937]">Post-Launch Review Cadence</CardTitle>
                 <CardDescription className="text-xs text-[#A69690]">Scheduled check-ins.</CardDescription>

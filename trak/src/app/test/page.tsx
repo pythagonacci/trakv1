@@ -6,26 +6,26 @@ export default function TestDashboard() {
         <div className="space-y-4">
           <a 
             href="/test/workspace" 
-            className="block p-6 border rounded-lg hover:bg-gray-50"
+            className="block p-6 border rounded-[var(--radius-lg)] hover:bg-[var(--background)]"
           >
             <h2 className="text-xl font-semibold mb-2">Task 1.1: Workspace & Members</h2>
-            <p className="text-gray-600">Test workspace creation, member management, and roles</p>
+            <p className="text-[var(--muted-foreground)]">Test workspace creation, member management, and roles</p>
           </a>
   
           <a 
             href="/test/client" 
-            className="block p-6 border rounded-lg hover:bg-gray-50"
+            className="block p-6 border rounded-[var(--radius-lg)] hover:bg-[var(--background)]"
           >
             <h2 className="text-xl font-semibold mb-2">Task 1.2: Client Management</h2>
-            <p className="text-gray-600">Test client CRUD operations and project relationships</p>
+            <p className="text-[var(--muted-foreground)]">Test client CRUD operations and project relationships</p>
           </a>
   
           <a 
             href="/test/project" 
-            className="block p-6 border rounded-lg hover:bg-gray-50"
+            className="block p-6 border rounded-[var(--radius-lg)] hover:bg-[var(--background)]"
           >
             <h2 className="text-xl font-semibold mb-2">Task 1.3: Project Management</h2>
-            <p className="text-gray-600">Test project CRUD operations and workflows/relationships</p>
+            <p className="text-[var(--muted-foreground)]">Test project CRUD operations and workflows/relationships</p>
           </a>
         </div>
       </div>

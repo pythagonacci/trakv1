@@ -122,7 +122,7 @@ export function ShopifyProductDetail({
       <Dialog open={isOpen} onOpenChange={onClose}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogTitle className="sr-only">Loading product</DialogTitle>
-          <div className="p-12 text-center text-gray-500">Loading...</div>
+          <div className="p-12 text-center text-[var(--tertiary-foreground)]">Loading...</div>
         </DialogContent>
       </Dialog>
     );
@@ -147,7 +147,7 @@ export function ShopifyProductDetail({
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div className="flex-1 min-w-0">
               <DialogTitle className="text-2xl">{product.title}</DialogTitle>
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="text-sm text-[var(--tertiary-foreground)] mt-1">
                 Last synced: {new Date(product.last_synced_at).toLocaleString()}
               </p>
             </div>
@@ -195,11 +195,11 @@ export function ShopifyProductDetail({
         <div className="space-y-6">
           {/* Featured Image */}
           {product.featured_image_url && (
-            <div className="rounded-lg overflow-hidden">
+            <div className="rounded-[var(--radius-lg)] overflow-hidden">
               <img
                 src={product.featured_image_url}
                 alt={product.title}
-                className="w-full max-h-96 object-contain bg-gray-50"
+                className="w-full max-h-96 object-contain bg-[var(--background)]"
               />
             </div>
           )}
@@ -232,7 +232,7 @@ export function ShopifyProductDetail({
           {product.description && (
             <div>
               <h3 className="font-semibold mb-2">Description</h3>
-              <p className="text-sm text-gray-600 whitespace-pre-wrap">{product.description}</p>
+              <p className="text-sm text-[var(--muted-foreground)] whitespace-pre-wrap">{product.description}</p>
             </div>
           )}
 
@@ -268,7 +268,7 @@ export function ShopifyProductDetail({
               {product.variants?.map((variant) => (
                 <div
                   key={variant.id}
-                  className="border rounded-lg p-4 hover:bg-gray-50 transition-colors"
+                  className="border rounded-[var(--radius-lg)] p-4 hover:bg-[var(--background)] transition-colors"
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
@@ -283,7 +283,7 @@ export function ShopifyProductDetail({
                         <div>
                           <h4 className="font-medium">{variant.title}</h4>
                           {variant.sku && (
-                            <p className="text-sm text-gray-500">SKU: {variant.sku}</p>
+                            <p className="text-sm text-[var(--tertiary-foreground)]">SKU: {variant.sku}</p>
                           )}
                         </div>
                       </div>
@@ -291,25 +291,25 @@ export function ShopifyProductDetail({
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                         {variant.price && (
                           <div>
-                            <span className="text-gray-600">Price:</span>
+                            <span className="text-[var(--muted-foreground)]">Price:</span>
                             <p className="font-medium">${variant.price}</p>
                           </div>
                         )}
                         {variant.compare_at_price && (
                           <div>
-                            <span className="text-gray-600">Compare at:</span>
+                            <span className="text-[var(--muted-foreground)]">Compare at:</span>
                             <p className="font-medium">${variant.compare_at_price}</p>
                           </div>
                         )}
                         {variant.inventory_tracked && (
                           <div>
-                            <span className="text-gray-600">Inventory:</span>
+                            <span className="text-[var(--muted-foreground)]">Inventory:</span>
                             <p className="font-medium">{variant.available_total} available</p>
                           </div>
                         )}
                         {variant.barcode && (
                           <div>
-                            <span className="text-gray-600">Barcode:</span>
+                            <span className="text-[var(--muted-foreground)]">Barcode:</span>
                             <p className="font-mono text-xs">{variant.barcode}</p>
                           </div>
                         )}
@@ -324,7 +324,7 @@ export function ShopifyProductDetail({
                           <div className="grid grid-cols-2 gap-2">
                             {variant.inventory.map((inv) => (
                               <div key={inv.id} className="text-xs">
-                                <span className="text-gray-600">{inv.location_name}:</span>
+                                <span className="text-[var(--muted-foreground)]">{inv.location_name}:</span>
                                 <span className="ml-2 font-medium">{inv.available}</span>
                               </div>
                             ))}

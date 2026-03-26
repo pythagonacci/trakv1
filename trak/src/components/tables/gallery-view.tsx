@@ -242,14 +242,14 @@ function Cover({
   const content =
     url ?
       (
-        <div className="relative h-32 w-full overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+        <div className="relative h-32 w-full overflow-hidden rounded-lg border border-neutral-200 bg-white">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={url} alt={title} className="h-full w-full object-cover" />
         </div>
       )
     : (
-        <div className="relative flex h-32 w-full cursor-pointer items-center justify-center overflow-hidden rounded-lg border border-[var(--border)] bg-gradient-to-b from-[var(--surface)] to-[var(--surface-hover)] hover:border-[var(--border-strong)]">
-          <div className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[12px] text-[var(--muted-foreground)] shadow-sm">
+        <div className="relative flex h-32 w-full cursor-pointer items-center justify-center overflow-hidden rounded-lg border border-neutral-200 bg-gradient-to-b from-[var(--surface)] to-[var(--surface-hover)] hover:border-[var(--border-strong)]">
+          <div className="flex items-center gap-2 rounded-md border border-neutral-200 bg-white px-2 py-1 text-[12px] text-neutral-600 shadow-sm">
             <LayoutGrid className="h-3.5 w-3.5" />
             <span>{emptyLabel}</span>
           </div>
@@ -300,7 +300,7 @@ function NoCoverFieldHintDialog({
         <DialogHeader>
           <DialogTitle>Add cover image</DialogTitle>
         </DialogHeader>
-        <p className="text-sm text-[var(--muted-foreground)]">
+        <p className="text-sm text-neutral-600">
           Choose a cover field in the <strong>Cover</strong> menu in the toolbar above. Use a <strong>Files</strong> column to upload from your computer, or a <strong>URL</strong> column to paste an image link.
         </p>
         <DialogFooter>
@@ -387,8 +387,8 @@ function AvatarPill({ name }: { name: string }) {
     .slice(0, 2)
     .toUpperCase();
   return (
-    <div className="inline-flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[12px] text-[var(--foreground)]">
-      <div className="grid h-5 w-5 place-items-center rounded-sm bg-[var(--surface-hover)] text-[10px] font-semibold text-[var(--muted-foreground)]">
+    <div className="inline-flex items-center gap-2 rounded-md border border-neutral-200 bg-white px-2 py-1 text-[12px] text-[var(--foreground)]">
+      <div className="grid h-5 w-5 place-items-center rounded-sm bg-neutral-200 text-[10px] font-semibold text-neutral-600">
         {initials}
       </div>
       <span className="max-w-[120px] truncate">{name}</span>
@@ -495,7 +495,7 @@ function GalleryCard({
 
   return (
     <Card
-      className="group rounded-xl border-[var(--border)] bg-[var(--surface)] shadow-sm"
+      className="group rounded-xl border-neutral-200 bg-white shadow-sm"
       onContextMenu={(e) => onContextMenu?.(e, row.id)}
     >
       <CardContent className="p-3">
@@ -514,14 +514,14 @@ function GalleryCard({
               checked={selectedRows.has(row.id)}
               onChange={(e) => onSelectRow(row.id, e as unknown as React.MouseEvent<HTMLInputElement>)}
               onClick={(e) => e.stopPropagation()}
-              className="h-4 w-4 rounded border-[var(--border)] text-[var(--foreground)] focus:ring-2 focus:ring-[var(--foreground)]"
+              className="h-4 w-4 rounded border-neutral-200 text-[var(--foreground)] focus:ring-2 focus:ring-[var(--foreground)]"
             />
             <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 rounded-md text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)]"
+                className="h-8 w-8 rounded-md text-neutral-600 hover:bg-neutral-200"
                 onClick={(e) => e.stopPropagation()}
               >
                 <MoreHorizontal className="h-4 w-4" />
@@ -607,7 +607,7 @@ function GalleryCard({
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); setPillsExpanded(true); }}
-                  className="inline-flex items-center rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[12px] font-medium text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)]"
+                  className="inline-flex items-center rounded-md border border-neutral-200 bg-white px-2 py-0.5 text-[12px] font-medium text-neutral-600 hover:bg-neutral-200"
                 >
                   <ChevronDown className="mr-1 h-3.5 w-3.5" />
                   +{overflowCount}
@@ -617,8 +617,8 @@ function GalleryCard({
           </div>
           {dateStr && !propertyPillFields.some((f) => f.id === dateField?.id) && dateField && (
             <div className="shrink-0">
-              <span className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[12px] font-medium text-[var(--foreground)]">
-                <Calendar className="h-3.5 w-3.5 text-[var(--muted-foreground)]" />
+              <span className="inline-flex items-center gap-1 rounded-md border border-neutral-200 bg-white px-2 py-0.5 text-[12px] font-medium text-[var(--foreground)]">
+                <Calendar className="h-3.5 w-3.5 text-neutral-600" />
                 {dateStr}
               </span>
             </div>
@@ -631,7 +631,7 @@ function GalleryCard({
               <AvatarPill key={p.id} name={formatUserDisplay(p)} />
             ))}
             {persons.length > 2 && (
-              <div className="inline-flex items-center rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[12px] text-[var(--muted-foreground)]">
+              <div className="inline-flex items-center rounded-md border border-neutral-200 bg-white px-2 py-1 text-[12px] text-neutral-600">
                 +{persons.length - 2}
               </div>
             )}
@@ -640,7 +640,7 @@ function GalleryCard({
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 rounded-md px-2 text-[12px] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+              className="h-8 rounded-md px-2 text-[12px] text-[var(--foreground)] hover:bg-neutral-200"
               onClick={(e) => { e.stopPropagation(); onOpenRow?.(row.id); }}
             >
               Open
@@ -648,7 +648,7 @@ function GalleryCard({
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 rounded-md px-2 text-[12px] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+              className="h-8 rounded-md px-2 text-[12px] text-[var(--foreground)] hover:bg-neutral-200"
               onClick={(e) => { e.stopPropagation(); onOpenEdit?.(row.id); }}
             >
               Edit
@@ -737,7 +737,7 @@ function GalleryCardEditDialog({
         <div className="space-y-4">
           {primaryField && (
             <div>
-              <label className="text-xs font-medium text-[var(--muted-foreground)]">{primaryField.name}</label>
+              <label className="text-xs font-medium text-neutral-600">{primaryField.name}</label>
               <Input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
@@ -748,11 +748,11 @@ function GalleryCardEditDialog({
           )}
           {statusField && (
             <div>
-              <label className="text-xs font-medium text-[var(--muted-foreground)]">Status</label>
+              <label className="text-xs font-medium text-neutral-600">Status</label>
               <select
                 value={status}
                 onChange={(e) => setStatus(e.target.value)}
-                className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)]"
+                className="mt-1 w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm text-[var(--foreground)]"
               >
                 <option value="">—</option>
                 {TABLE_STATUS_OPTIONS.map((opt) => (
@@ -763,11 +763,11 @@ function GalleryCardEditDialog({
           )}
           {priorityField && (
             <div>
-              <label className="text-xs font-medium text-[var(--muted-foreground)]">Priority</label>
+              <label className="text-xs font-medium text-neutral-600">Priority</label>
               <select
                 value={priority}
                 onChange={(e) => setPriority(e.target.value)}
-                className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)]"
+                className="mt-1 w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm text-[var(--foreground)]"
               >
                 <option value="">—</option>
                 {TABLE_PRIORITY_LEVELS.map((opt) => (
@@ -778,7 +778,7 @@ function GalleryCardEditDialog({
           )}
           {dateField && (
             <div>
-              <label className="text-xs font-medium text-[var(--muted-foreground)]">{dateField.name}</label>
+              <label className="text-xs font-medium text-neutral-600">{dateField.name}</label>
               <Input
                 type="date"
                 value={dateVal}
@@ -789,7 +789,7 @@ function GalleryCardEditDialog({
           )}
           {coverField?.type === "url" && (
             <div>
-              <label className="text-xs font-medium text-[var(--muted-foreground)]">Cover image URL</label>
+              <label className="text-xs font-medium text-neutral-600">Cover image URL</label>
               <Input
                 value={coverUrl}
                 onChange={(e) => { setCoverUrl(e.target.value); setCoverError(""); }}
@@ -942,12 +942,12 @@ export function GalleryView({
                   />
                 )}
                 <span className="text-[13px] font-semibold text-[var(--foreground)]">{group.groupLabel}</span>
-                <span className="text-[12px] text-[var(--muted-foreground)]">{group.count}</span>
+                <span className="text-[12px] text-neutral-600">{group.count}</span>
               </div>
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 rounded-md px-2 text-[12px] text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)]"
+                className="h-8 rounded-md px-2 text-[12px] text-neutral-600 hover:bg-neutral-200"
                 onClick={() => {
                   const data: Record<string, unknown> = {};
                   if (group.groupId !== "__ungrouped__" && groupByField) {
@@ -980,7 +980,7 @@ export function GalleryView({
                 />
               ))}
             </div>
-            <div className="border-t border-[var(--border)] pt-1" />
+            <div className="border-t border-neutral-200 pt-1" />
           </div>
         ))}
       </div>

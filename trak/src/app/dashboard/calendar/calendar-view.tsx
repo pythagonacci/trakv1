@@ -180,7 +180,7 @@ function MiniMonth({
               onClick={() => onPick(d)}
               type="button"
               className={cn(
-                "h-9 rounded-md text-xs transition",
+                "h-9 rounded-[var(--radius-md)] text-xs transition",
                 selected && "bg-[var(--foreground)] text-[var(--background)]",
                 !selected && today && "bg-[var(--surface)] text-[var(--foreground)]",
                 !selected && !today && "hover:bg-[var(--surface-hover)]",
@@ -212,7 +212,7 @@ function ToggleRow({
   return (
     <div
       className={cn(
-        "flex items-center justify-between rounded-md border border-[var(--border)] px-3 py-2",
+        "flex items-center justify-between rounded-[var(--radius-md)] border border-[var(--border)] px-3 py-2",
         disabled && "opacity-50"
       )}
     >
@@ -232,7 +232,7 @@ function ToggleRow({
       >
         <span
           className={cn(
-            "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition",
+            "absolute top-0.5 h-5 w-5 rounded-full bg-[var(--surface)] shadow-sm transition",
             on ? "left-5" : "left-0.5"
           )}
         />
@@ -262,7 +262,7 @@ function DayViewEventCard({
   return (
     <div
       className={cn(
-        "absolute left-0 right-0 max-w-[520px] rounded-lg border border-[var(--border)] shadow-sm ring-1 cursor-pointer transition hover:bg-[var(--surface)]/80",
+        "absolute left-0 right-0 max-w-[520px] rounded-[var(--radius-lg)] border border-[var(--border)] shadow-sm ring-1 cursor-pointer transition hover:bg-[var(--surface)]/80",
         c.ring,
         c.bg
       )}
@@ -291,7 +291,7 @@ function DayViewEventCard({
           </span>
           <button
             type="button"
-            className="h-7 w-7 rounded-md border border-[var(--border)] text-xs hover:bg-[var(--surface-hover)] flex items-center justify-center"
+            className="h-7 w-7 rounded-[var(--radius-md)] border border-[var(--border)] text-xs hover:bg-[var(--surface-hover)] flex items-center justify-center"
             onClick={onMoreClick}
             aria-label="More"
           >
@@ -418,7 +418,7 @@ const DayView = forwardRef<
         <div className="border-b border-[var(--border)] bg-[var(--surface)] shrink-0">
           <div className="grid grid-cols-[72px_1fr]">
             <div className="border-r border-[var(--border)] px-3 py-3 flex items-center justify-center">
-              <div className="flex h-10 w-10 items-center justify-center rounded-md bg-[var(--foreground)] text-[var(--background)]">
+              <div className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-md)] bg-[var(--foreground)] text-[var(--background)]">
                 <div className="text-center leading-tight">
                   <div className="text-[10px] opacity-80">{dowShort}</div>
                   <div className="text-sm font-semibold">{currentDate.getDate()}</div>
@@ -513,7 +513,7 @@ const DayView = forwardRef<
 
                 {dayEvents.length === 0 && (
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="rounded-lg border border-[var(--border)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
+                    <div className="rounded-[var(--radius-lg)] border border-[var(--border)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
                       No events • Drag on the grid to create one
                     </div>
                   </div>
@@ -941,7 +941,7 @@ export default function CalendarView({
             </Button>
             {/* Theme picker removed; calendar uses Sarajevo theme globally */}
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1 rounded-md border border-[var(--border)] p-0.5">
+              <div className="flex items-center gap-1 rounded-[var(--radius-md)] border border-[var(--border)] p-0.5">
                 <Button
                   variant={itemsView === "all" ? "default" : "ghost"}
                   size="sm"
@@ -969,7 +969,7 @@ export default function CalendarView({
               >
                 Today
               </Button>
-              <div className="flex items-center gap-1 rounded-md border border-[var(--border)] p-0.5">
+              <div className="flex items-center gap-1 rounded-[var(--radius-md)] border border-[var(--border)] p-0.5">
                 <Button
                   variant={viewType === "month" ? "default" : "ghost"}
                   size="sm"
@@ -1093,7 +1093,7 @@ export default function CalendarView({
             {/* Calendar days */}
             {monthDays.map((date, index) => {
               if (!date) {
-                return <div key={`empty-${index}`} className="min-h-[calc((100vh-8rem)/4)] rounded-md" />;
+                return <div key={`empty-${index}`} className="min-h-[calc((100vh-8rem)/4)] rounded-[var(--radius-md)]" />;
               }
 
               const dayEvents = getEventsForDate(date);

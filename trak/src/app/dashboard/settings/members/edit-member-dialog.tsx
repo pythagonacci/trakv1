@@ -119,7 +119,7 @@ export default function EditMemberDialog({
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent
-        className="w-full max-w-[280px] rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-popover p-0 gap-0"
+        className="w-full max-w-[280px] rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] shadow-popover p-0 gap-0"
         onPointerDownOutside={(e) => !showRemoveConfirm && onClose()}
       >
         {/* Compact header – property menu style */}

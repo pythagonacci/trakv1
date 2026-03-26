@@ -40,18 +40,18 @@ export function EverythingFilters({
       />
 
       {/* Slide-over Panel */}
-      <div className="fixed right-0 top-0 bottom-0 w-96 bg-white dark:bg-neutral-950 border-l border-neutral-300 dark:border-neutral-700 shadow-xl z-50 overflow-y-auto">
+      <div className="fixed right-0 top-0 bottom-0 w-96 bg-[var(--surface)] dark:bg-neutral-950 border-l border-neutral-300 dark:border-neutral-700 shadow-xl z-50 overflow-y-auto">
         {/* Header */}
-        <div className="sticky top-0 bg-white dark:bg-neutral-950 border-b border-neutral-300 dark:border-neutral-700 px-6 py-4 z-10">
+        <div className="sticky top-0 bg-[var(--surface)] dark:bg-neutral-950 border-b border-neutral-300 dark:border-neutral-700 px-6 py-4 z-10">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
               Filters
             </h2>
             <button
               onClick={onClose}
-              className="p-1 rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-900"
+              className="p-1 rounded-[var(--radius-md)] hover:bg-[var(--surface-muted)] dark:hover:bg-neutral-900"
             >
-              <X className="h-5 w-5 text-neutral-500" />
+              <X className="h-5 w-5 text-[var(--tertiary-foreground)]" />
             </button>
           </div>
         </div>
@@ -203,7 +203,7 @@ function FilterSection({
           <button
             type="button"
             onClick={onClear}
-            className="p-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 hover:text-neutral-700"
+            className="p-1 rounded hover:bg-[var(--surface-muted)] dark:hover:bg-neutral-800 text-[var(--tertiary-foreground)] hover:text-neutral-700"
             aria-label={`Clear ${title} filter`}
           >
             <X className="h-3.5 w-3.5" />
