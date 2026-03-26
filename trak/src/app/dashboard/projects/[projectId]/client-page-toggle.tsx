@@ -388,8 +388,23 @@ export default function ClientPageToggle({
             </section>
 
             <section className="space-y-1.5">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
-                Visible Tabs
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
+                  Visible Tabs
+                </p>
+                <div
+                  className="flex shrink-0 items-center gap-2 text-[10px] font-medium text-[var(--muted-foreground)]"
+                  aria-hidden
+                >
+                  <span>Private</span>
+                  <span className="select-none text-[var(--tertiary-foreground)]">
+                    ·
+                  </span>
+                  <span>Public</span>
+                </div>
+              </div>
+              <p className="sr-only">
+                For each tab, turn the switch off for private or on for public.
               </p>
               <div className="overflow-hidden rounded-[12px] border border-[var(--border)] bg-[var(--surface)]">
                 <div className="max-h-[200px] overflow-y-auto">
@@ -423,38 +438,15 @@ export default function ClientPageToggle({
                             {isPending && (
                               <Loader2 className="h-3 w-3 animate-spin text-[var(--muted-foreground)]" />
                             )}
-                            <div className="flex rounded-[8px] border border-[var(--border)] bg-[var(--background)] p-0.5">
-                              <button
-                                onClick={() =>
-                                  handleTabVisibilityToggle(tab.id, false)
-                                }
-                                disabled={isPending}
-                                className={cn(
-                                  "rounded-[6px] px-2 py-0.5 text-[10px] font-medium transition-colors",
-                                  !tab.is_client_visible
-                                    ? "bg-[var(--surface)] text-[var(--foreground)] shadow-sm"
-                                    : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
-                                  isPending && "cursor-not-allowed opacity-60"
-                                )}
-                              >
-                                Private
-                              </button>
-                              <button
-                                onClick={() =>
-                                  handleTabVisibilityToggle(tab.id, true)
-                                }
-                                disabled={isPending}
-                                className={cn(
-                                  "rounded-[6px] px-2 py-0.5 text-[10px] font-medium transition-colors",
-                                  tab.is_client_visible
-                                    ? "bg-blue-50 text-blue-700 shadow-sm"
-                                    : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
-                                  isPending && "cursor-not-allowed opacity-60"
-                                )}
-                              >
-                                Public
-                              </button>
-                            </div>
+                            <Switch
+                              checked={Boolean(tab.is_client_visible)}
+                              disabled={isPending}
+                              onCheckedChange={(checked) =>
+                                handleTabVisibilityToggle(tab.id, checked)
+                              }
+                              className="shrink-0"
+                              aria-label={`${tab.name}: ${tab.is_client_visible ? "public to clients" : "private"}`}
+                            />
                           </div>
                         </div>
                       );

@@ -4,43 +4,23 @@ import { useState, useEffect, useRef } from "react";
 import { type Block, updateBlock } from "@/app/actions/block";
 import { cn } from "@/lib/utils";
 
-/** Strong vertical bar colors (left accent before title). */
+/** Pastel vertical bar (left accent); swatches are only shown while editing. */
 const SECTION_ACCENT_STYLES = {
   none: {
     barClass: "",
     swatchClass: "bg-[var(--border)] border border-[var(--border)]",
   },
-  slate: {
-    barClass: "bg-zinc-800 dark:bg-zinc-100",
-    swatchClass: "bg-zinc-800 dark:bg-zinc-100",
-  },
-  amber: {
-    barClass: "bg-amber-500",
-    swatchClass: "bg-amber-500",
-  },
-  emerald: {
-    barClass: "bg-emerald-600",
-    swatchClass: "bg-emerald-600",
-  },
-  blue: {
-    barClass: "bg-blue-600",
-    swatchClass: "bg-blue-600",
+  sky: {
+    barClass: "bg-sky-200 dark:bg-sky-400/45",
+    swatchClass: "bg-sky-200 dark:bg-sky-400/55",
   },
   rose: {
-    barClass: "bg-rose-600",
-    swatchClass: "bg-rose-600",
+    barClass: "bg-rose-200 dark:bg-rose-400/45",
+    swatchClass: "bg-rose-200 dark:bg-rose-400/55",
   },
-  violet: {
-    barClass: "bg-violet-600",
-    swatchClass: "bg-violet-600",
-  },
-  orange: {
-    barClass: "bg-orange-500",
-    swatchClass: "bg-orange-500",
-  },
-  red: {
-    barClass: "bg-red-600",
-    swatchClass: "bg-red-600",
+  sage: {
+    barClass: "bg-emerald-200 dark:bg-emerald-300/45",
+    swatchClass: "bg-emerald-200 dark:bg-emerald-300/55",
   },
 } as const;
 
@@ -48,24 +28,30 @@ type SectionAccentKey = keyof typeof SECTION_ACCENT_STYLES;
 
 const SECTION_ACCENT_OPTIONS: Array<{ key: SectionAccentKey; label: string }> = [
   { key: "none", label: "No bar" },
-  { key: "slate", label: "Slate bar" },
-  { key: "amber", label: "Amber bar" },
-  { key: "emerald", label: "Green bar" },
-  { key: "blue", label: "Blue bar" },
-  { key: "rose", label: "Rose bar" },
-  { key: "violet", label: "Violet bar" },
-  { key: "orange", label: "Orange bar" },
-  { key: "red", label: "Red bar" },
+  { key: "sky", label: "Soft blue" },
+  { key: "rose", label: "Soft rose" },
+  { key: "sage", label: "Soft green" },
 ];
+
+/** Pre–three-palette `accent` values saved in block content. */
+const LEGACY_ACCENT_TO_KEY: Record<string, SectionAccentKey> = {
+  slate: "sky",
+  amber: "rose",
+  emerald: "sage",
+  blue: "sky",
+  violet: "sky",
+  orange: "rose",
+  red: "rose",
+};
 
 /** Legacy `highlight` keys from pastel block highlight → accent bar. */
 const LEGACY_HIGHLIGHT_TO_ACCENT: Record<string, SectionAccentKey> = {
   none: "none",
-  yellow: "amber",
-  green: "emerald",
-  blue: "blue",
+  yellow: "rose",
+  green: "sage",
+  blue: "sky",
   pink: "rose",
-  purple: "violet",
+  purple: "sky",
 };
 
 function normalizeAccent(content: {
@@ -76,12 +62,14 @@ function normalizeAccent(content: {
   if (raw && raw in SECTION_ACCENT_STYLES) {
     return raw as SectionAccentKey;
   }
+  if (raw && raw in LEGACY_ACCENT_TO_KEY) {
+    return LEGACY_ACCENT_TO_KEY[raw]!;
+  }
   const legacy = typeof content.highlight === "string" ? content.highlight : undefined;
   if (legacy && legacy in LEGACY_HIGHLIGHT_TO_ACCENT) {
     return LEGACY_HIGHLIGHT_TO_ACCENT[legacy]!;
   }
-  // No accent saved yet: default strong neutral bar (not "none")
-  return "slate";
+  return "none";
 }
 
 export interface SectionHeaderBlockProps {
@@ -127,6 +115,8 @@ export default function SectionHeaderBlock({ block, className, onUpdate, readOnl
   const canEdit = !readOnly;
   const hasSubtitle = subtitleValue.trim() !== "";
   const showSubtitleSlot = hasSubtitle || (canEdit && editingField !== null);
+  const isEditing = editingField !== null;
+  const showAccentPicker = canEdit && isEditing;
   const showBar = accentValue !== "none";
 
   useEffect(() => {
@@ -223,7 +213,7 @@ export default function SectionHeaderBlock({ block, className, onUpdate, readOnl
           {showBar && (
             <div
               className={cn(
-                "w-1.5 shrink-0 self-stretch rounded-sm",
+                "w-2.5 shrink-0 self-stretch rounded-sm",
                 SECTION_ACCENT_STYLES[accentValue].barClass
               )}
               aria-hidden
@@ -310,7 +300,7 @@ export default function SectionHeaderBlock({ block, className, onUpdate, readOnl
                 {hasSubtitle ? subtitleValue : "Add subtitle"}
               </p>
             ) : null}
-            {canEdit && (
+            {showAccentPicker && (
               <div
                 data-accent-picker="true"
                 className="mt-2 flex flex-wrap items-center gap-1.5"
