@@ -9,13 +9,14 @@ import ClientPageContent from "./client-page-content";
 import ClientPageBanner from "./client-page-banner";
 import ClientPageTracker from "./client-page-tracker";
 import AutoRefresh from "./auto-refresh";
+import type { EntityProperties } from "@/types/properties";
 
 // Public page - no auth required
 export const dynamic = "force-dynamic";
 
 interface PublicBlockPayload {
   blocks: Block[];
-  blockPropertiesById: Record<string, unknown>;
+  blockPropertiesById: Record<string, EntityProperties>;
 }
 
 interface PublicGalleryItem {
@@ -36,6 +37,19 @@ interface PublicFileAttachment {
   block_id: string;
   display_mode: string | null;
   file: PublicAttachedFile | PublicAttachedFile[] | null;
+}
+
+interface PublicInitialFileAttachment {
+  id: string;
+  display_mode: string;
+  file: {
+    id: string;
+    file_name: string;
+    file_size: number;
+    file_type: string;
+    storage_path: string;
+    created_at: string;
+  };
 }
 
 export default async function ClientPage({
@@ -89,11 +103,11 @@ export default async function ClientPage({
   const blocks = Array.isArray(blocksPayload) ? blocksPayload : blocksPayload?.blocks || [];
   const blockPropertiesById = Array.isArray(blocksPayload)
     ? {}
-    : (blocksPayload?.blockPropertiesById as Record<string, unknown>) || {};
+    : blocksPayload?.blockPropertiesById || {};
 
   // Extract all file IDs from all blocks for prefetching
   const fileIds: string[] = [];
-  const initialFilesByBlockId: Record<string, PublicFileAttachment[]> = {};
+  const initialFilesByBlockId: Record<string, PublicInitialFileAttachment[]> = {};
 
   blocks.forEach(block => {
     // Image blocks
@@ -149,13 +163,22 @@ export default async function ClientPage({
         if (!initialFilesByBlockId[attachment.block_id]) {
           initialFilesByBlockId[attachment.block_id] = [];
         }
-        initialFilesByBlockId[attachment.block_id].push({
-          id: attachment.id,
-          display_mode: attachment.display_mode,
-          file: Array.isArray(attachment.file) ? attachment.file[0] : attachment.file,
-        });
-
         const file = Array.isArray(attachment.file) ? attachment.file[0] : attachment.file;
+        if (file) {
+          initialFilesByBlockId[attachment.block_id].push({
+            id: attachment.id,
+            display_mode: attachment.display_mode ?? "list",
+            file: {
+              id: file.id,
+              file_name: file.file_name,
+              file_size: file.file_size ?? 0,
+              file_type: file.file_type ?? "",
+              storage_path: file.storage_path,
+              created_at: file.created_at ?? "",
+            },
+          });
+        }
+
         if (file?.id) {
           fileIds.push(file.id);
         }
