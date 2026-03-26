@@ -321,7 +321,7 @@ export async function createProject(workspaceId: string, projectData: ProjectDat
       return { error: 'You must be a workspace member to create projects' }
     }
 
-    await assertCanCreateProject(workspaceId)
+    await assertCanCreateProject(workspaceId, projectData.project_type || 'project')
 
     let finalClientId = projectData.client_id;
 
@@ -690,6 +690,8 @@ export async function getOrCreateFilesSpace(workspaceId: string) {
   if (existingSpace) {
     return { data: existingSpace };
   }
+
+  await assertCanCreateProject(workspaceId, 'internal');
 
   // Create "Files" space if it doesn't exist
   const { data: newSpace, error: createError } = await supabase

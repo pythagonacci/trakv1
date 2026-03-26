@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useTransition, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { MoreHorizontal, Edit, Trash2, ArrowUp, ArrowDown } from "lucide-react";
+import { MoreHorizontal, Edit, Trash2, ArrowUp, ArrowDown, Lock } from "lucide-react";
 import { createProject, updateProject, deleteProject } from "@/app/actions/project";
 import { getAllClients } from "@/app/actions/client";
 import { moveProjectToFolder, deleteFolder } from "@/app/actions/folder";
@@ -44,6 +44,7 @@ interface Project {
   client_name?: string | null;
   folder_id: string | null;
   created_at: string;
+  is_plan_locked?: boolean;
 }
 
 interface Client {
@@ -323,7 +324,8 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
   };
 
   const handleRowClick = (projectId: string, projectName: string) => {
-    if (!projectId.startsWith("temp-")) {
+    const project = projects.find((item) => item.id === projectId);
+    if (!projectId.startsWith("temp-") && !project?.is_plan_locked) {
       router.push(buildProjectPath(projectId, projectName));
     }
   };
@@ -605,18 +607,26 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
                   {isExpanded && folderProjects.map((project) => {
                     const dueDate = formatDueDate(project.due_date_date, project.due_date_text);
                     const isTemp = project.id.startsWith("temp-");
+                    const isPlanLocked = Boolean(project.is_plan_locked);
 
                     return (
                       <TableRow
                         key={project.id}
-                        className={cn("cursor-pointer transition-colors duration-150 hover:bg-[var(--primary)]/10", isTemp && "opacity-70")}
+                        className={cn(
+                          "cursor-pointer transition-colors duration-150 hover:bg-[var(--primary)]/10",
+                          isTemp && "opacity-70",
+                          isPlanLocked && "cursor-not-allowed bg-[var(--surface-hover)]/50"
+                        )}
                         onClick={() => handleRowClick(project.id, project.name)}
                       >
                         <TableCell className="pl-8">
                           <span className="text-sm text-[var(--muted-foreground)]">{project.client_name || "No client"}</span>
                         </TableCell>
                         <TableCell>
-                          <span className="text-sm font-medium text-[var(--foreground)]">{project.name}</span>
+                          <span className="inline-flex items-center gap-2 text-sm font-medium text-[var(--foreground)]">
+                            {project.name}
+                            {isPlanLocked && <Lock className="h-3.5 w-3.5 text-[var(--muted-foreground)]" />}
+                          </span>
                         </TableCell>
                         <TableCell>
                           <StatusBadge status={project.status} />
@@ -684,18 +694,27 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
                 {projectsByFolder.ungrouped.map((project) => {
                   const dueDate = formatDueDate(project.due_date_date, project.due_date_text);
                   const isTemp = project.id.startsWith("temp-");
+                  const isPlanLocked = Boolean(project.is_plan_locked);
 
                   return (
                     <TableRow
                       key={project.id}
-                      className={cn("cursor-pointer transition-colors duration-150 hover:bg-[var(--primary)]/10", isTemp && "opacity-70", folders.length > 0 && "pl-8")}
+                      className={cn(
+                        "cursor-pointer transition-colors duration-150 hover:bg-[var(--primary)]/10",
+                        isTemp && "opacity-70",
+                        folders.length > 0 && "pl-8",
+                        isPlanLocked && "cursor-not-allowed bg-[var(--surface-hover)]/50"
+                      )}
                       onClick={() => handleRowClick(project.id, project.name)}
                     >
                       <TableCell className={folders.length > 0 ? "pl-8" : ""}>
                         <span className="text-sm text-[var(--muted-foreground)]">{project.client_name || "No client"}</span>
                       </TableCell>
                       <TableCell>
-                        <span className="text-sm font-medium text-[var(--foreground)]">{project.name}</span>
+                        <span className="inline-flex items-center gap-2 text-sm font-medium text-[var(--foreground)]">
+                          {project.name}
+                          {isPlanLocked && <Lock className="h-3.5 w-3.5 text-[var(--muted-foreground)]" />}
+                        </span>
                       </TableCell>
                       <TableCell>
                         <StatusBadge status={project.status} />

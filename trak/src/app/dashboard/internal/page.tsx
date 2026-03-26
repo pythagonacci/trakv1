@@ -2,6 +2,7 @@ import { getAllProjects } from "@/app/actions/project";
 import { getAllInternalGroups } from "@/app/actions/internal-group";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getWorkspaceStandaloneFiles } from "@/app/actions/file";
+import { getWorkspacePlanLockState } from "@/lib/billing/locks";
 import InternalTable from "./internal-table";
 import InternalGrid from "./internal-grid";
 import InternalFilterBar from "./internal-filter-bar";
@@ -40,9 +41,10 @@ export default async function InternalPage({ searchParams }: PageProps) {
   };
 
   // Fetch internal spaces and groups in parallel
-  const [projectsResult, groupsResult] = await Promise.all([
+  const [projectsResult, groupsResult, planLockState] = await Promise.all([
     getAllProjects(workspaceId, filters),
     getAllInternalGroups(workspaceId),
+    getWorkspacePlanLockState(workspaceId),
   ]);
 
   if (projectsResult.error) {
@@ -71,6 +73,7 @@ export default async function InternalPage({ searchParams }: PageProps) {
     status: space.status,
     created_at: space.created_at,
     internal_group_id: space.internal_group_id ?? null,
+    is_plan_locked: planLockState.lockedProjectIds.includes(space.id),
   }));
 
   const filesResult = await getWorkspaceStandaloneFiles(workspaceId);
@@ -102,7 +105,6 @@ export default async function InternalPage({ searchParams }: PageProps) {
     </div>
   );
 }
-
 
 
 

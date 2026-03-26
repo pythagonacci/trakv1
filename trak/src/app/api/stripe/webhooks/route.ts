@@ -54,6 +54,8 @@ async function syncSubscriptionForWorkspace(workspaceId: string, subscription: S
       stripe_subscription_id: null,
       stripe_price_id: null,
       cancel_at_period_end: false,
+      trial_ends_at: null,
+      trial_ending_reminder_sent_at: null,
       current_period_start: null,
       current_period_end: null,
       last_synced_at: new Date().toISOString(),

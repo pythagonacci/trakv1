@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
+import { claimSharedClientPagesForUser } from '@/lib/client-page-shares'
 
 /**
  * Signup stage values stored in user_metadata.signup_stage:
@@ -253,6 +254,7 @@ export async function completeAccountSetup(formData: FormData) {
     path: '/',
   })
   cookieStore.delete('signup_email')
+  await claimSharedClientPagesForUser({ userId: user.id, email: user.email })
 
   redirect('/dashboard')
 }

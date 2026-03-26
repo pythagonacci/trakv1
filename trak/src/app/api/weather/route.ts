@@ -1,5 +1,17 @@
 import { NextResponse } from "next/server";
 
+type ReverseGeocodeAddress = {
+  city?: string | null;
+  town?: string | null;
+  village?: string | null;
+  municipality?: string | null;
+  hamlet?: string | null;
+  county?: string | null;
+};
+
+const NOMINATIM_APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+const NOMINATIM_USER_AGENT = `Saria/1.0 (+${NOMINATIM_APP_URL})`;
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const lat = searchParams.get("lat");
@@ -17,12 +29,18 @@ export async function GET(request: Request) {
       `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
       `&current_weather=true&temperature_unit=fahrenheit&windspeed_unit=mph`;
     const geoUrl =
-      `https://geocoding-api.open-meteo.com/v1/reverse?latitude=${lat}&longitude=${lon}` +
-      `&count=1&language=en`;
+      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}` +
+      `&zoom=10&addressdetails=1`;
 
     const [weatherRes, geoRes] = await Promise.all([
       fetch(weatherUrl, { cache: "no-store" }),
-      fetch(geoUrl, { cache: "no-store" }),
+      fetch(geoUrl, {
+        cache: "no-store",
+        headers: {
+          "user-agent": NOMINATIM_USER_AGENT,
+          "accept-language": "en",
+        },
+      }),
     ]);
 
     if (!weatherRes.ok) {
@@ -48,23 +66,9 @@ export async function GET(request: Request) {
         ? weatherJson.current_weather.weathercode
         : null;
 
-    let location = formatCoordinateFallback(lat, lon);
-    if (geoJson && Array.isArray(geoJson.results) && geoJson.results.length > 0) {
-      const entry = geoJson.results[0] as {
-        name?: string;
-        admin1?: string;
-        country_code?: string;
-      };
-      const name = entry.name || "Unknown";
-      const admin = entry.admin1 || "";
-      const country = entry.country_code || "";
-      if (country.toUpperCase() === "US" && admin) {
-        location = `${name}, ${admin}`;
-      } else if (admin) {
-        location = `${name}, ${admin}`;
-      } else {
-        location = name;
-      }
+    let location = "Location unavailable";
+    if (geoJson) {
+      location = formatWeatherLocation(geoJson.address as ReverseGeocodeAddress | undefined);
     }
 
     return NextResponse.json({
@@ -81,13 +85,15 @@ export async function GET(request: Request) {
   }
 }
 
-function formatCoordinateFallback(lat: string, lon: string) {
-  const latitude = Number.parseFloat(lat);
-  const longitude = Number.parseFloat(lon);
+export function formatWeatherLocation(address?: ReverseGeocodeAddress | null) {
+  const location = [
+    address?.city,
+    address?.town,
+    address?.village,
+    address?.municipality,
+    address?.hamlet,
+    address?.county,
+  ].find((value) => typeof value === "string" && value.trim().length > 0);
 
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-    return "Location unavailable";
-  }
-
-  return `Near ${latitude.toFixed(2)}, ${longitude.toFixed(2)}`;
+  return location?.trim() || "Location unavailable";
 }

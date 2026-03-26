@@ -69,6 +69,7 @@ interface BlockWrapperProps {
   isDragging?: boolean;
   readOnly?: boolean;
   onOpenChartCustomize?: () => void;
+  isPlanLocked?: boolean;
 }
 
 export default function BlockWrapper({
@@ -85,6 +86,7 @@ export default function BlockWrapper({
   isDragging: externalIsDragging,
   readOnly = false,
   onOpenChartCustomize,
+  isPlanLocked = false,
 }: BlockWrapperProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [makeTemplateDialogOpen, setMakeTemplateDialogOpen] = useState(false);
@@ -189,7 +191,7 @@ export default function BlockWrapper({
   const comments = blockContent._blockComments || [];
   const hasComments = comments.length > 0;
 
-  const isLocked = Boolean((block as any).locked);
+  const isLocked = Boolean((block as any).locked) || isPlanLocked;
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging: isDraggingInternal } = useSortable({
     id: block.id,
@@ -390,7 +392,7 @@ export default function BlockWrapper({
         "group relative w-full"
       )}
     >
-      {!readOnly && (
+      {!readOnly && !isPlanLocked && (
         <div
           className={cn(
             "absolute -left-7 top-2 hidden border border-[var(--border)] bg-[var(--surface)] p-1 text-[var(--tertiary-foreground)] shadow-[0_1px_2px_rgba(0,0,0,0.02)] transition-all duration-150 ease-out",
@@ -443,7 +445,7 @@ export default function BlockWrapper({
       >
         {!borderless && (
           <div className="absolute top-2 -right-4 flex flex-col items-center gap-1.5 z-[70]">
-            {!readOnly && (block.type === "table" ? (
+            {!readOnly && !isPlanLocked && (block.type === "table" ? (
               <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
                 <DropdownMenuTrigger asChild>
                   <button
@@ -1003,7 +1005,7 @@ export default function BlockWrapper({
           </div>
         )}
 
-        {borderless && !readOnly && (
+        {borderless && !readOnly && !isPlanLocked && (
           <div className="absolute top-2 -right-4 z-[70] flex flex-col items-center gap-1.5">
             {block.type === "table" && (
               <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
@@ -1263,69 +1265,73 @@ export default function BlockWrapper({
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                void handleToggleLock();
-              }}
-              onMouseDown={(e) => e.stopPropagation()}
-              disabled={isTogglingLock}
-              className={cn(
-                "inline-flex h-7 w-7 items-center justify-center rounded-md border text-[var(--tertiary-foreground)] transition-colors",
-                isLocked
-                  ? "border-amber-300 bg-amber-50 text-amber-800"
-                  : "border-[var(--border)] bg-[var(--surface)] hover:text-[var(--foreground)]"
-              )}
-              title={isLocked ? "Unlock block for editing" : "Lock block to prevent edits"}
-            >
-              {isLocked ? (
-                <Lock className="h-3 w-3" />
-              ) : (
-                <Unlock className="h-3 w-3" />
-              )}
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleComments(e.currentTarget);
-              }}
-              onMouseDown={(e) => e.stopPropagation()}
-              className={cn(
-                "relative inline-flex h-7 w-7 items-center justify-center rounded-md border transition-colors",
-                commentsOpen
-                  ? "border-[var(--primary)]/30 bg-[var(--primary)]/8 text-[var(--foreground)]"
-                  : hasComments
-                    ? "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]"
-                    : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
-              )}
-              title={hasComments ? `${comments.length} comment${comments.length === 1 ? "" : "s"}` : "Add comment"}
-              aria-pressed={commentsOpen}
-            >
-              <MessageSquare className="h-3.5 w-3.5" />
-              {hasComments && !commentsOpen && (
-                <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[var(--foreground)] text-[var(--surface)] text-[8px] font-medium leading-none">
-                  {comments.length > 9 ? "9+" : comments.length}
-                </span>
-              )}
-            </button>
-            {workspaceId && projectId && referencePicker && !isTempBlock && (
-              <button
-                ref={attachmentTriggerRef}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const el = e.currentTarget as HTMLElement;
-                  referencePicker.openPicker({
-                    anchorRect: el.getBoundingClientRect(),
-                    getAnchorRect: () => attachmentTriggerRef.current?.getBoundingClientRect() ?? null,
-                  });
-                }}
-                onMouseDown={(e) => e.stopPropagation()}
-                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
-                title="Attach reference"
-                aria-label="Attach reference"
-              >
-                <AtSign className="h-3.5 w-3.5" />
-              </button>
+            {!isPlanLocked && (
+              <>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleToggleLock();
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  disabled={isTogglingLock}
+                  className={cn(
+                    "inline-flex h-7 w-7 items-center justify-center rounded-md border text-[var(--tertiary-foreground)] transition-colors",
+                    isLocked
+                      ? "border-amber-300 bg-amber-50 text-amber-800"
+                      : "border-[var(--border)] bg-[var(--surface)] hover:text-[var(--foreground)]"
+                  )}
+                  title={isLocked ? "Unlock block for editing" : "Lock block to prevent edits"}
+                >
+                  {isLocked ? (
+                    <Lock className="h-3 w-3" />
+                  ) : (
+                    <Unlock className="h-3 w-3" />
+                  )}
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleComments(e.currentTarget);
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  className={cn(
+                    "relative inline-flex h-7 w-7 items-center justify-center rounded-md border transition-colors",
+                    commentsOpen
+                      ? "border-[var(--primary)]/30 bg-[var(--primary)]/8 text-[var(--foreground)]"
+                      : hasComments
+                        ? "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]"
+                        : "border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] hover:text-[var(--foreground)]"
+                  )}
+                  title={hasComments ? `${comments.length} comment${comments.length === 1 ? "" : "s"}` : "Add comment"}
+                  aria-pressed={commentsOpen}
+                >
+                  <MessageSquare className="h-3.5 w-3.5" />
+                  {hasComments && !commentsOpen && (
+                    <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[var(--foreground)] text-[var(--surface)] text-[8px] font-medium leading-none">
+                      {comments.length > 9 ? "9+" : comments.length}
+                    </span>
+                  )}
+                </button>
+                {workspaceId && projectId && referencePicker && !isTempBlock && (
+                  <button
+                    ref={attachmentTriggerRef}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const el = e.currentTarget as HTMLElement;
+                      referencePicker.openPicker({
+                        anchorRect: el.getBoundingClientRect(),
+                        getAnchorRect: () => attachmentTriggerRef.current?.getBoundingClientRect() ?? null,
+                      });
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                    title="Attach reference"
+                    aria-label="Attach reference"
+                  >
+                    <AtSign className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </>
             )}
           </div>
         )}
@@ -1337,12 +1343,12 @@ export default function BlockWrapper({
           </div>
         )}
 
-        <div className={cn("flex items-start gap-0", borderless && "space-y-3")}>
-          <div className={cn("flex-1 min-w-0 space-y-2.5", borderless && "space-y-3")}>
+        <div className={cn("relative flex items-start gap-0", borderless && "space-y-3")}>
+          <div className={cn("flex-1 min-w-0 space-y-2.5", borderless && "space-y-3", isPlanLocked && "pointer-events-none select-none blur-[10px]")}>
             {children}
 
             {/* Property Badges */}
-            {(workspaceId || readOnly) && hasProperties && direct && (
+            {!isPlanLocked && (workspaceId || readOnly) && hasProperties && direct && (
               <div className="flex flex-wrap gap-1.5 pt-2 border-t border-[var(--border)]/50">
                 <PropertyBadges
                   properties={direct}
@@ -1352,7 +1358,7 @@ export default function BlockWrapper({
               </div>
             )}
 
-            {workspaceId && projectId && !isTempBlock && (
+            {!isPlanLocked && workspaceId && projectId && !isTempBlock && (
               <div className="pt-2">
                 <BlockReferencesPanel blockId={block.id} readOnly={readOnly} />
               </div>
@@ -1360,7 +1366,7 @@ export default function BlockWrapper({
           </div>
 
           {/* Block Comments popup */}
-          {commentsOpen && !readOnly && (
+          {commentsOpen && !readOnly && !isPlanLocked && (
             <BlockComments
               block={block}
               onUpdate={onUpdate}
@@ -1370,8 +1376,16 @@ export default function BlockWrapper({
               anchorRect={commentsAnchorRect}
             />
           )}
+          {isPlanLocked && (
+            <div className="absolute inset-0 z-20 flex items-center justify-center rounded-[var(--radius-md)] bg-[var(--background)]/35">
+              <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface)]/95 px-3 py-1.5 text-xs font-medium text-[var(--foreground)] shadow-sm">
+                <Lock className="h-3.5 w-3.5" />
+                Locked on Free
+              </div>
+            </div>
+          )}
         </div>
-        {block.type === "embed" && !readOnly && (
+        {block.type === "embed" && !readOnly && !isPlanLocked && (
           <div
             className="mt-1 flex justify-end cursor-row-resize select-none"
             onMouseDown={handleEmbedResizeMouseDown}
@@ -1381,7 +1395,7 @@ export default function BlockWrapper({
         )}
       </div>
 
-      {!readOnly && (
+      {!readOnly && !isPlanLocked && (
         <MakeTemplateDialog
           isOpen={makeTemplateDialogOpen}
           onClose={() => setMakeTemplateDialogOpen(false)}
@@ -1392,7 +1406,7 @@ export default function BlockWrapper({
       )}
 
       {/* Properties Panel */}
-      {!readOnly && workspaceId && (
+      {!readOnly && workspaceId && !isPlanLocked && (
         <PropertyMenu
           open={propertiesOpen}
           onOpenChange={(open) => {

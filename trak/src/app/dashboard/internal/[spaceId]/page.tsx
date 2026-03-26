@@ -2,6 +2,8 @@ import { getSingleProject } from "@/app/actions/project";
 import { getProjectTabs } from "@/app/actions/tab";
 import { notFound, redirect } from "next/navigation";
 import { buildProjectPath } from "@/lib/dashboard-routes";
+import { getWorkspacePlanLockState } from "@/lib/billing/locks";
+import PlanLockedState from "@/components/billing/plan-locked-state";
 import SpaceHeader from "./space-header";
 import TabBar from "../../projects/[projectId]/tab-bar";
 import EmptyTabsState from "../../projects/[projectId]/empty-tabs-state";
@@ -28,6 +30,19 @@ export default async function InternalSpacePage({ params }: PageProps) {
   // Verify this is an internal space
   if ((space as any).project_type !== 'internal') {
     redirect(buildProjectPath(spaceId, (space as any).name));
+  }
+
+  const workspaceId = (space as any).workspace_id ?? null;
+  if (workspaceId) {
+    const planLockState = await getWorkspacePlanLockState(workspaceId);
+    if (planLockState.lockedProjectIds.includes(spaceId)) {
+      return (
+        <PlanLockedState
+          title={`${(space as any).name ?? "Internal space"} is locked on Free`}
+          description="This internal space is above the Free plan limits for this workspace. Add a payment method and keep Standard to unlock it again."
+        />
+      );
+    }
   }
 
   // Get all tabs for this space

@@ -11,6 +11,7 @@ import {
   Link2,
   Loader2,
   MessageCircle,
+  Send,
 } from "lucide-react";
 import {
   disableClientPage,
@@ -18,6 +19,7 @@ import {
   toggleTabVisibility,
   updateClientPageSettings,
 } from "@/app/actions/client-page";
+import { shareClientPageByEmail } from "@/app/actions/client-page-share";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +31,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
 import {
   dispatchProjectClientTabVisibilityChanged,
   PROJECT_CLIENT_TAB_VISIBILITY_EVENT,
@@ -108,6 +111,10 @@ export default function ClientPageToggle({
   >(null);
   const [localTabs, setLocalTabs] = useState<FlatTab[]>(flattenedTabs);
   const [pendingTabIds, setPendingTabIds] = useState<string[]>([]);
+  const [shareEmail, setShareEmail] = useState("");
+  const [shareError, setShareError] = useState<string | null>(null);
+  const [shareSuccess, setShareSuccess] = useState<string | null>(null);
+  const [isSharing, setIsSharing] = useState(false);
 
   useEffect(() => {
     setIsEnabled(clientPageEnabled);
@@ -251,6 +258,38 @@ export default function ClientPageToggle({
     setUpdatingSetting(null);
   };
 
+  const handleShareByEmail = async () => {
+    if (!shareEmail.trim()) {
+      setShareError("Enter an email address to share this link.");
+      setShareSuccess(null);
+      return;
+    }
+
+    setIsSharing(true);
+    setShareError(null);
+    setShareSuccess(null);
+
+    const result = await shareClientPageByEmail(projectId, shareEmail);
+
+    if (result.error) {
+      setShareError(result.error);
+      setShareSuccess(null);
+      setIsSharing(false);
+      return;
+    }
+
+    if ("data" in result && result.data) {
+      setShareSuccess(
+        result.data.warning ||
+          `Shared with ${result.data.email}. It will appear in Shared with me when they sign in or create an account with that email.`
+      );
+      setShareEmail("");
+      router.refresh();
+    }
+
+    setIsSharing(false);
+  };
+
   const handleEditingToggle = async (nextValue: boolean) => {
     if (!token) {
       alert("Generate a public link before enabling editing.");
@@ -385,11 +424,14 @@ export default function ClientPageToggle({
                   ) : (
                     <>
                       <Copy className="h-3.5 w-3.5" />
-                      Copy
+                  Copy
                     </>
                   )}
                 </button>
               </div>
+              <p className="text-[11px] text-[var(--muted-foreground)]">
+                Manual copy works for anyone with the link. Use email sharing below if you want it saved in the recipient&apos;s Shared with me tab.
+              </p>
               <a
                 href={clientPageUrl}
                 target="_blank"
@@ -399,6 +441,52 @@ export default function ClientPageToggle({
                 Open public page
                 <ExternalLink className="h-3.5 w-3.5" />
               </a>
+            </section>
+
+            <section className="space-y-1.5 rounded-[12px] border border-[var(--border)] bg-[var(--surface)] p-3">
+              <div className="space-y-1">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
+                  Share by Email
+                </p>
+                <p className="text-[11px] leading-4 text-[var(--muted-foreground)]">
+                  Send this magic link to a specific person so it lands in their Shared with me tab after they create an account.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Input
+                  type="email"
+                  value={shareEmail}
+                  onChange={(event) => setShareEmail(event.target.value)}
+                  placeholder="client@company.com"
+                  className="h-8 bg-[var(--background)] text-[12px]"
+                />
+                <button
+                  type="button"
+                  onClick={handleShareByEmail}
+                  disabled={isSharing}
+                  className="inline-flex h-8 min-w-[88px] items-center justify-center gap-1 rounded-[10px] border border-amber-300 bg-amber-100 px-3 text-[11px] font-medium text-amber-900 transition-colors hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isSharing ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Sending
+                    </>
+                  ) : (
+                    <>
+                      <Send className="h-3.5 w-3.5" />
+                      Share
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {shareError ? (
+                <p className="text-[11px] text-[var(--error)]">{shareError}</p>
+              ) : null}
+              {shareSuccess ? (
+                <p className="text-[11px] text-emerald-700">{shareSuccess}</p>
+              ) : null}
             </section>
 
             <section className="space-y-1.5">

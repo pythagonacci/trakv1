@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { MoreHorizontal, Edit, Trash2, File, Folder, Download, ChevronDown, ChevronRight } from "lucide-react";
+import { MoreHorizontal, Edit, Trash2, File, Folder, Download, ChevronDown, ChevronRight, Lock } from "lucide-react";
 import { createProject, updateProject, deleteProject } from "@/app/actions/project";
 import { getFileUrl, deleteFile } from "@/app/actions/file";
 import { moveSpaceToGroup, deleteInternalGroup } from "@/app/actions/internal-group";
@@ -30,6 +30,7 @@ interface Space {
   status: "not_started" | "in_progress" | "complete";
   created_at: string;
   internal_group_id?: string | null;
+  is_plan_locked?: boolean;
 }
 
 interface File {
@@ -230,7 +231,8 @@ export default function InternalGrid({ spaces: initialSpaces, files: initialFile
   };
 
   const handleSpaceClick = (spaceId: string) => {
-    if (!spaceId.startsWith("temp-")) {
+    const space = spaces.find((item) => item.id === spaceId);
+    if (!spaceId.startsWith("temp-") && !space?.is_plan_locked) {
       router.push(`/dashboard/internal/${spaceId}`);
     }
   };
@@ -284,6 +286,7 @@ export default function InternalGrid({ spaces: initialSpaces, files: initialFile
 
   function renderSpaceCard(space: Space) {
     const isTemp = space.id.startsWith("temp-");
+    const isPlanLocked = Boolean(space.is_plan_locked);
     const createdDate = new Date(space.created_at).toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
@@ -295,7 +298,8 @@ export default function InternalGrid({ spaces: initialSpaces, files: initialFile
         onClick={() => handleSpaceClick(space.id)}
         className={cn(
           "group relative flex h-full cursor-pointer flex-col rounded-[4px] border border-[var(--border)] bg-[var(--surface)] transition-all duration-150 hover:border-[var(--border-strong)]",
-          isTemp && "pointer-events-none opacity-70"
+          isTemp && "pointer-events-none opacity-70",
+          isPlanLocked && "cursor-not-allowed bg-[var(--surface-hover)]/50"
         )}
       >
         <div className="flex flex-1 flex-col p-4">
@@ -306,6 +310,7 @@ export default function InternalGrid({ spaces: initialSpaces, files: initialFile
                 <h3 className="truncate text-sm font-semibold text-[var(--foreground)]">
                   {space.name}
                 </h3>
+                {isPlanLocked && <Lock className="h-3.5 w-3.5 flex-shrink-0 text-[var(--muted-foreground)]" />}
               </div>
             </div>
 
@@ -582,4 +587,3 @@ export default function InternalGrid({ spaces: initialSpaces, files: initialFile
     </>
   );
 }
-

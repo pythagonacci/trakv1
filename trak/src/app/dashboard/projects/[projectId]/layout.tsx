@@ -3,7 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getProjectTabs } from "@/app/actions/tab";
 import { requireWorkspaceAccess } from "@/lib/auth-utils";
+import { getWorkspacePlanLockState } from "@/lib/billing/locks";
 import { resolveProjectIdFromParam } from "@/lib/dashboard-route-resolvers";
+import PlanLockedState from "@/components/billing/plan-locked-state";
 import ProjectHeaderWrapper from "./project-header-wrapper";
 import TabBar from "./tab-bar";
 
@@ -55,6 +57,16 @@ export default async function ProjectLayout({
         tags: projectRow.tags ?? [],
     };
 
+    const planLockState = await getWorkspacePlanLockState(workspaceId);
+    if (planLockState.lockedProjectIds.includes(projectId)) {
+        return (
+            <PlanLockedState
+                title={`${project.name} is locked on Free`}
+                description="This project is above the Free plan limits for this workspace. Add a payment method and keep Standard to unlock it again."
+            />
+        );
+    }
+
     // 3. Fetch tabs hierarchy
     const tabsResult = await getProjectTabs(projectId);
     const hierarchicalTabs = tabsResult.data || [];
@@ -74,6 +86,7 @@ export default async function ProjectLayout({
                             projectName={project.name}
                             isClientProject={!!project.client}
                             clientPageEnabled={project.client_page_enabled || false}
+                            lockedTabIds={planLockState.lockedTabIds}
                         />
                     </div>
                 )}

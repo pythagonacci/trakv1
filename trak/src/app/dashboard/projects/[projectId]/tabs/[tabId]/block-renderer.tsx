@@ -134,6 +134,7 @@ interface BlockRendererProps {
   allowPublicEditing?: boolean;
   clientIdentity?: ClientCommentIdentity | null;
   setClientIdentityName?: (name: string) => void;
+  isPlanLocked?: boolean;
 }
 
 export default function BlockRenderer({
@@ -157,6 +158,7 @@ export default function BlockRenderer({
   allowPublicEditing = false,
   clientIdentity,
   setClientIdentityName,
+  isPlanLocked = false,
 }: BlockRendererProps) {
   // Ensure block type exists - critical validation
   if (!block.type) {
@@ -184,6 +186,7 @@ export default function BlockRenderer({
             onAddBlockAbove={onAddBlockAbove}
             onAddBlockBelow={onAddBlockBelow}
             isDragging={isDragging}
+            isPlanLocked={isPlanLocked}
           >
             <BlockReferenceRenderer
               originalBlockId={block.original_block_id}
@@ -218,7 +221,7 @@ export default function BlockRenderer({
             projectId={projectId}
             onUpdate={onUpdate}
             scrollToTaskId={scrollToTaskId}
-            locked={readOnly || Boolean(block.locked)}
+            locked={readOnly || Boolean(block.locked) || isPlanLocked}
             publicToken={readOnly ? publicToken : undefined}
           />
         );
@@ -301,6 +304,7 @@ export default function BlockRenderer({
           onAddBlockBelow={onAddBlockBelow}
           isDragging={isDragging}
           readOnly={readOnly}
+          isPlanLocked={isPlanLocked}
         >
           {/* Use key to force re-render when type changes - ensures correct component renders */}
           <div key={`${block.id}-${block.type}`}>

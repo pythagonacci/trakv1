@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/require-user";
 import { requireWorkspaceAdminRole } from "@/lib/billing/access";
-import { ensureWorkspaceBillingRow, getWorkspaceSeatCount, updateWorkspaceBillingRow, validateWorkspaceSeatQuantity } from "@/lib/billing/data";
+import {
+  ensureWorkspaceBillingRow,
+  getWorkspaceSeatCount,
+  hasWorkspaceUsedStandardTrial,
+  startAppManagedStandardTrial,
+  updateWorkspaceBillingRow,
+  validateWorkspaceSeatQuantity,
+} from "@/lib/billing/data";
 import { getBaseAppUrl, getPlanPriceId, getStripe } from "@/lib/billing/stripe";
 import { normalizePlanKey } from "@/lib/billing/config";
 
@@ -35,14 +42,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Stripe price is not configured for ${requestedPlan}.` }, { status: 500 });
     }
 
-    const stripe = getStripe();
-    console.log("[billing/checkout] stripe:client-ready");
     const billing = await ensureWorkspaceBillingRow(workspaceId);
     console.log("[billing/checkout] billing:loaded", {
       workspaceId,
       existingCustomerId: billing.stripe_customer_id,
       existingSubscriptionId: billing.stripe_subscription_id,
     });
+
+    if (
+      requestedPlan === "standard"
+      && billing.plan_key === "free"
+      && billing.billing_status === "free"
+      && !hasWorkspaceUsedStandardTrial(billing)
+    ) {
+      const trialBilling = await startAppManagedStandardTrial(workspaceId);
+      return NextResponse.json({
+        data: {
+          mode: "trial_started",
+          trialEndsAt: trialBilling.trial_ends_at,
+        },
+      });
+    }
+
+    const stripe = getStripe();
+    console.log("[billing/checkout] stripe:client-ready");
     let customerId = billing.stripe_customer_id;
     if (!customerId) {
       console.log("[billing/checkout] stripe-customer:create:start", { workspaceId });

@@ -14,6 +14,11 @@ export interface WorkspaceEntitlements {
   workspaceId: string;
   planKey: PlanKey;
   billingStatus: BillingStatus;
+  trialStartedAt: string | null;
+  trialEndsAt: string | null;
+  hasUsedStandardTrial: boolean;
+  canStartStandardTrial: boolean;
+  isAppManagedTrial: boolean;
   maxWorkspaces: number | null;
   maxProjectsPerWorkspace: number | null;
   maxTopLevelTabsPerProject: number | null;
@@ -32,7 +37,10 @@ export interface WorkspaceEntitlements {
 
 const ACTIVE_PAID_STATUSES = new Set<BillingStatus>(["trialing", "active", "past_due", "incomplete"]);
 
-export const PLAN_DEFINITIONS: Record<PlanKey, Omit<WorkspaceEntitlements, "workspaceId" | "planKey" | "billingStatus" | "seatQuantity" | "cancelAtPeriodEnd" | "currentPeriodStart" | "currentPeriodEnd">> = {
+export const STANDARD_TRIAL_DAYS = 14;
+export const STANDARD_TRIAL_ENDING_REMINDER_DAYS = 3;
+
+export const PLAN_DEFINITIONS: Record<PlanKey, Omit<WorkspaceEntitlements, "workspaceId" | "planKey" | "billingStatus" | "trialStartedAt" | "trialEndsAt" | "hasUsedStandardTrial" | "canStartStandardTrial" | "isAppManagedTrial" | "seatQuantity" | "cancelAtPeriodEnd" | "currentPeriodStart" | "currentPeriodEnd">> = {
   free: {
     maxWorkspaces: 1,
     maxProjectsPerWorkspace: 3,

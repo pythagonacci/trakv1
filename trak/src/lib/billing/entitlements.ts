@@ -1,4 +1,9 @@
-import { getWorkspaceBillingRow, ensureWorkspaceBillingRow, getWorkspaceSeatCount } from "@/lib/billing/data";
+import {
+  ensureWorkspaceBillingRow,
+  getWorkspaceSeatCount,
+  hasWorkspaceUsedStandardTrial,
+  isAppManagedStandardTrial,
+} from "@/lib/billing/data";
 import { BillingError } from "@/lib/billing/errors";
 import { getEntitlementTemplate, resolveEffectivePlan, type WorkspaceEntitlements, type PlanKey } from "@/lib/billing/config";
 import { createClient } from "@/lib/supabase/server";
@@ -14,6 +19,11 @@ export async function getWorkspaceEntitlements(workspaceId: string): Promise<Wor
     workspaceId,
     planKey: effectivePlan,
     billingStatus: billing.billing_status,
+    trialStartedAt: billing.trial_started_at,
+    trialEndsAt: billing.trial_ends_at,
+    hasUsedStandardTrial: hasWorkspaceUsedStandardTrial(billing),
+    canStartStandardTrial: !hasWorkspaceUsedStandardTrial(billing) && effectivePlan === "free",
+    isAppManagedTrial: isAppManagedStandardTrial(billing),
     ...template,
     seatQuantity: billing.seat_quantity,
     cancelAtPeriodEnd: billing.cancel_at_period_end,

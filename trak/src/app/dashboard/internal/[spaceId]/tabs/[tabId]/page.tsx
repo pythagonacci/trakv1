@@ -5,6 +5,8 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requireWorkspaceAccess } from "@/lib/auth-utils";
 import { buildProjectPath } from "@/lib/dashboard-routes";
+import { getWorkspacePlanLockState } from "@/lib/billing/locks";
+import PlanLockedState from "@/components/billing/plan-locked-state";
 import SpaceHeader from "../../space-header";
 import TabBar from "../../../../projects/[projectId]/tab-bar";
 import TabCanvas from "../../../../projects/[projectId]/tabs/[tabId]/tab-canvas";
@@ -49,6 +51,16 @@ export default async function InternalTabPage({ params }: PageProps) {
     redirect(buildProjectPath(spaceId, space.name));
   }
 
+  const planLockState = await getWorkspacePlanLockState(workspaceId);
+  if (planLockState.lockedProjectIds.includes(spaceId)) {
+    return (
+      <PlanLockedState
+        title={`${space.name} is locked on Free`}
+        description="This internal space is above the Free plan limits for this workspace. Add a payment method and keep Standard to unlock it again."
+      />
+    );
+  }
+
   // Verify the tab exists and belongs to this space
   const { data: tab, error: tabError } = await supabase
     .from("tabs")
@@ -59,6 +71,15 @@ export default async function InternalTabPage({ params }: PageProps) {
 
   if (tabError || !tab) {
     notFound();
+  }
+
+  if (planLockState.lockedTabIds.includes(tabId)) {
+    return (
+      <PlanLockedState
+        title={`${tab.name} is locked on Free`}
+        description="This tab is above the Free plan limits for this workspace. Add a payment method and keep Standard to unlock it again."
+      />
+    );
   }
 
   // Get all tabs for the tab bar
@@ -79,9 +100,9 @@ export default async function InternalTabPage({ params }: PageProps) {
   return (
     <div className="space-y-6">
       <SpaceHeader space={space} />
-      <TabBar tabs={organizedTabs} projectId={spaceId} projectName={space.name} />
+      <TabBar tabs={organizedTabs} projectId={spaceId} projectName={space.name} lockedTabIds={planLockState.lockedTabIds} />
       <CardCountProvider>
-        <TabCanvas tabId={tabId} projectId={spaceId} projectName={space.name} workspaceId={workspaceId} blocks={blocks} />
+        <TabCanvas tabId={tabId} projectId={spaceId} projectName={space.name} workspaceId={workspaceId} blocks={blocks} lockedBlockIds={planLockState.lockedBlockIds} />
       </CardCountProvider>
     </div>
   );

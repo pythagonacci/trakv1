@@ -12,6 +12,9 @@ export interface WorkspaceBillingSummary {
     stripe_price_id: string | null;
     seat_quantity: number;
     cancel_at_period_end: boolean;
+    trial_started_at: string | null;
+    trial_ends_at: string | null;
+    trial_ending_reminder_sent_at: string | null;
     current_period_start: string | null;
     current_period_end: string | null;
   };
@@ -19,6 +22,11 @@ export interface WorkspaceBillingSummary {
     workspaceId: string;
     planKey: "free" | "standard" | "business";
     billingStatus: string;
+    trialStartedAt: string | null;
+    trialEndsAt: string | null;
+    hasUsedStandardTrial: boolean;
+    canStartStandardTrial: boolean;
+    isAppManagedTrial: boolean;
     aiDailyCommandLimit: number | null;
     allowEverythingPage: boolean;
     allowDashboardConfiguration: boolean;

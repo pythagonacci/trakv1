@@ -6,6 +6,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { setCurrentWorkspaceAfterInvite } from '@/app/actions/workspace'
 import { assertCanAddWorkspaceMember } from '@/lib/billing/data'
 import { cookies } from 'next/headers'
+import { claimSharedClientPagesForUser } from '@/lib/client-page-shares'
 
 const AUTH_REQUEST_TIMEOUT_MS = 12000
 
@@ -137,6 +138,9 @@ export async function login(formData: FormData) {
   // Login succeeded — check if the user has an incomplete signup stage
   try {
     const { data: { user } } = await supabase.auth.getUser()
+    if (user?.id) {
+      await claimSharedClientPagesForUser({ userId: user.id, email: user.email })
+    }
     const stage = user?.user_metadata?.signup_stage
     if (stage && stage !== 'complete') {
       if (stage === 'password_set') {
@@ -238,6 +242,7 @@ export async function signupWithInvite(formData: FormData) {
     if (signInErr) {
       redirect('/login?message=' + encodeURIComponent('You have been added to the workspace. Sign in to continue.') + '&email=' + encodeURIComponent(email))
     }
+    await claimSharedClientPagesForUser({ userId: existingProfile.id, email })
     await setCurrentWorkspaceAfterInvite(invite.workspace_id)
     redirect('/dashboard')
   }
@@ -268,6 +273,7 @@ export async function signupWithInvite(formData: FormData) {
   if (fullName) {
     await supabase.from('profiles').update({ name: fullName }).eq('id', newUser.user.id)
   }
+  await claimSharedClientPagesForUser({ userId: newUser.user.id, email })
 
   const { error: memberErr } = await supabase
     .from('workspace_members')

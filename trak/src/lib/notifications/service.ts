@@ -8,6 +8,10 @@ import {
   type MentionableMember,
 } from "./mentions";
 
+function getNotificationPreferenceField(eventType: NotificationType) {
+  return NOTIFICATION_PREFERENCE_FIELDS[eventType as keyof typeof NOTIFICATION_PREFERENCE_FIELDS];
+}
+
 type ServiceClient = Awaited<ReturnType<typeof createServiceClient>>;
 
 interface TaskCommentRecord {
@@ -108,16 +112,21 @@ async function getEnabledRecipientIds(
 ): Promise<string[]> {
   const ids = unique(candidateIds);
   if (ids.length === 0) return [];
+  const preferenceField = getNotificationPreferenceField(eventType);
 
   const { data } = await supabase
     .from("notification_preferences")
-    .select(`user_id, ${NOTIFICATION_PREFERENCE_FIELDS[eventType]}`)
+    .select(`user_id${preferenceField ? `, ${preferenceField}` : ""}`)
     .eq("workspace_id", workspaceId)
     .in("user_id", ids);
 
+  if (!preferenceField) {
+    return ids;
+  }
+
   const enabledByUser = new Map<string, boolean>();
   for (const row of (data ?? []) as Array<Record<string, any>>) {
-    enabledByUser.set(row.user_id, row[NOTIFICATION_PREFERENCE_FIELDS[eventType]] !== false);
+    enabledByUser.set(row.user_id, row[preferenceField] !== false);
   }
 
   return ids.filter((id) => enabledByUser.get(id) !== false);
@@ -207,6 +216,35 @@ async function writeNotification(input: NotificationWriteInput): Promise<void> {
   if (recipientError) {
     console.error("Failed to upsert notification recipients", recipientError);
   }
+}
+
+export async function createBillingTrialEndingNotifications(input: {
+  workspaceId: string;
+  recipientIds: string[];
+  workspaceName: string;
+  trialEndsAt: string;
+  billingUrl: string;
+}): Promise<void> {
+  const trialEndDate = new Date(input.trialEndsAt);
+  const formattedTrialEndDate = Number.isNaN(trialEndDate.getTime())
+    ? input.trialEndsAt
+    : trialEndDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+  await writeNotification({
+    workspaceId: input.workspaceId,
+    eventType: "billing_trial_ending",
+    actorType: "system",
+    recipientIds: input.recipientIds,
+    dedupeKey: `billing-trial-ending:${input.workspaceId}:${input.trialEndsAt}`,
+    sourceType: "workspace_billing",
+    sourceId: input.workspaceId,
+    payload: {
+      workspace_name: input.workspaceName,
+      trial_ends_at: input.trialEndsAt,
+      trial_ends_on_label: formattedTrialEndDate,
+      billing_url: input.billingUrl,
+    },
+  });
 }
 
 async function getTaskContext(supabase: ServiceClient, taskId: string) {

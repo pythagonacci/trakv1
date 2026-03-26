@@ -17,6 +17,8 @@ import {
   resolveProjectIdFromParam,
   resolveTabIdFromParam,
 } from "@/lib/dashboard-route-resolvers";
+import { getWorkspacePlanLockState } from "@/lib/billing/locks";
+import PlanLockedState from "@/components/billing/plan-locked-state";
 import type { Block } from "@/app/actions/block";
 
 // 🔒 Force dynamic - user-specific data shouldn't be cached across users
@@ -127,6 +129,16 @@ export default async function TabPage({
   const hierarchicalTabs = tabsData;
   const blocks = blocksData as Block[];
   const isWorkflowTab = Boolean(tab?.is_workflow_page);
+  const planLockState = await getWorkspacePlanLockState(workspaceId);
+
+  if (planLockState.lockedTabIds.includes(tabId)) {
+    return (
+      <PlanLockedState
+        title={`${tab.name} is locked on Free`}
+        description="This tab is above the Free plan limits for this workspace. Add a payment method and keep Standard to unlock it again."
+      />
+    );
+  }
 
   const isCanonicalProjectParam = isCanonicalReadableParam(projectIdParam, project.name, project.id);
   const isCanonicalTabParam = isCanonicalReadableParam(tabIdParam, tab.name, tab.id);
@@ -308,6 +320,7 @@ export default async function TabPage({
           initialBlockPropertiesById={blockPropertiesById}
           scrollToTaskId={taskId}
           initialFileUrls={initialFileUrls}
+          lockedBlockIds={planLockState.lockedBlockIds}
         />
       )}
     </TabPageLayout>

@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { claimSharedClientPagesForUser } from '@/lib/client-page-shares'
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function GET(request: NextRequest) {
@@ -13,6 +14,9 @@ export async function GET(request: NextRequest) {
     if (!error) {
       // Check if this is a signup flow user (magic link from OTP email)
       const { data: { user } } = await supabase.auth.getUser()
+      if (user?.id) {
+        await claimSharedClientPagesForUser({ userId: user.id, email: user.email })
+      }
       const stage = user?.user_metadata?.signup_stage
 
       if (stage && stage !== 'complete') {

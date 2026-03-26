@@ -134,6 +134,13 @@ export function buildNotificationPresentation(item: NotificationListItem): {
         detail: `${formatDateShort(payload.previous_due_date)} -> ${formatDateShort(payload.next_due_date)}`,
         href: resolveHref(item),
       };
+    case "billing_trial_ending":
+      return {
+        type: event.event_type,
+        title: `Your Standard trial ends on ${payload.trial_ends_on_label || "soon"}`,
+        detail: payload.workspace_name ? `${payload.workspace_name} · Add a payment method to keep Standard.` : "Add a payment method to keep Standard.",
+        href: payload.billing_url || "/dashboard/settings?tab=general",
+      };
     default:
       return {
         type: event.event_type,

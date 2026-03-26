@@ -20,6 +20,7 @@ interface TabCanvasWrapperProps {
   initialFileUrls?: Record<string, string>;
   /** When true (e.g. workflow page), hide the page Undo button; undo is only in the AI chat */
   hidePageUndoButton?: boolean;
+  lockedBlockIds?: string[];
 }
 
 export default function TabCanvasWrapper({
@@ -32,6 +33,7 @@ export default function TabCanvasWrapper({
   scrollToTaskId,
   initialFileUrls = {},
   hidePageUndoButton = false,
+  lockedBlockIds = [],
 }: TabCanvasWrapperProps) {
   const [tabTheme, setTabTheme] = useState<string>("default");
 
@@ -260,6 +262,7 @@ export default function TabCanvasWrapper({
       currentTheme={tabTheme}
       initialFileUrls={fileUrls || {}}
       hidePageUndoButton={hidePageUndoButton}
+      lockedBlockIds={lockedBlockIds}
     />
     </CardCountProvider>
     </div>

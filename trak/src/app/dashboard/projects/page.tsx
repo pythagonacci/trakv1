@@ -2,6 +2,7 @@ import { getAllProjects } from "@/app/actions/project";
 import { getAllClients } from "@/app/actions/client";
 import { getAllFolders } from "@/app/actions/folder";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
+import { getWorkspacePlanLockState } from "@/lib/billing/locks";
 import ProjectsTable from "./projects-table";
 import ProjectsGrid from "./projects-grid";
 import FilterBar from "./filter-bar";
@@ -44,10 +45,11 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
   // 🚀 PARALLEL QUERIES - Fetch projects, clients, and folders simultaneously
   const includePreview = view === "grid";
 
-  const [projectsResult, clientsResult, foldersResult] = await Promise.all([
+  const [projectsResult, clientsResult, foldersResult, planLockState] = await Promise.all([
     getAllProjects(workspaceId, filters, { includeFirstTabPreview: includePreview }),
     getAllClients(workspaceId),
     getAllFolders(workspaceId),
+    getWorkspacePlanLockState(workspaceId),
   ]);
   
   if ("error" in projectsResult) {
@@ -79,6 +81,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
       folder_id: project.folder_id || null,
       created_at: project.created_at,
       first_tab_preview: project.first_tab_preview || null,
+      is_plan_locked: planLockState.lockedProjectIds.includes(project.id),
     };
   });
 

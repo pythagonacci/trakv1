@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { X } from "lucide-react";
 import { useState } from "react";
 
@@ -14,17 +15,26 @@ export default function ClientPageBanner() {
         <div className="flex items-center justify-between gap-4">
           <div className="flex-1">
             <p className="text-xs text-[var(--muted-foreground)]">
-              Working with multiple providers?{" "}
+              Want to keep this shared project?{" "}
               <span className="font-medium text-[var(--foreground)]">
-                Save all your projects to a free Saria dashboard
+                Create a free account with the email it was shared to and it will appear in Shared with me
               </span>
             </p>
           </div>
           
           <div className="flex items-center gap-2">
-            <button className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--background)] px-3 py-1 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--surface-hover)] transition-colors">
-              Learn more →
-            </button>
+            <Link
+              href="/signup"
+              className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--background)] px-3 py-1 text-xs font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)]"
+            >
+              Create account
+            </Link>
+            <Link
+              href="/login"
+              className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)]"
+            >
+              Sign in
+            </Link>
             
             <button
               onClick={() => setIsVisible(false)}
@@ -39,4 +49,3 @@ export default function ClientPageBanner() {
     </div>
   );
 }
-

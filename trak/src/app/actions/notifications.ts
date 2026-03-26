@@ -144,7 +144,7 @@ export async function getNotificationPreferences(
   return { data: { record, toggles } };
 }
 
-const preferenceColumnByType: Record<NotificationType, keyof NotificationPreferenceRecord> = {
+const preferenceColumnByType: Partial<Record<NotificationType, keyof NotificationPreferenceRecord>> = {
   mention: "mentions_enabled",
   task_assignment: "task_assignments_enabled",
   client_comment: "client_comments_enabled",
@@ -162,11 +162,15 @@ export async function updateNotificationPreference(
   const access = await requireNotificationAccess(workspaceId);
   if (!access.ok) return { error: access.error };
   const { supabase, userId } = access;
+  const preferenceColumn = preferenceColumnByType[type];
+  if (!preferenceColumn) {
+    return { error: "This notification type cannot be customized." };
+  }
 
   const payload = {
     workspace_id: workspaceId,
     user_id: userId,
-    [preferenceColumnByType[type]]: enabled,
+    [preferenceColumn]: enabled,
     updated_at: new Date().toISOString(),
   };
 

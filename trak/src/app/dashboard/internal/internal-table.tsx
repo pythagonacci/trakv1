@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useTransition, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { MoreHorizontal, Edit, Trash2, ArrowUp, ArrowDown, File, Download, Folder, ChevronDown, ChevronRight } from "lucide-react";
+import { MoreHorizontal, Edit, Trash2, ArrowUp, ArrowDown, File, Download, Folder, ChevronDown, ChevronRight, Lock } from "lucide-react";
 import { createProject, updateProject, deleteProject } from "@/app/actions/project";
 import { getFileUrl, deleteFile } from "@/app/actions/file";
 import { moveSpaceToGroup, deleteInternalGroup } from "@/app/actions/internal-group";
@@ -38,6 +38,7 @@ interface Space {
   status: "not_started" | "in_progress" | "complete";
   created_at: string;
   internal_group_id?: string | null;
+  is_plan_locked?: boolean;
 }
 
 interface File {
@@ -276,7 +277,8 @@ export default function InternalTable({ spaces: initialSpaces, files: initialFil
   };
 
   const handleRowClick = (spaceId: string) => {
-    if (!spaceId.startsWith("temp-")) {
+    const space = spaces.find((item) => item.id === spaceId);
+    if (!spaceId.startsWith("temp-") && !space?.is_plan_locked) {
       router.push(`/dashboard/internal/${spaceId}`);
     }
   };
@@ -350,15 +352,23 @@ export default function InternalTable({ spaces: initialSpaces, files: initialFil
 
   function renderSpaceRow(space: Space, extraCellClass?: string) {
     const isTemp = space.id.startsWith("temp-");
+    const isPlanLocked = Boolean(space.is_plan_locked);
     const createdDate = new Date(space.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
     return (
       <TableRow
         key={`space-${space.id}`}
-        className={cn("cursor-pointer transition-colors duration-150 hover:bg-[var(--primary)]/10", isTemp && "opacity-70")}
+        className={cn(
+          "cursor-pointer transition-colors duration-150 hover:bg-[var(--primary)]/10",
+          isTemp && "opacity-70",
+          isPlanLocked && "cursor-not-allowed bg-[var(--surface-hover)]/50"
+        )}
         onClick={() => handleRowClick(space.id)}
       >
         <TableCell className={extraCellClass}>
-          <span className="text-sm font-medium text-[var(--foreground)]">{space.name}</span>
+          <span className="inline-flex items-center gap-2 text-sm font-medium text-[var(--foreground)]">
+            {space.name}
+            {isPlanLocked && <Lock className="h-3.5 w-3.5 text-[var(--muted-foreground)]" />}
+          </span>
         </TableCell>
         <TableCell>
           <StatusBadge status={space.status} />
@@ -598,7 +608,5 @@ export default function InternalTable({ spaces: initialSpaces, files: initialFil
     </>
   );
 }
-
-
 
 

@@ -1,6 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServiceClient } from "@/lib/supabase/service";
-import { normalizeBillingStatus, normalizePlanKey, resolveEffectivePlan, type BillingStatus, type PlanKey } from "@/lib/billing/config";
+import {
+  STANDARD_TRIAL_DAYS,
+  normalizeBillingStatus,
+  normalizePlanKey,
+  resolveEffectivePlan,
+  type BillingStatus,
+  type PlanKey,
+} from "@/lib/billing/config";
 import { BillingError } from "@/lib/billing/errors";
 import { planKeyFromPriceId, billingStatusFromStripeStatus } from "@/lib/billing/stripe";
 
@@ -14,6 +21,9 @@ export interface WorkspaceBillingRow {
   stripe_price_id: string | null;
   seat_quantity: number;
   cancel_at_period_end: boolean;
+  trial_started_at: string | null;
+  trial_ends_at: string | null;
+  trial_ending_reminder_sent_at: string | null;
   current_period_start: string | null;
   current_period_end: string | null;
   last_synced_at: string | null;
@@ -30,7 +40,46 @@ function mapBillingRow(row: any): WorkspaceBillingRow {
     billing_status: normalizeBillingStatus(row?.billing_status),
     seat_quantity: typeof row?.seat_quantity === "number" && row.seat_quantity > 0 ? row.seat_quantity : 1,
     cancel_at_period_end: Boolean(row?.cancel_at_period_end),
+    trial_started_at: typeof row?.trial_started_at === "string" ? row.trial_started_at : null,
+    trial_ends_at: typeof row?.trial_ends_at === "string" ? row.trial_ends_at : null,
+    trial_ending_reminder_sent_at: typeof row?.trial_ending_reminder_sent_at === "string" ? row.trial_ending_reminder_sent_at : null,
   };
+}
+
+function addDays(value: Date, days: number) {
+  const next = new Date(value);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+export function hasWorkspaceUsedStandardTrial(row: Pick<WorkspaceBillingRow, "trial_started_at">) {
+  return Boolean(row.trial_started_at);
+}
+
+export function isAppManagedStandardTrial(
+  row: Pick<WorkspaceBillingRow, "plan_key" | "billing_status" | "stripe_subscription_id" | "trial_ends_at">
+) {
+  return row.plan_key === "standard"
+    && row.billing_status === "trialing"
+    && !row.stripe_subscription_id
+    && Boolean(row.trial_ends_at);
+}
+
+async function maybeExpireAppManagedTrial(
+  workspaceId: string,
+  billing: WorkspaceBillingRow,
+  supabase?: BillingClient
+): Promise<WorkspaceBillingRow> {
+  if (!isAppManagedStandardTrial(billing) || !billing.trial_ends_at) {
+    return billing;
+  }
+
+  const trialEndsAtMs = new Date(billing.trial_ends_at).getTime();
+  if (Number.isNaN(trialEndsAtMs) || trialEndsAtMs > Date.now()) {
+    return billing;
+  }
+
+  return expireAppManagedStandardTrial(workspaceId, supabase, billing);
 }
 
 function parseSeatQuantity(value: unknown) {
@@ -75,7 +124,7 @@ export async function validateWorkspaceSeatQuantity(workspaceId: string, request
   return { seatQuantity, activeMemberCount };
 }
 
-export async function getWorkspaceBillingRow(workspaceId: string, supabase?: BillingClient) {
+export async function getWorkspaceBillingRow(workspaceId: string, supabase?: BillingClient): Promise<WorkspaceBillingRow | null> {
   const client = supabase ?? await createServiceClient();
   const { data, error } = await client
     .from("workspace_billing")
@@ -87,12 +136,14 @@ export async function getWorkspaceBillingRow(workspaceId: string, supabase?: Bil
     throw new Error(`Failed to load workspace billing: ${error.message}`);
   }
 
-  return data ? mapBillingRow(data) : null;
+  if (!data) return null;
+
+  return maybeExpireAppManagedTrial(workspaceId, mapBillingRow(data), client);
 }
 
-export async function ensureWorkspaceBillingRow(workspaceId: string, supabase?: BillingClient) {
+export async function ensureWorkspaceBillingRow(workspaceId: string, supabase?: BillingClient): Promise<WorkspaceBillingRow> {
   const client = supabase ?? await createServiceClient();
-  const existing = await getWorkspaceBillingRow(workspaceId, client);
+  const existing: WorkspaceBillingRow | null = await getWorkspaceBillingRow(workspaceId, client);
   if (existing) return existing;
 
   const seatQuantity = await getWorkspaceSeatCount(workspaceId, client);
@@ -109,12 +160,66 @@ export async function ensureWorkspaceBillingRow(workspaceId: string, supabase?: 
     .single();
 
   if (error) {
-    const retry = await getWorkspaceBillingRow(workspaceId, client);
+    const retry: WorkspaceBillingRow | null = await getWorkspaceBillingRow(workspaceId, client);
     if (retry) return retry;
     throw new Error(`Failed to initialize workspace billing: ${error.message}`);
   }
 
   return mapBillingRow(data);
+}
+
+export async function startAppManagedStandardTrial(workspaceId: string, supabase?: BillingClient) {
+  const client = supabase ?? await createServiceClient();
+  const billing = await ensureWorkspaceBillingRow(workspaceId, client);
+
+  if (hasWorkspaceUsedStandardTrial(billing)) {
+    throw new Error("This workspace has already used its Standard trial.");
+  }
+
+  const now = new Date();
+  const trialEndsAt = addDays(now, STANDARD_TRIAL_DAYS);
+  const seatQuantity = await getWorkspaceSeatCount(workspaceId, client);
+
+  return updateWorkspaceBillingRow(workspaceId, {
+    plan_key: "standard",
+    billing_status: "trialing",
+    stripe_subscription_id: null,
+    stripe_price_id: null,
+    cancel_at_period_end: false,
+    seat_quantity: seatQuantity,
+    trial_started_at: now.toISOString(),
+    trial_ends_at: trialEndsAt.toISOString(),
+    trial_ending_reminder_sent_at: null,
+    current_period_start: now.toISOString(),
+    current_period_end: trialEndsAt.toISOString(),
+    last_synced_at: now.toISOString(),
+  }, client);
+}
+
+export async function expireAppManagedStandardTrial(
+  workspaceId: string,
+  supabase?: BillingClient,
+  existingBilling?: WorkspaceBillingRow
+): Promise<WorkspaceBillingRow> {
+  const client = supabase ?? await createServiceClient();
+  const billing: WorkspaceBillingRow = existingBilling ?? await ensureWorkspaceBillingRow(workspaceId, client);
+  const seatQuantity = await getWorkspaceSeatCount(workspaceId, client);
+
+  if (!isAppManagedStandardTrial(billing)) {
+    return billing;
+  }
+
+  return updateWorkspaceBillingRow(workspaceId, {
+    plan_key: "free",
+    billing_status: "free",
+    stripe_subscription_id: null,
+    stripe_price_id: null,
+    seat_quantity: seatQuantity,
+    cancel_at_period_end: false,
+    current_period_start: null,
+    current_period_end: null,
+    last_synced_at: new Date().toISOString(),
+  }, client);
 }
 
 export async function updateWorkspaceBillingRow(
@@ -304,6 +409,8 @@ export function buildBillingUpdateFromStripeSubscription(subscription: {
     stripe_price_id: stripePriceId,
     seat_quantity: Math.max(firstItem?.quantity ?? 1, 1),
     cancel_at_period_end: Boolean(subscription.cancel_at_period_end),
+    trial_ends_at: null,
+    trial_ending_reminder_sent_at: null,
     current_period_start: subscription.current_period_start ? new Date(subscription.current_period_start * 1000).toISOString() : null,
     current_period_end: subscription.current_period_end ? new Date(subscription.current_period_end * 1000).toISOString() : null,
     last_synced_at: new Date().toISOString(),

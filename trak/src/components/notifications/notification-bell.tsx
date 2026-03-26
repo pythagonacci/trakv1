@@ -30,6 +30,8 @@ function getNotificationIcon(type: NotificationType) {
       return CircleDot;
     case "due_date_change":
       return CalendarClock;
+    case "billing_trial_ending":
+      return Bell;
     default:
       return Bell;
   }

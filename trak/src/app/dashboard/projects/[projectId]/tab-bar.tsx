@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Plus, ChevronDown, MoreVertical, Edit, Trash2, Eye, EyeOff, LayoutDashboard, Sparkles } from "lucide-react";
+import { Plus, ChevronDown, MoreVertical, Edit, Trash2, Eye, EyeOff, LayoutDashboard, Sparkles, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import CreateTabDialog from "./create-tab-dialog";
 import DeleteTabDialog from "./delete-tab-dialog";
@@ -40,6 +40,7 @@ interface TabBarProps {
   projectName: string;
   isClientProject?: boolean;
   clientPageEnabled?: boolean;
+  lockedTabIds?: string[];
 }
 
 export default function TabBar({
@@ -48,6 +49,7 @@ export default function TabBar({
   projectName,
   isClientProject = false,
   clientPageEnabled = false,
+  lockedTabIds = [],
 }: TabBarProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -88,6 +90,7 @@ export default function TabBar({
   };
   const activeTabId = resolveActiveTabId(activeTabParam);
   const isOverview = pathname?.endsWith("/overview");
+  const lockedTabIdSet = new Set(lockedTabIds);
 
   useEffect(() => {
     if (editingTabId && editInputRef.current) {
@@ -121,6 +124,7 @@ export default function TabBar({
   }, []);
 
   const handleTabClick = (tab: Tab, e?: React.MouseEvent) => {
+    if (lockedTabIdSet.has(tab.id)) return;
     if (editingTabId) return;
     if (e?.detail === 2) return;
 
@@ -242,6 +246,7 @@ export default function TabBar({
     const hasChildren = tab.children && tab.children.length > 0;
     const isExpanded = expandedTabId === tab.id;
     const isParentOfActive = activeTabInfo?.parent.id === tab.id;
+    const isPlanLocked = lockedTabIdSet.has(tab.id);
 
     // Create ref for menu trigger if it doesn't exist
     if (!menuTriggerRefs.current[tab.id]) {
@@ -274,14 +279,17 @@ export default function TabBar({
                 className={cn(
                   "relative whitespace-nowrap py-3 text-sm transition-colors flex flex-col items-start gap-0",
                   showDropdown ? "pl-3 pr-0" : "px-3",
+                  isPlanLocked && "cursor-not-allowed opacity-60",
                   isActive || isParentOfActive
                     ? "text-[var(--foreground)] after:absolute after:bottom-0 after:left-0 after:right-0 after:h-[2px] after:bg-[var(--foreground)]"
                     : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
                   depth === 0 ? "font-medium" : ""
                 )}
+                title={isPlanLocked ? "Locked on Free plan" : undefined}
               >
                 {/* Parent tab name or child tab name */}
                 <span className="truncate max-w-xs text-left inline-flex items-center gap-1">
+                  {isPlanLocked && <Lock className="h-3 w-3 flex-shrink-0 text-[var(--muted-foreground)]" aria-hidden />}
                   {tab.is_workflow_page && <Sparkles className="h-3.5 w-3.5 flex-shrink-0 text-amber-500/90" aria-hidden />}
                   {depth === 0 && isParentOfActive ? tab.name : tab.name}
                 </span>

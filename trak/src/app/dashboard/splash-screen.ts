@@ -7,6 +7,9 @@ export interface SplashWeather {
 export const WEATHER_LOOKUP_TIMEOUT_MS = 2000;
 export const SPLASH_HIDE_DELAY_MS = 800;
 export const SPLASH_FADE_DURATION_MS = 300;
+export const SPLASH_SESSION_STORAGE_KEY = "trak-dashboard-splash-seen";
+
+let splashAutoShowState: "idle" | "pending" | "completed" = "idle";
 
 export function createUnavailableSplashWeather(summary: string): SplashWeather {
   return {
@@ -14,6 +17,46 @@ export function createUnavailableSplashWeather(summary: string): SplashWeather {
     location: "Location unavailable",
     summary,
   };
+}
+
+export function shouldAutoShowSplashForSession(
+  storage?: Pick<Storage, "getItem"> | null
+) {
+  if (splashAutoShowState === "pending") {
+    return true;
+  }
+
+  if (splashAutoShowState === "completed") {
+    return false;
+  }
+
+  try {
+    if (storage?.getItem(SPLASH_SESSION_STORAGE_KEY) === "1") {
+      splashAutoShowState = "completed";
+      return false;
+    }
+  } catch {
+    // Ignore storage access failures and fall back to the in-memory session gate.
+  }
+
+  splashAutoShowState = "pending";
+  return true;
+}
+
+export function markSplashShownForSession(
+  storage?: Pick<Storage, "setItem"> | null
+) {
+  splashAutoShowState = "completed";
+
+  try {
+    storage?.setItem(SPLASH_SESSION_STORAGE_KEY, "1");
+  } catch {
+    // Ignore storage access failures and rely on the in-memory session gate.
+  }
+}
+
+export function resetSplashSessionStateForTests() {
+  splashAutoShowState = "idle";
 }
 
 export function resolveSplashWeather({

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { startTransition, useState, useRef, useEffect } from "react";
 import {
   Folder,
   Users,
@@ -23,6 +23,7 @@ import {
   Settings,
   Plus,
   LayoutDashboard,
+  Share2,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -46,9 +47,11 @@ import { useWorkspaceBilling } from "@/hooks/use-workspace-billing";
 import Toast from "@/app/dashboard/projects/toast";
 import {
   createUnavailableSplashWeather,
+  markSplashShownForSession,
   resolveSplashWeather,
   SPLASH_FADE_DURATION_MS,
   SPLASH_HIDE_DELAY_MS,
+  shouldAutoShowSplashForSession,
 } from "./splash-screen";
 
 interface User {
@@ -71,7 +74,7 @@ export default function DashboardLayoutClient({
   const { suppressInlineSidebar } = useAI();
   // Keep SSR and first client render identical to avoid hydration mismatch.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [showSplash, setShowSplash] = useState(true);
+  const [showSplash, setShowSplash] = useState(false);
   const pathname = usePathname();
   const wasProjectView = useRef<boolean | null>(null);
   const isFirstRender = useRef(true);
@@ -108,6 +111,14 @@ export default function DashboardLayoutClient({
     wasProjectView.current = isProjectView;
   }, [isProjectView]);
 
+  useEffect(() => {
+    if (shouldAutoShowSplashForSession(window.sessionStorage)) {
+      startTransition(() => {
+        setShowSplash(true);
+      });
+    }
+  }, []);
+
   const toggleSidebar = () => {
     setSidebarCollapsed(!sidebarCollapsed);
   };
@@ -116,7 +127,14 @@ export default function DashboardLayoutClient({
     <DashboardHeaderProvider>
       <DashboardConfigModalProvider>
       <div className="flex h-full bg-[var(--surface)] text-[var(--foreground)]">
-        {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
+        {showSplash && (
+          <SplashScreen
+            onFinish={() => {
+              markSplashShownForSession(window.sessionStorage);
+              setShowSplash(false);
+            }}
+          />
+        )}
         <Sidebar collapsed={sidebarCollapsed} setCollapsed={toggleSidebar} />
 
         {isWorkflowRoute || suppressInlineSidebar ? (
@@ -552,6 +570,14 @@ function Sidebar({
             collapsed={collapsed}
           >
             Clients
+          </NavLink>
+          <NavLink
+            href="/dashboard/shared"
+            icon={<Share2 className="h-4 w-4" />}
+            active={pathname?.startsWith("/dashboard/shared")}
+            collapsed={collapsed}
+          >
+            Shared with me
           </NavLink>
           <NavLink
             href="/dashboard/internal"

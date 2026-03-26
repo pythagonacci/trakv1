@@ -6,11 +6,37 @@ import { getBatchFileUrlsPublic } from "@/app/actions/file";
 import ClientPageHeader from "./client-page-header";
 import ClientPageTabBar from "./client-page-tab-bar";
 import ClientPageContent from "./client-page-content";
+import ClientPageBanner from "./client-page-banner";
 import ClientPageTracker from "./client-page-tracker";
 import AutoRefresh from "./auto-refresh";
 
 // Public page - no auth required
 export const dynamic = "force-dynamic";
+
+interface PublicBlockPayload {
+  blocks: Block[];
+  blockPropertiesById: Record<string, unknown>;
+}
+
+interface PublicGalleryItem {
+  fileId?: string;
+}
+
+interface PublicAttachedFile {
+  id: string;
+  file_name: string;
+  file_size: number | null;
+  file_type: string | null;
+  storage_path: string;
+  created_at: string | null;
+}
+
+interface PublicFileAttachment {
+  id: string;
+  block_id: string;
+  display_mode: string | null;
+  file: PublicAttachedFile | PublicAttachedFile[] | null;
+}
 
 export default async function ClientPage({
   params,
@@ -58,16 +84,16 @@ export default async function ClientPage({
 
   const blocksPayload = blocksResult.data as
     | Block[]
-    | { blocks: Block[]; blockPropertiesById: Record<string, any> }
+    | PublicBlockPayload
     | undefined;
   const blocks = Array.isArray(blocksPayload) ? blocksPayload : blocksPayload?.blocks || [];
   const blockPropertiesById = Array.isArray(blocksPayload)
     ? {}
-    : (blocksPayload?.blockPropertiesById as Record<string, any>) || {};
+    : (blocksPayload?.blockPropertiesById as Record<string, unknown>) || {};
 
   // Extract all file IDs from all blocks for prefetching
   const fileIds: string[] = [];
-  const initialFilesByBlockId: Record<string, any[]> = {};
+  const initialFilesByBlockId: Record<string, PublicFileAttachment[]> = {};
 
   blocks.forEach(block => {
     // Image blocks
@@ -77,7 +103,7 @@ export default async function ClientPage({
 
     // Gallery blocks
     if (block.type === 'gallery' && Array.isArray(block.content?.items)) {
-      block.content.items.forEach((item: any) => {
+      block.content.items.forEach((item: PublicGalleryItem) => {
         if (item?.fileId) {
           fileIds.push(item.fileId as string);
         }
@@ -119,7 +145,7 @@ export default async function ClientPage({
       .in('block_id', fileBlockIds);
 
     if (fileAttachments) {
-      fileAttachments.forEach((attachment: any) => {
+      (fileAttachments as PublicFileAttachment[]).forEach((attachment) => {
         if (!initialFilesByBlockId[attachment.block_id]) {
           initialFilesByBlockId[attachment.block_id] = [];
         }
@@ -154,6 +180,7 @@ export default async function ClientPage({
 
   return (
     <div className="min-h-screen bg-transparent">
+      <ClientPageBanner />
       <div className="max-w-7xl mx-auto px-3 md:px-4 lg:px-5">
         {/* Project Header - Minimal, elegant */}
         <div className="pt-4 pb-2">

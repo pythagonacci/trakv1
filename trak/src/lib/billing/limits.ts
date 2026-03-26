@@ -3,24 +3,30 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { getWorkspaceEntitlements } from "@/lib/billing/entitlements";
 import { BillingError } from "@/lib/billing/errors";
 
-export async function assertCanCreateProject(workspaceId: string) {
+export async function assertCanCreateProject(workspaceId: string, projectType: "project" | "internal" = "project") {
   const entitlements = await getWorkspaceEntitlements(workspaceId);
-  if (entitlements.maxProjectsPerWorkspace == null) return entitlements;
+  if (projectType === "project" && entitlements.maxProjectsPerWorkspace == null) return entitlements;
 
   const supabase = await createClient();
-  const { count, error } = await supabase
+  let query = supabase
     .from("projects")
     .select("id", { count: "exact", head: true })
-    .eq("workspace_id", workspaceId);
+    .eq("workspace_id", workspaceId)
+    .eq("project_type", projectType);
+
+  const { count, error } = await query;
 
   if (error) {
     throw new Error(`Failed to check project limit: ${error.message}`);
   }
 
-  if ((count ?? 0) >= entitlements.maxProjectsPerWorkspace) {
+  const projectLimit = projectType === "internal" ? 1 : entitlements.maxProjectsPerWorkspace;
+  if (projectLimit != null && (count ?? 0) >= projectLimit) {
     throw new BillingError({
       code: "PLAN_LIMIT_REACHED",
-      message: "Free workspaces can have up to 3 projects. Upgrade to Standard for unlimited projects.",
+      message: projectType === "internal"
+        ? "Free workspaces can have 1 internal space. Upgrade to Standard for more internal spaces."
+        : "Free workspaces can have up to 3 regular projects plus 1 internal space. Upgrade to Standard for more projects.",
       upgradeTargetPlan: "standard",
     });
   }

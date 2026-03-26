@@ -22,9 +22,12 @@ export default function GeneralSettingsForm({
   const router = useRouter();
   const planKey = billingSummary.entitlements.planKey;
   const billingStatus = billingSummary.entitlements.billingStatus;
+  const isAppManagedTrial = billingSummary.entitlements.isAppManagedTrial;
+  const canStartStandardTrial = billingSummary.entitlements.canStartStandardTrial;
+  const trialEndsAt = billingSummary.entitlements.trialEndsAt;
   const activeMemberCount = billingSummary.seatCount;
   const purchasedSeatCount = Math.max(billingSummary.billing.seat_quantity ?? 1, 1);
-  const displayedSeatCount = planKey === "free" ? activeMemberCount : purchasedSeatCount;
+  const displayedSeatCount = planKey === "free" || isAppManagedTrial ? activeMemberCount : purchasedSeatCount;
   const minimumSeatQuantity = Math.max(activeMemberCount, 1);
   const [name, setName] = useState(workspaceName);
   const [seatQuantity, setSeatQuantity] = useState(String(Math.max(displayedSeatCount, minimumSeatQuantity)));
@@ -134,6 +137,13 @@ export default function GeneralSettingsForm({
         return;
       }
 
+      if (json?.data?.mode === "trial_started") {
+        setSuccess(true);
+        setIsRedirectingBilling(null);
+        router.refresh();
+        return;
+      }
+
       if (!response.ok || !json?.data?.url) {
         throw new Error(json?.error || "Failed to open billing flow");
       }
@@ -202,9 +212,18 @@ export default function GeneralSettingsForm({
             <p className="mt-1 text-sm text-[var(--muted-foreground)]">
               Plan <span className="capitalize text-[var(--foreground)]">{planKey}</span> · Status <span className="text-[var(--foreground)]">{billingStatus}</span>
             </p>
+            {isAppManagedTrial && trialEndsAt && (
+              <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                Your Standard trial ends <span className="text-[var(--foreground)]">{new Date(trialEndsAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>. Add a payment method before then to keep Standard.
+              </p>
+            )}
             {planKey === "free" ? (
               <p className="mt-1 text-sm text-[var(--muted-foreground)]">
                 Current Members: <span className="text-[var(--foreground)]">{activeMemberCount}</span>
+              </p>
+            ) : isAppManagedTrial ? (
+              <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                Active members <span className="text-[var(--foreground)]">{activeMemberCount}</span> · You can choose how many seats to buy when you add a payment method.
               </p>
             ) : (
               <p className="mt-1 text-sm text-[var(--muted-foreground)]">
@@ -225,7 +244,7 @@ export default function GeneralSettingsForm({
             <>
               <div className="space-y-2">
                 <label htmlFor="seat-quantity" className="block text-sm font-medium">
-                  {planKey === "free" ? "Seats to purchase" : "Purchased seats"}
+                  {planKey === "free" || isAppManagedTrial ? "Seats to purchase" : "Purchased seats"}
                 </label>
                 <input
                   id="seat-quantity"
@@ -252,7 +271,11 @@ export default function GeneralSettingsForm({
                       disabled={isRedirectingBilling !== null}
                       className="px-4 py-2 text-sm font-medium text-white bg-[var(--river-indigo)] hover:bg-[var(--river-indigo)]/90 rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
                     >
-                      {isRedirectingBilling === "checkout_standard" ? "Opening..." : "Upgrade to Standard"}
+                      {isRedirectingBilling === "checkout_standard"
+                        ? "Opening..."
+                        : canStartStandardTrial
+                          ? "Start 14-Day Standard Trial"
+                          : "Upgrade to Standard"}
                     </button>
                     <button
                       type="button"
@@ -267,22 +290,36 @@ export default function GeneralSettingsForm({
 
                 {planKey === "standard" && (
                   <>
-                    <button
-                      type="button"
-                      onClick={() => handleBillingAction("update_seats")}
-                      disabled={isRedirectingBilling !== null}
-                      className="px-4 py-2 text-sm font-medium text-white bg-[var(--river-indigo)] hover:bg-[var(--river-indigo)]/90 rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
-                    >
-                      {isRedirectingBilling === "update_seats" ? "Saving..." : "Update Seats"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleBillingAction("portal")}
-                      disabled={isRedirectingBilling !== null}
-                      className="px-4 py-2 text-sm font-medium border border-[var(--border)] hover:bg-[var(--surface-hover)] rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
-                    >
-                      {isRedirectingBilling === "portal" ? "Opening..." : "Manage Billing"}
-                    </button>
+                    {!isAppManagedTrial && (
+                      <button
+                        type="button"
+                        onClick={() => handleBillingAction("update_seats")}
+                        disabled={isRedirectingBilling !== null}
+                        className="px-4 py-2 text-sm font-medium text-white bg-[var(--river-indigo)] hover:bg-[var(--river-indigo)]/90 rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
+                      >
+                        {isRedirectingBilling === "update_seats" ? "Saving..." : "Update Seats"}
+                      </button>
+                    )}
+                    {billingSummary.billing.stripe_customer_id && !isAppManagedTrial && (
+                      <button
+                        type="button"
+                        onClick={() => handleBillingAction("portal")}
+                        disabled={isRedirectingBilling !== null}
+                        className="px-4 py-2 text-sm font-medium border border-[var(--border)] hover:bg-[var(--surface-hover)] rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
+                      >
+                        {isRedirectingBilling === "portal" ? "Opening..." : "Manage Billing"}
+                      </button>
+                    )}
+                    {isAppManagedTrial && (
+                      <button
+                        type="button"
+                        onClick={() => handleBillingAction("checkout_standard")}
+                        disabled={isRedirectingBilling !== null}
+                        className="px-4 py-2 text-sm font-medium text-white bg-[var(--river-indigo)] hover:bg-[var(--river-indigo)]/90 rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
+                      >
+                        {isRedirectingBilling === "checkout_standard" ? "Opening..." : "Add Payment Method to Keep Standard"}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => handleBillingAction("checkout_business")}

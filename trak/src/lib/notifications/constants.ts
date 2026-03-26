@@ -6,6 +6,7 @@ export const NOTIFICATION_TYPES = [
   "file_upload",
   "task_status_change",
   "due_date_change",
+  "billing_trial_ending",
 ] as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
@@ -18,7 +19,7 @@ export const NOTIFICATION_PREFERENCE_FIELDS = {
   file_upload: "file_uploads_enabled",
   task_status_change: "task_status_changes_enabled",
   due_date_change: "due_date_changes_enabled",
-} as const satisfies Record<NotificationType, string>;
+} as const satisfies Partial<Record<NotificationType, string>>;
 
 export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   mention: "Mentions",
@@ -28,4 +29,5 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   file_upload: "File uploads",
   task_status_change: "Task status changes",
   due_date_change: "Due date changes",
+  billing_trial_ending: "Billing reminders",
 };

@@ -62,6 +62,7 @@ interface TabCanvasProps {
   initialBlockPropertiesById?: Record<string, EntityProperties>;
   /** When true (e.g. workflow page with AI chat), hide the page Undo button so undo is only in the AI chat */
   hidePageUndoButton?: boolean;
+  lockedBlockIds?: string[];
 }
 
 interface BlockRow {
@@ -95,6 +96,7 @@ export default function TabCanvas({
   initialFileUrls = {},
   initialBlockPropertiesById = {},
   hidePageUndoButton = false,
+  lockedBlockIds = [],
 }: TabCanvasProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -114,6 +116,7 @@ export default function TabCanvas({
   const tocExpanded = tabContents?.tocExpanded ?? false;
   const setTocExpanded = tabContents?.setTocExpanded ?? (() => { });
   const blockPropertiesById = initialBlockPropertiesById;
+  const lockedBlockIdSet = useMemo(() => new Set(lockedBlockIds), [lockedBlockIds]);
 
   // 🚀 Sync blocks from server only when tabId changes
   // Don't reset on every server re-fetch caused by our own edits
@@ -1482,6 +1485,7 @@ export default function TabCanvas({
                             onAddBlockBelow={handleAddBlockBelow}
                             onOpenDoc={setOpenDocId}
                             isDragging={false}
+                            isPlanLocked={lockedBlockIdSet.has(block.id)}
                           />
                         </div>
                       ))}
@@ -1562,6 +1566,7 @@ export default function TabCanvas({
                                     onAddBlockBelow={handleAddBlockBelow}
                                     onOpenDoc={setOpenDocId}
                                     isDragging={isDragging && draggedBlock?.id === block.id}
+                                    isPlanLocked={lockedBlockIdSet.has(block.id)}
                                   />
                                 </div>
                               ))}

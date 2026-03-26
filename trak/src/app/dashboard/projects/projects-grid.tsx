@@ -29,6 +29,7 @@ import {
   ChevronDown,
   ChevronRight,
   Plus,
+  Lock,
 } from "lucide-react";
 import { createProject, updateProject, deleteProject } from "@/app/actions/project";
 import { getAllClients } from "@/app/actions/client";
@@ -64,6 +65,7 @@ interface Project {
   folder_id: string | null;
   created_at: string;
   first_tab_preview?: FirstTabPreview | null;
+  is_plan_locked?: boolean;
 }
 
 interface Client {
@@ -136,10 +138,10 @@ const getBlockPreviewIcon = (type: BlockType): LucideIcon => {
   return blockIconLookup[type] || FileTextIcon;
 };
 
-const renderFirstTabSnapshot = (preview?: FirstTabPreview | null) => {
+const renderFirstTabSnapshot = (preview?: FirstTabPreview | null, isPlanLocked?: boolean) => {
   if (!preview) {
     return (
-      <div className="min-h-[140px] rounded-t-[4px] px-4 py-3">
+      <div className={cn("min-h-[140px] rounded-t-[4px] px-4 py-3", isPlanLocked && "blur-[10px] select-none")}>
         <p className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
           First tab
         </p>
@@ -156,7 +158,7 @@ const renderFirstTabSnapshot = (preview?: FirstTabPreview | null) => {
   const displayedBlocks = (preview.blocks || []).slice(0, MAX_PREVIEW_LINES);
 
   return (
-    <div className="min-h-[140px] rounded-t-[4px] px-4 py-3">
+    <div className={cn("min-h-[140px] rounded-t-[4px] px-4 py-3", isPlanLocked && "blur-[10px] select-none")}>
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-semibold text-[var(--foreground)] line-clamp-1">
           {preview.tab_name || "Untitled Tab"}
@@ -435,7 +437,8 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
   };
 
   const handleProjectClick = (projectId: string, projectName: string) => {
-    if (!projectId.startsWith("temp-")) {
+    const project = projects.find((item) => item.id === projectId);
+    if (!projectId.startsWith("temp-") && !project?.is_plan_locked) {
       router.push(buildProjectPath(projectId, projectName));
     }
   };
@@ -531,6 +534,7 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
   const renderProjectCard = (project: Project) => {
     const isTemp = project.id.startsWith("temp-");
     const dueDate = formatDueDate(project.due_date_date, project.due_date_text);
+    const isPlanLocked = Boolean(project.is_plan_locked);
 
     return (
       <div
@@ -538,12 +542,16 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
         onClick={() => handleProjectClick(project.id, project.name)}
         className={cn(
           "group relative flex h-full cursor-pointer flex-col rounded-[4px] border border-[var(--border)] bg-[var(--surface)] transition-all duration-150 hover:border-[var(--border-strong)]",
-          isTemp && "pointer-events-none opacity-70"
+          isTemp && "pointer-events-none opacity-70",
+          isPlanLocked && "cursor-not-allowed"
         )}
       >
         <div className="border-b border-[var(--border)] bg-[var(--surface-muted)]/70">
-          {renderFirstTabSnapshot(project.first_tab_preview)}
+          {renderFirstTabSnapshot(project.first_tab_preview, isPlanLocked)}
         </div>
+        {isPlanLocked && (
+          <div className="pointer-events-none absolute inset-0 z-10 rounded-[4px] bg-[var(--background)]/32" />
+        )}
 
         {/* Project Card */}
         <div className="flex flex-1 flex-col p-4">
@@ -552,6 +560,12 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
               <h3 className="mb-1 truncate text-sm font-semibold text-[var(--foreground)]">
                 {project.name}
               </h3>
+              {isPlanLocked && (
+                <div className="mb-1 inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface-hover)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--muted-foreground)]">
+                  <Lock className="h-3 w-3" />
+                  Locked on Free
+                </div>
+              )}
               {project.client_name && (
                 <div className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
                   <Building2 className="h-3 w-3 flex-shrink-0" />
@@ -626,9 +640,18 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
 
           {/* View Project Link */}
           <div className="mt-auto pt-3">
-            <div className="flex items-center gap-1.5 border-t border-[var(--border)] pt-3 text-xs text-[var(--primary)] opacity-0 transition-opacity group-hover:opacity-100">
-              <span>View project</span>
-              <ArrowRight className="h-3 w-3" />
+            <div className="border-t border-[var(--border)] pt-3 text-xs">
+              {isPlanLocked ? (
+                <div className="flex items-center gap-1.5 text-[var(--muted-foreground)]">
+                  <Lock className="h-3 w-3" />
+                  <span>Upgrade to unlock</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 text-[var(--primary)] opacity-0 transition-opacity group-hover:opacity-100">
+                  <span>View project</span>
+                  <ArrowRight className="h-3 w-3" />
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -681,6 +704,7 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
             {projects.map((project) => {
               const isTemp = project.id.startsWith("temp-");
               const dueDate = formatDueDate(project.due_date_date, project.due_date_text);
+              const isPlanLocked = Boolean(project.is_plan_locked);
 
               return (
                 <div
@@ -688,12 +712,16 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
                   onClick={() => handleProjectClick(project.id, project.name)}
                   className={cn(
                     "group relative flex h-full cursor-pointer flex-col rounded-[4px] border border-[var(--border)] bg-[var(--surface)] transition-all duration-150 hover:border-[var(--border-strong)]",
-                    isTemp && "pointer-events-none opacity-70"
+                    isTemp && "pointer-events-none opacity-70",
+                    isPlanLocked && "cursor-not-allowed"
                   )}
                 >
                   <div className="border-b border-[var(--border)] bg-[var(--surface-muted)]/70">
-                    {renderFirstTabSnapshot(project.first_tab_preview)}
+                    {renderFirstTabSnapshot(project.first_tab_preview, isPlanLocked)}
                   </div>
+                  {isPlanLocked && (
+                    <div className="pointer-events-none absolute inset-0 z-10 rounded-[4px] bg-[var(--background)]/32" />
+                  )}
 
                   {/* Project Card */}
                   <div className="flex flex-1 flex-col p-4">
@@ -702,6 +730,12 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
                         <h3 className="mb-1 truncate text-sm font-semibold text-[var(--foreground)]">
                           {project.name}
                         </h3>
+                        {isPlanLocked && (
+                          <div className="mb-1 inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface-hover)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--muted-foreground)]">
+                            <Lock className="h-3 w-3" />
+                            Locked on Free
+                          </div>
+                        )}
                         {project.client_name && (
                           <div className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
                             <Building2 className="h-3 w-3 flex-shrink-0" />
@@ -756,9 +790,18 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
 
                     {/* View Project Link */}
                     <div className="mt-auto pt-3">
-                      <div className="flex items-center gap-1.5 border-t border-[var(--border)] pt-3 text-xs text-[var(--primary)] opacity-0 transition-opacity group-hover:opacity-100">
-                        <span>View project</span>
-                        <ArrowRight className="h-3 w-3" />
+                      <div className="border-t border-[var(--border)] pt-3 text-xs">
+                        {isPlanLocked ? (
+                          <div className="flex items-center gap-1.5 text-[var(--muted-foreground)]">
+                            <Lock className="h-3 w-3" />
+                            <span>Upgrade to unlock</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 text-[var(--primary)] opacity-0 transition-opacity group-hover:opacity-100">
+                            <span>View project</span>
+                            <ArrowRight className="h-3 w-3" />
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
