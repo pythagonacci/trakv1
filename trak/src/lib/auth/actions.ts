@@ -65,6 +65,13 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
   }
 }
 
+async function getSignupVerifyPath() {
+  const cookieStore = await cookies()
+  return cookieStore.get('signup_flow')?.value === 'free_trial'
+    ? '/start-free-trial/verify'
+    : '/signup/verify'
+}
+
 export async function login(formData: FormData) {
   const supabase = await createClient()
 
@@ -121,8 +128,9 @@ export async function login(formData: FormData) {
             maxAge: 3600,
             path: '/',
           })
+          const verifyPath = await getSignupVerifyPath()
           redirect(
-            '/signup/verify?message=' +
+            verifyPath + '?message=' +
               encodeURIComponent('Please complete your signup. A new verification code has been sent.'),
           )
         }

@@ -12,9 +12,17 @@ interface VerifyFormProps {
   email: string;
   error?: string;
   message?: string;
+  title?: string;
+  subtitle?: string;
 }
 
-export default function VerifyForm({ email, error, message }: VerifyFormProps) {
+export default function VerifyForm({
+  email,
+  error,
+  message,
+  title = "Verify your email",
+  subtitle,
+}: VerifyFormProps) {
   const [resendCooldown, setResendCooldown] = useState(0);
   const [resendMessage, setResendMessage] = useState<string | null>(null);
   const [resendError, setResendError] = useState<string | null>(null);
@@ -47,7 +55,7 @@ export default function VerifyForm({ email, error, message }: VerifyFormProps) {
   );
 
   return (
-    <AuthShell title="Verify your email" subtitle={`Enter the 6-digit code sent to ${maskedEmail}`}>
+    <AuthShell title={title} subtitle={subtitle ?? `Enter the 6-digit code sent to ${maskedEmail}`}>
       {error && (
         <div className="mb-4 rounded-[var(--radius-md)] border border-[var(--error)]/30 bg-[var(--error)]/10 px-3 py-2 text-sm text-[var(--error)]">
           {error}

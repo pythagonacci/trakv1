@@ -7,9 +7,21 @@ import { Button } from "@/components/ui/button";
 import { Lock, ArrowRight } from "lucide-react";
 import { setSignupPassword } from "@/lib/auth/signup-actions";
 
-export default function PasswordForm({ error }: { error?: string }) {
+interface PasswordFormProps {
+  error?: string;
+  title?: string;
+  subtitle?: string;
+  submitLabel?: string;
+}
+
+export default function PasswordForm({
+  error,
+  title = "Create your password",
+  subtitle = "This will be your login credential.",
+  submitLabel = "Continue",
+}: PasswordFormProps) {
   return (
-    <AuthShell title="Create your password" subtitle="This will be your login credential.">
+    <AuthShell title={title} subtitle={subtitle}>
       {error && (
         <div className="mb-4 rounded-[var(--radius-md)] border border-[var(--error)]/30 bg-[var(--error)]/10 px-3 py-2 text-sm text-[var(--error)]">
           {error}
@@ -34,7 +46,7 @@ export default function PasswordForm({ error }: { error?: string }) {
           </div>
         </div>
         <Button type="submit" className="w-full">
-          Continue <ArrowRight className="h-4 w-4" />
+          {submitLabel} <ArrowRight className="h-4 w-4" />
         </Button>
       </form>
     </AuthShell>
