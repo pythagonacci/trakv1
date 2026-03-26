@@ -62,7 +62,7 @@ export default async function ProjectOverviewPage({
 
   if (tabsError || !projectTabs?.length) {
     return (
-      <div className="w-full px-2 md:px-3 lg:px-4">
+      <div className="w-full px-4 md:px-6">
         <div className="max-w-7xl mx-auto pt-2 pb-1">
           <ProjectOverview
             projectId={projectId}
@@ -97,6 +97,7 @@ export default async function ProjectOverviewPage({
         title,
         statuses,
         priorities,
+        task_assignees(assignee_id, assignee_name),
         due_date,
         due_time,
         task_block_id,
@@ -160,6 +161,12 @@ export default async function ProjectOverviewPage({
         tabName: t.tab?.name ?? tabNameById[t.tab_id] ?? "Unknown",
         tabId: t.tab_id,
         priority: firstPriority,
+        assignees: Array.isArray(t.task_assignees)
+          ? t.task_assignees.map((assignee: any) => ({
+              id: assignee.assignee_id,
+              name: assignee.assignee_name,
+            }))
+          : [],
         dueDate: t.due_date,
         dueTime: t.due_time,
         status: firstStatusFromStatuses(t.statuses),
@@ -206,8 +213,8 @@ export default async function ProjectOverviewPage({
   }).slice(0, 15);
 
   return (
-    <div className="w-full px-2 md:px-3 lg:px-4">
-      <div className="py-3 md:py-4 lg:py-5">
+    <div className="w-full px-4 md:px-6">
+      <div className="py-4 md:py-5">
         <ProjectOverview
           projectId={projectId}
           projectName={project.name}

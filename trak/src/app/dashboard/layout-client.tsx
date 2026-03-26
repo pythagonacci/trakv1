@@ -133,30 +133,30 @@ export default function DashboardLayoutClient({
             <AICommandPalette />
           </div>
         )}
-      </div>
 
-      {isProjectOverviewTab && demoUploadToastOpen && (
-        <Toast
-          message='Edward just uploaded "Final_Campaign_Shots.JPEG" in the Campaign Shoot tab.'
-          type="success"
-          duration={6000}
-          onClose={() => setDemoUploadToastOpen(false)}
-          action={{ label: "View Upload", href: "#" }}
-        />
-      )}
-      {isProjectOverviewTab ? (
-        <button
-          type="button"
-          onClick={() => {
-            setDemoUploadToastOpen(false);
-            requestAnimationFrame(() => setDemoUploadToastOpen(true));
-          }}
-          className="fixed bottom-4 left-4 z-[90] rounded-[2px] border border-dashed border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)] shadow-sm hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
-          title="Temporary control for magic-links demo recording"
-        >
-          Demo: upload toast
-        </button>
-      ) : null}
+        {isProjectOverviewTab && demoUploadToastOpen && (
+          <Toast
+            message='Edward just uploaded "Final_Campaign_Shots.JPEG" in the Campaign Shoot tab.'
+            type="success"
+            duration={6000}
+            onClose={() => setDemoUploadToastOpen(false)}
+            action={{ label: "View Upload", href: "#" }}
+          />
+        )}
+        {isProjectOverviewTab ? (
+          <button
+            type="button"
+            onClick={() => {
+              setDemoUploadToastOpen(false);
+              requestAnimationFrame(() => setDemoUploadToastOpen(true));
+            }}
+            className="pointer-events-auto fixed bottom-2 left-2 z-[90] inline-flex h-auto w-max max-w-none shrink-0 whitespace-nowrap rounded-[2px] border border-dashed border-[var(--border)] bg-[var(--surface)] px-1 py-px text-[8px] font-medium uppercase leading-none tracking-tight text-[var(--muted-foreground)] shadow-sm hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+            title="Temporary control for magic-links demo recording"
+          >
+            Demo: upload toast
+          </button>
+        ) : null}
+      </div>
       </DashboardConfigModalProvider>
     </DashboardHeaderProvider>
   );
@@ -481,8 +481,8 @@ function Sidebar({
         )}
       >
         {!collapsed && (
-          <span className="text-[11px] font-semibold uppercase tracking-[0.4em] text-[var(--foreground)]">
-            Saria
+          <span className="text-[13px] font-medium tracking-normal text-[var(--foreground)]">
+            {currentWorkspace?.name ?? "Workspace"}
           </span>
         )}
         <button
@@ -492,7 +492,7 @@ function Sidebar({
             setCollapsed();
           }}
           type="button"
-          className="relative z-50 inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+          className="relative z-50 inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] text-[var(--tertiary-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? <Menu className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
@@ -633,7 +633,7 @@ function Sidebar({
             className="flex w-full items-center justify-between rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm font-medium text-[var(--foreground)] transition-colors duration-150 hover:bg-[var(--primary)]/10 hover:border-[var(--primary)] hover:text-[var(--primary)]"
           >
             <div className="flex items-center gap-2.5">
-              <div className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md)] bg-[var(--surface)] border border-[var(--border)] text-[var(--foreground)] text-xs font-semibold">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full border-0 bg-[var(--primary)] text-xs font-medium text-[var(--primary-foreground)]">
                 {getUserInitials()}
               </div>
               <div className="min-w-0 text-left">
@@ -662,7 +662,7 @@ function Sidebar({
                     disabled={isSwitching}
                     className="flex w-full items-center gap-2.5 rounded-[var(--radius-md)] px-3 py-2 text-[13px] text-[var(--muted-foreground)] transition-colors duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] disabled:opacity-50"
                   >
-                    <div className="flex h-6 w-6 items-center justify-center rounded-[var(--radius-md)] bg-[var(--river-indigo)]/15 border border-[var(--river-indigo)]/20 text-[var(--river-indigo)] text-xs font-semibold">
+                    <div className="flex h-6 w-6 items-center justify-center rounded-[var(--radius-md)] border border-[var(--primary)]/20 bg-[var(--primary)]/10 text-[var(--primary)] text-xs font-semibold">
                       {isSwitching && currentWorkspace?.id === workspace.id ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
                       ) : (
@@ -675,7 +675,7 @@ function Sidebar({
                         {workspace.role}
                       </p>
                     </div>
-                    {currentWorkspace?.id === workspace.id && <Check className="h-3.5 w-3.5 text-[var(--dome-teal)]" />}
+                    {currentWorkspace?.id === workspace.id && <Check className="h-3.5 w-3.5 text-[var(--success)]" />}
                   </button>
                 ))}
               </div>
@@ -803,11 +803,11 @@ function Header() {
   const displayDate = formatHeaderDate(new Date());
 
   return (
-    <header className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--header-bar-bg)] px-2 py-2 md:px-3 lg:px-4">
-      <p className="text-sm text-[var(--header-bar-text)]">
+    <header className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 md:px-6">
+      <p className="text-[13px] text-[var(--foreground)]">
         <span className="font-medium">{displayName}</span>
-        <span className="mx-2 opacity-70">|</span>
-        <span className="opacity-90">{displayDate}</span>
+        <span className="mx-2 text-[var(--faint-foreground)]">|</span>
+        <span className="font-light text-[var(--tertiary-foreground)]">{displayDate}</span>
       </p>
       <div className="flex items-center gap-2">
         <NotificationBell workspaceId={currentWorkspace?.id} />
@@ -866,11 +866,11 @@ function LayoutMain({ children }: { children: React.ReactNode }) {
     <main
       id="dashboard-content"
       className={cn(
-        "flex-1 min-h-0 bg-[var(--surface)]",
+        "flex-1 min-h-0 bg-[var(--background)]",
         isProjectOrClientDetail && "flex flex-col",
-        isFullBleedPage ? "px-0" : "px-2 md:px-3 lg:px-4",
+        isFullBleedPage ? "px-0" : "px-3 md:px-4 lg:px-5",
         isWorkflowCanvas || isCalendarPage ? "overflow-hidden py-0" : "overflow-y-auto",
-        headerHidden || isWorkflowPage || isCalendarPage || isProjectOrClientDetail ? "py-0" : "py-4 lg:py-5"
+        headerHidden || isWorkflowPage || isCalendarPage || isProjectOrClientDetail ? "py-0" : "py-5 lg:py-6"
       )}
     >
       {isProjectOrClientDetail ? (

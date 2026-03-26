@@ -3,7 +3,6 @@
 import { useMemo, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
-  CalendarDays,
   ArrowRight,
   Flag,
   Calendar,
@@ -17,7 +16,6 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { parseDateSafe } from "@/lib/due-date";
-import { useWorkspace } from "@/app/dashboard/workspace-context";
 import { useDashboardConfig } from "./use-dashboard-config";
 import {
   isBuiltInWidget,
@@ -111,7 +109,6 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
     userName,
   } = props;
   const router = useRouter();
-  const { currentWorkspace } = useWorkspace();
   const { config: dashboardConfig } = useDashboardConfig(workspaceId);
 
   const clientFeedbackItems = clientFeedback.slice(0, 4);
@@ -201,10 +198,10 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
 
   const getPriorityColor = (priority?: Task["priority"]) => {
     switch (priority) {
-      case "urgent": return "text-[var(--tile-orange)] bg-[var(--tile-orange)]/10 border border-[var(--tile-orange)]/30";
-      case "high": return "text-[var(--tram-yellow)] bg-[var(--tram-yellow)]/10 border border-[var(--tram-yellow)]/30";
-      case "medium": return "text-[var(--river-indigo)] bg-[var(--river-indigo)]/10 border border-[var(--river-indigo)]/30";
-      case "low": return "text-[var(--dome-teal)] bg-[var(--dome-teal)]/10 border border-[var(--dome-teal)]/30";
+      case "urgent": return "text-[var(--priority-urgent-text)] bg-[var(--priority-urgent-bg)] border border-[var(--priority-urgent-text)]/20";
+      case "high": return "text-[#C4622D] bg-[#FAE5D8] border border-[#C4622D]/20";
+      case "medium": return "text-[var(--priority-medium-text)] bg-[var(--priority-medium-bg)] border border-[var(--priority-medium-text)]/20";
+      case "low": return "text-[var(--priority-low-text)] bg-[var(--priority-low-bg)] border border-[var(--priority-low-text)]/20";
       default: return "";
     }
   };
@@ -220,24 +217,15 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
   };
 
   return (
-    <div className="flex flex-col gap-6 pb-10 px-6 md:px-10">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div className="flex flex-col gap-5 pb-10 px-6 md:px-8">
+      <div className="mb-2 flex items-center justify-between">
         <div>
-          <h1 className="mt-1 text-2xl font-semibold tracking-normal md:text-3xl">
-            {currentWorkspace?.name ?? "Workspace"}
+          <h1 className="text-[22px] font-medium tracking-tight text-[var(--foreground)]">
+            Good morning.
           </h1>
-          <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-            Get Up to Speed and Start Working
+          <p className="mt-1 text-sm leading-relaxed text-[var(--foreground)]">
+            Here&apos;s what needs your attention today.
           </p>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          <button 
-            onClick={() => router.push("/dashboard/projects")}
-            className="px-3 py-1.5 text-sm font-medium text-white bg-[var(--secondary)] hover:bg-[var(--secondary)]/90 rounded-[2px] transition-colors"
-          >
-            New project
-          </button>
         </div>
       </div>
 
@@ -271,10 +259,10 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
           }
           if (widget.type === "today") {
             return (
-              <Card key={widget.id} className="border border-[var(--border)] bg-[var(--surface)] shadow-none rounded-xl">
+              <Card key={widget.id} className="border border-[var(--border)] bg-[var(--surface)] shadow-none rounded-[var(--radius-xl)]">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 px-4 pt-4">
                   <div>
-                    <CardTitle className="text-sm font-medium">Today</CardTitle>
+                    <CardTitle className="text-[15px] font-medium text-[var(--foreground)]">Today</CardTitle>
                     <p className="mt-1 text-xs text-[var(--muted-foreground)]">
                       What matters now and coming up.
                     </p>
@@ -285,13 +273,21 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
                 </CardHeader>
                 <CardContent className="grid gap-6 md:grid-cols-3 px-4 pb-4">
                   <div className="space-y-2">
-                    <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">Due today</p>
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <div
+                        style={{ width: 5, height: 5, borderRadius: "50%", background: "var(--primary)", flexShrink: 0 }}
+                      />
+                      <p className="text-[10px] font-medium uppercase tracking-wider" style={{ color: "var(--primary)" }}>
+                        Due today
+                      </p>
+                    </div>
                     {dueTodayTasks.length > 0 ? (
                       <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                         {dueTodayTasks.map((task) => (
                           <TaskRowButton
                             key={task.id}
                             task={task}
+                            accent="var(--primary)"
                             getPriorityColor={getPriorityColor}
                             getPriorityLabel={getPriorityLabel}
                             formatDueDate={formatDueDate}
@@ -311,13 +307,21 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
                     )}
                   </div>
                   <div className="space-y-2">
-                    <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">Upcoming</p>
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <div
+                        style={{ width: 5, height: 5, borderRadius: "50%", background: "var(--success)", flexShrink: 0 }}
+                      />
+                      <p className="text-[10px] font-medium uppercase tracking-wider" style={{ color: "var(--success)" }}>
+                        Upcoming
+                      </p>
+                    </div>
                     {upcomingTasks.length > 0 ? (
                       <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                         {upcomingTasks.map((task) => (
                           <TaskRowButton
                             key={task.id}
                             task={task}
+                            accent="var(--success)"
                             getPriorityColor={getPriorityColor}
                             getPriorityLabel={getPriorityLabel}
                             formatDueDate={formatDueDate}
@@ -337,13 +341,21 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
                     )}
                   </div>
                   <div className="space-y-2">
-                    <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">Past due</p>
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <div
+                        style={{ width: 5, height: 5, borderRadius: "50%", background: "var(--error)", flexShrink: 0 }}
+                      />
+                      <p className="text-[10px] font-medium uppercase tracking-wider" style={{ color: "var(--error)" }}>
+                        Past due
+                      </p>
+                    </div>
                     {pastDueTasks.length > 0 ? (
                       <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                         {pastDueTasks.map((task) => (
                           <TaskRowButton
                             key={task.id}
                             task={task}
+                            accent="var(--error)"
                             getPriorityColor={getPriorityColor}
                             getPriorityLabel={getPriorityLabel}
                             formatDueDate={formatDueDate}
@@ -400,32 +412,43 @@ function TaskRowButton({
   getPriorityLabel,
   formatDueDate,
   onNavigate,
+  accent,
 }: {
   task: Task;
   getPriorityColor: (priority?: Task["priority"]) => string;
   getPriorityLabel: (priority?: Task["priority"]) => string;
   formatDueDate: (dueDate?: string, dueTime?: string) => string | null;
   onNavigate: () => void;
+  accent: string;
 }) {
   return (
     <button
       onClick={onNavigate}
-      className="w-full rounded-[var(--radius-md)] border border-border/60 bg-transparent px-3 py-2 text-left text-xs transition hover:bg-[var(--secondary)]/5 hover:border-[var(--secondary)]/30 text-[var(--foreground)]"
+      className="w-full text-left text-xs transition hover:bg-[var(--surface-hover)] group"
+      style={{
+        background: "var(--surface)",
+        border: "1px solid var(--border)",
+        borderLeft: `2.5px solid ${accent}`,
+        borderRadius: "var(--radius-lg)",
+        padding: "10px 12px",
+      }}
     >
-      <div className="flex items-center justify-between gap-2">
-        <p className="font-medium text-[13px] line-clamp-1">{task.text}</p>
-        <span className="whitespace-nowrap text-[11px] text-[var(--muted-foreground)]">
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <p className="font-medium text-[12.5px] line-clamp-1 text-[var(--foreground)]">
+          {task.text}
+        </p>
+        <span className="whitespace-nowrap text-[10.5px] text-[var(--tertiary-foreground)] shrink-0">
           {task.tabName}
         </span>
       </div>
-      <div className="mt-1 flex items-center gap-2 flex-wrap">
-        <p className="line-clamp-1 text-[11px] text-[var(--muted-foreground)]">
-          {task.projectName}
-        </p>
+      <p className="line-clamp-1 text-[10.5px] text-[var(--tertiary-foreground)] mb-2">
+        {task.projectName}
+      </p>
+      <div className="flex items-center gap-1.5 flex-wrap">
         {task.priority && task.priority !== "none" && (
           <span
             className={cn(
-              "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium",
+              "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10.5px] font-medium",
               getPriorityColor(task.priority)
             )}
           >
@@ -435,10 +458,11 @@ function TaskRowButton({
         )}
         {task.dueDate && (
           <span
-            className={cn(
-              "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium",
-              "border border-[var(--tile-orange)]/30 bg-[var(--tile-orange)]/10 text-[var(--tile-orange)]"
-            )}
+            className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10.5px] font-medium"
+            style={{
+              background: "var(--surface-muted)",
+              color: "var(--muted-foreground)",
+            }}
           >
             <Calendar className="h-2.5 w-2.5" />
             {formatDueDate(task.dueDate, task.dueTime)}
@@ -466,63 +490,167 @@ function NotificationsCard({
   ) => void;
 }) {
   return (
-    <Card className="border border-[var(--border)] bg-[var(--surface)] shadow-none rounded-xl">
-      <CardHeader className="pb-2 px-4 pt-4">
-        <div className="flex items-center gap-2 flex-wrap">
-          <MessageSquare className="h-4 w-4 text-[var(--foreground)]" />
-          <CardTitle className="text-sm font-medium">Notifications</CardTitle>
-          <span className="text-xs text-[var(--muted-foreground)]">
-            Client and teammate updates in one place.
-          </span>
-        </div>
-      </CardHeader>
-      <CardContent className="grid gap-4 px-4 pb-4 pt-0 text-xs md:grid-cols-2">
-        <div className="space-y-2">
-          <p className="text-xs font-semibold tracking-wide text-[var(--foreground)]">
+    <div
+      style={{
+        background: "var(--surface)",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-xl)",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 7,
+          padding: "12px 17px",
+          borderBottom: "1px solid var(--border)",
+        }}
+      >
+        <MessageSquare className="h-3.5 w-3.5 text-[var(--tertiary-foreground)]" />
+        <span
+          style={{
+            fontSize: 11,
+            textTransform: "uppercase",
+            letterSpacing: "0.07em",
+            fontWeight: 500,
+            color: "var(--muted-foreground)",
+          }}
+        >
+          Notifications
+        </span>
+        <span style={{ fontSize: 11, color: "var(--tertiary-foreground)" }}>
+          Client and teammate updates in one place.
+        </span>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
+        <div style={{ padding: "13px 17px" }}>
+          <p
+            style={{
+              fontSize: 10.5,
+              textTransform: "uppercase",
+              letterSpacing: "0.07em",
+              fontWeight: 500,
+              color: "var(--muted-foreground)",
+              marginBottom: 10,
+            }}
+          >
             Client Feedback
           </p>
-          {clientFeedbackItems.length === 0 ? (
-            <p className="text-[var(--muted-foreground)]">No client feedback yet.</p>
+          {clientFeedbackItems.length > 0 ? (
+            <div className="space-y-2">
+              {clientFeedbackItems.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => onNavigate(item.projectId, item.tabId, item.projectName, item.tabName)}
+                  style={{
+                    display: "flex",
+                    gap: 9,
+                    padding: "9px 11px",
+                    borderRadius: "var(--radius-lg)",
+                    background: "var(--surface-muted)",
+                    border: "1px solid var(--border-strong)",
+                    width: "100%",
+                    textAlign: "left",
+                    cursor: "pointer",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      background: "var(--primary)",
+                      flexShrink: 0,
+                      marginTop: 4,
+                    }}
+                  />
+                  <div>
+                    <p style={{ fontSize: 12.5, color: "var(--foreground)", lineHeight: 1.4 }}>
+                      &quot;{item.text}&quot;
+                    </p>
+                    <p style={{ fontSize: 11, color: "var(--tertiary-foreground)", marginTop: 3 }}>
+                      {item.author} · {item.projectName} · {item.tabName}
+                      {item.timestamp ? ` · ${formatRelativeTime(item.timestamp)}` : ""}
+                    </p>
+                  </div>
+                </button>
+              ))}
+            </div>
           ) : (
-            clientFeedbackItems.map((feedback) => (
-              <UpdateRow
-                key={feedback.id}
-                title={`“${feedback.text}”`}
-                subtitle={`${feedback.author} · ${feedback.projectName} · ${feedback.tabName} · ${formatRelativeTime(
-                  feedback.timestamp
-                )}`}
-                icon={<MessageSquare className="h-3.5 w-3.5 text-[var(--foreground)]" />}
-                onClick={() =>
-                  onNavigate(feedback.projectId, feedback.tabId, feedback.projectName, feedback.tabName)
-                }
-              />
-            ))
+            <p style={{ fontSize: 12.5, color: "var(--tertiary-foreground)", fontStyle: "italic" }}>
+              No client feedback yet.
+            </p>
           )}
         </div>
-        <div className="space-y-2">
-          <p className="text-xs font-semibold tracking-wide text-[var(--foreground)]">
+
+        <div
+          style={{
+            padding: "13px 17px",
+            borderLeft: "1px solid var(--border)",
+          }}
+        >
+          <p
+            style={{
+              fontSize: 10.5,
+              textTransform: "uppercase",
+              letterSpacing: "0.07em",
+              fontWeight: 500,
+              color: "var(--muted-foreground)",
+              marginBottom: 10,
+            }}
+          >
             Team Updates
           </p>
-          {teamUpdatesItems.length === 0 ? (
-            <p className="text-[var(--muted-foreground)]">No comments from teammates yet.</p>
+          {teamUpdatesItems.length > 0 ? (
+            <div className="space-y-2">
+              {teamUpdatesItems.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => onNavigate(item.projectId, item.tabId, item.projectName, item.tabName)}
+                  style={{
+                    display: "flex",
+                    gap: 9,
+                    padding: "9px 11px",
+                    borderRadius: "var(--radius-lg)",
+                    background: "var(--surface-muted)",
+                    border: "1px solid var(--border-strong)",
+                    width: "100%",
+                    textAlign: "left",
+                    cursor: "pointer",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      background: "var(--primary)",
+                      flexShrink: 0,
+                      marginTop: 4,
+                    }}
+                  />
+                  <div>
+                    <p style={{ fontSize: 12.5, color: "var(--foreground)", lineHeight: 1.4 }}>
+                      &quot;{item.text}&quot;
+                    </p>
+                    <p style={{ fontSize: 11, color: "var(--tertiary-foreground)", marginTop: 3 }}>
+                      {item.author} · {item.projectName} · {item.tabName}
+                      {item.timestamp ? ` · ${formatRelativeTime(item.timestamp)}` : ""}
+                    </p>
+                  </div>
+                </button>
+              ))}
+            </div>
           ) : (
-            teamUpdatesItems.map((feedback) => (
-              <UpdateRow
-                key={feedback.id}
-                title={`“${feedback.text}”`}
-                subtitle={`${feedback.author} · ${feedback.projectName} · ${feedback.tabName} · ${formatRelativeTime(
-                  feedback.timestamp
-                )}`}
-                icon={<MessageSquare className="h-3.5 w-3.5 text-[var(--foreground)]" />}
-                onClick={() =>
-                  onNavigate(feedback.projectId, feedback.tabId, feedback.projectName, feedback.tabName)
-                }
-              />
-            ))
+            <p style={{ fontSize: 12.5, color: "var(--tertiary-foreground)", fontStyle: "italic" }}>
+              No comments from teammates yet.
+            </p>
           )}
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -590,6 +718,8 @@ function UpdateRow({
     </button>
   );
 }
+
+void UpdateRow;
 
 function cn(...classes: (string | boolean | undefined)[]) {
   return classes.filter(Boolean).join(" ");

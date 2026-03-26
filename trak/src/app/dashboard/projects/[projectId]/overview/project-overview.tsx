@@ -1,21 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
   Flag,
   Calendar,
   MessageSquare,
-  AlertCircle,
-  CalendarClock,
+  User,
 } from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { buildProjectTabPath } from "@/lib/dashboard-routes";
 import { cn } from "@/lib/utils";
 
@@ -25,6 +18,7 @@ export interface ProjectOverviewTask {
   tabName: string;
   tabId: string;
   priority?: "urgent" | "high" | "medium" | "low" | "none";
+  assignees?: Array<{ id?: string; name?: string }>;
   dueDate?: string;
   dueTime?: string;
   status?: string;
@@ -60,6 +54,10 @@ export default function ProjectOverview({
   openTasksCount,
 }: ProjectOverviewProps) {
   const router = useRouter();
+  const [showAllDueToday, setShowAllDueToday] = useState(false);
+  const [showAllDueSoon, setShowAllDueSoon] = useState(false);
+  const [showAllOverdue, setShowAllOverdue] = useState(false);
+  const maxVisibleTasks = 5;
 
   const formatRelativeTime = (value?: string) => {
     if (!value) return "";
@@ -109,13 +107,13 @@ export default function ProjectOverview({
   const getPriorityColor = (priority?: ProjectOverviewTask["priority"]) => {
     switch (priority) {
       case "urgent":
-        return "text-[var(--tile-orange)] bg-[var(--tile-orange)]/10 border border-[var(--tile-orange)]/30";
+        return "text-[var(--priority-urgent-text)] bg-[var(--priority-urgent-bg)] border border-[var(--priority-urgent-text)]/20";
       case "high":
-        return "text-[var(--tram-yellow)] bg-[var(--tram-yellow)]/10 border border-[var(--tram-yellow)]/30";
+        return "text-[#C4622D] bg-[#FAE5D8] border border-[#C4622D]/20";
       case "medium":
-        return "text-[var(--river-indigo)] bg-[var(--river-indigo)]/10 border border-[var(--river-indigo)]/30";
+        return "text-[var(--priority-medium-text)] bg-[var(--priority-medium-bg)] border border-[var(--priority-medium-text)]/20";
       case "low":
-        return "text-[var(--dome-teal)] bg-[var(--dome-teal)]/10 border border-[var(--dome-teal)]/30";
+        return "text-[var(--priority-low-text)] bg-[var(--priority-low-bg)] border border-[var(--priority-low-text)]/20";
       default:
         return "";
     }
@@ -137,176 +135,93 @@ export default function ProjectOverview({
   };
 
   return (
-    <div className="flex flex-col gap-6 pb-10 pt-4">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-[0.32em] text-[var(--muted-foreground)]">
-            Project overview
+    <div className="flex flex-col gap-5 pb-10 pt-4">
+      <div>
+        <p className="mb-1 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--tertiary-foreground)]">
+          Project Overview
+        </p>
+        <h1 className="text-[22px] font-medium leading-tight tracking-tight text-[var(--foreground)]">
+          {projectName}
+        </h1>
+        <p className="mt-1.5 text-sm leading-relaxed text-[var(--foreground)]">
+          What&apos;s due, overdue, and recent feedback from your team—all in one place.
+        </p>
+      </div>
+
+      <div className="flex gap-3">
+        <div
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-lg)",
+            padding: "16px 20px",
+            minWidth: 150,
+          }}
+        >
+          <p className="text-[26px] font-medium leading-none text-[var(--foreground)] tabular-nums">
+            {openTasksCount}
           </p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-normal md:text-3xl">
-            {projectName}
-          </h1>
-          <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-            What’s due, overdue, and recent feedback from your team—all in one place.
+          <p className="mt-1.5 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--faint-foreground)]">
+            Open Tasks
+          </p>
+        </div>
+        <div
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-lg)",
+            padding: "16px 20px",
+            minWidth: 150,
+          }}
+        >
+          <p className="text-[26px] font-medium leading-none text-[var(--foreground)] tabular-nums">
+            {teamFeedback.length}
+          </p>
+          <p className="mt-1.5 text-[10px] font-medium uppercase tracking-[0.07em] text-[var(--faint-foreground)]">
+            Team Comments &amp; Feedback
           </p>
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2">
-        <button
-          onClick={() => {}}
-          className="group flex flex-col gap-1 rounded-xl border border-transparent bg-[var(--surface)] px-4 py-4 text-left transition-colors cursor-default"
-        >
-          <p className="text-2xl font-semibold text-[var(--foreground)] tabular-nums">
-            {openTasksCount}
-          </p>
-          <p className="text-xs text-[var(--tertiary-foreground)] uppercase tracking-[0.18em]">
-            Open tasks
-          </p>
-        </button>
-        <button
-          onClick={() => {}}
-          className="group flex flex-col gap-1 rounded-xl border border-transparent bg-[var(--surface)] px-4 py-4 text-left transition-colors cursor-default"
-        >
-          <p className="text-2xl font-semibold text-[var(--foreground)] tabular-nums">
-            {teamFeedback.length}
-          </p>
-          <p className="text-xs text-[var(--tertiary-foreground)] uppercase tracking-[0.18em]">
-            Team comments & feedback
-          </p>
-        </button>
-      </div>
-
       <div className="grid gap-4 lg:grid-cols-2">
-        {/* Due today */}
-        <Card className="border border-[var(--border)] bg-[var(--surface)] shadow-none rounded-xl">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 px-4 pt-4">
-            <div>
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <Calendar className="h-4 w-4" />
-                Due today
-              </CardTitle>
-              <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-                Tasks due in the next 24 hours.
-              </p>
-            </div>
-            <span className="text-xs text-[var(--tertiary-foreground)]">
-              {tasksDueToday.length} items
-            </span>
-          </CardHeader>
-          <CardContent className="px-4 pb-4">
-            {tasksDueToday.length > 0 ? (
-              <div className="space-y-2">
-                {tasksDueToday.map((task) => (
-                  <TaskRow
-                    key={task.id}
-                    task={task}
-                    onClick={() => goToTab(task.tabId, task.tabName, task.id)}
-                    formatDueDate={formatDueDate}
-                    getPriorityColor={getPriorityColor}
-                    getPriorityLabel={getPriorityLabel}
-                  />
-                ))}
-              </div>
-            ) : (
-              <p className="text-[11px] text-[var(--muted-foreground)]">
-                Nothing due today for this project.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Due soon */}
-        <Card className="border border-[var(--border)] bg-[var(--surface)] shadow-none rounded-xl">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 px-4 pt-4">
-            <div>
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <CalendarClock className="h-4 w-4" />
-                Due soon
-              </CardTitle>
-              <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-                Coming up in the next 7 days.
-              </p>
-            </div>
-            <span className="text-xs text-[var(--tertiary-foreground)]">
-              {tasksDueSoon.length} items
-            </span>
-          </CardHeader>
-          <CardContent className="px-4 pb-4">
-            {tasksDueSoon.length > 0 ? (
-              <div className="space-y-2">
-                {tasksDueSoon.map((task) => (
-                  <TaskRow
-                    key={task.id}
-                    task={task}
-                    onClick={() => goToTab(task.tabId, task.tabName, task.id)}
-                    formatDueDate={formatDueDate}
-                    getPriorityColor={getPriorityColor}
-                    getPriorityLabel={getPriorityLabel}
-                  />
-                ))}
-              </div>
-            ) : (
-              <p className="text-[11px] text-[var(--muted-foreground)]">
-                No tasks due in the next week.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Overdue */}
-        <Card className="border border-[var(--border)] bg-[var(--surface)] shadow-none rounded-xl lg:col-span-2">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 px-4 pt-4">
-            <div>
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 text-[var(--tile-orange)]" />
-                Overdue
-              </CardTitle>
-              <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-                Past-due items that need attention.
-              </p>
-            </div>
-            <span className="text-xs text-[var(--tertiary-foreground)]">
-              {tasksOverdue.length} items
-            </span>
-          </CardHeader>
-          <CardContent className="px-4 pb-4">
-            {tasksOverdue.length > 0 ? (
-              <div className="space-y-2">
-                {tasksOverdue.map((task) => (
-                  <TaskRow
-                    key={task.id}
-                    task={task}
-                    onClick={() => goToTab(task.tabId, task.tabName, task.id)}
-                    formatDueDate={formatDueDate}
-                    getPriorityColor={getPriorityColor}
-                    getPriorityLabel={getPriorityLabel}
-                    isOverdue
-                  />
-                ))}
-              </div>
-            ) : (
-              <p className="text-[11px] text-[var(--muted-foreground)]">
-                No overdue tasks. You’re on track.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
         {/* Team comments & feedback */}
-        <Card className="border border-[var(--border)] bg-[var(--surface)] shadow-none rounded-xl lg:col-span-2">
-          <CardHeader className="pb-2 px-4 pt-4">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <MessageSquare className="h-4 w-4" />
-              Team comments & feedback
-            </CardTitle>
-            <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-              Recent comments left by your team on this project’s tabs.
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-2 px-4 pb-4 pt-0">
+        <div
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-xl)",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 7,
+              padding: "12px 16px",
+              borderBottom: "1px solid var(--border)",
+            }}
+          >
+            <MessageSquare className="h-3.5 w-3.5 text-[var(--tertiary-foreground)]" />
+            <span
+              style={{
+                fontSize: 11,
+                textTransform: "uppercase",
+                letterSpacing: "0.07em",
+                fontWeight: 500,
+                color: "var(--muted-foreground)",
+              }}
+            >
+              Team comments &amp; feedback
+            </span>
+            <span style={{ fontSize: 11, color: "var(--tertiary-foreground)" }}>
+              Recent comments left by your team on this project&apos;s tabs.
+            </span>
+          </div>
+
+          <div style={{ padding: "13px 16px" }}>
             {teamFeedback.length === 0 ? (
-              <p className="text-[var(--muted-foreground)] text-xs">
+              <p style={{ fontSize: 12.5, color: "var(--tertiary-foreground)", fontStyle: "italic" }}>
                 No team comments yet.
               </p>
             ) : (
@@ -315,25 +230,304 @@ export default function ProjectOverview({
                   <button
                     key={feedback.id}
                     onClick={() => goToTab(feedback.tabId, feedback.tabName)}
-                    className="group flex w-full items-start gap-2 rounded-[var(--radius-md)] border border-border/60 px-3 py-2 text-left transition hover:bg-[var(--secondary)]/5 hover:border-[var(--secondary)]/30"
+                    className="group w-full text-left transition hover:opacity-90"
+                    style={{
+                      display: "flex",
+                      gap: 9,
+                      padding: "9px 11px",
+                      borderRadius: "var(--radius-lg)",
+                      background: "var(--surface-muted)",
+                      border: "1px solid var(--border-strong)",
+                      width: "100%",
+                    }}
                   >
-                    <MessageSquare className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 text-[var(--foreground)]" />
-                    <div className="flex-1 min-w-0 space-y-0.5">
-                      <p className="text-[13px] font-medium text-[var(--foreground)] line-clamp-2">
+                    <div
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: "50%",
+                        background: "var(--primary)",
+                        flexShrink: 0,
+                        marginTop: 4,
+                      }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p
+                        className="line-clamp-2"
+                        style={{ fontSize: 12.5, color: "var(--foreground)", lineHeight: 1.4 }}
+                      >
                         &ldquo;{feedback.text}&rdquo;
                       </p>
-                      <p className="text-[11px] text-[var(--muted-foreground)]">
+                      <p style={{ fontSize: 10.5, color: "var(--tertiary-foreground)", marginTop: 3 }}>
                         {feedback.author} · {feedback.tabName} ·{" "}
                         {formatRelativeTime(feedback.timestamp)}
                       </p>
                     </div>
-                    <ArrowRight className="h-3.5 w-3.5 text-[var(--muted-foreground)] opacity-0 transition-opacity group-hover:opacity-100 flex-shrink-0" />
+                    <ArrowRight className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[var(--tertiary-foreground)] opacity-0 transition-opacity group-hover:opacity-100" />
                   </button>
                 ))}
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
+
+        {/* Due today */}
+        <div
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-xl)",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "12px 16px",
+              borderBottom: "1px solid var(--border)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              <div
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  background: "var(--primary)",
+                  flexShrink: 0,
+                }}
+              />
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: "var(--primary)",
+                }}
+              >
+                Due today
+              </span>
+              <span style={{ fontSize: 11.5, color: "var(--tertiary-foreground)", fontWeight: 300, marginLeft: 4 }}>
+                Tasks due in the next 24 hours.
+              </span>
+            </div>
+            <span style={{ fontSize: 11, color: "var(--faint-foreground)" }}>
+              {tasksDueToday.length} items
+            </span>
+          </div>
+
+          <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+            {tasksDueToday.length > 0 ? (
+              <>
+                {(showAllDueToday ? tasksDueToday : tasksDueToday.slice(0, maxVisibleTasks)).map((task) => (
+                  <TaskRow
+                    key={task.id}
+                    task={task}
+                    accent="var(--primary)"
+                    onClick={() => goToTab(task.tabId, task.tabName, task.id)}
+                    formatDueDate={formatDueDate}
+                    getPriorityColor={getPriorityColor}
+                    getPriorityLabel={getPriorityLabel}
+                  />
+                ))}
+                {tasksDueToday.length > maxVisibleTasks ? (
+                  <button
+                    onClick={() => setShowAllDueToday((value) => !value)}
+                    className="mx-auto mt-2 inline-flex items-center rounded-full px-3 py-1 text-[12px] font-medium transition hover:opacity-90"
+                    style={{
+                      color: "var(--foreground)",
+                      background: "var(--surface-muted)",
+                      border: "1px solid var(--border-strong)",
+                    }}
+                    type="button"
+                  >
+                    {showAllDueToday
+                      ? "Show less \u2191"
+                      : `Show ${tasksDueToday.length - maxVisibleTasks} more \u2192`}
+                  </button>
+                ) : null}
+              </>
+            ) : (
+              <p style={{ fontSize: 11.5, color: "var(--tertiary-foreground)", fontStyle: "italic", padding: "4px 0" }}>
+                Nothing due today for this project.
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Due soon */}
+        <div
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-xl)",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "12px 16px",
+              borderBottom: "1px solid var(--border)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              <div
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  background: "var(--success)",
+                  flexShrink: 0,
+                }}
+              />
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: "var(--success)",
+                }}
+              >
+                Due soon
+              </span>
+              <span style={{ fontSize: 11.5, color: "var(--tertiary-foreground)", fontWeight: 300, marginLeft: 4 }}>
+                Coming up in the next 7 days.
+              </span>
+            </div>
+            <span style={{ fontSize: 11, color: "var(--faint-foreground)" }}>
+              {tasksDueSoon.length} items
+            </span>
+          </div>
+
+          <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+            {tasksDueSoon.length > 0 ? (
+              <>
+                {(showAllDueSoon ? tasksDueSoon : tasksDueSoon.slice(0, maxVisibleTasks)).map((task) => (
+                  <TaskRow
+                    key={task.id}
+                    task={task}
+                    accent="var(--success)"
+                    onClick={() => goToTab(task.tabId, task.tabName, task.id)}
+                    formatDueDate={formatDueDate}
+                    getPriorityColor={getPriorityColor}
+                    getPriorityLabel={getPriorityLabel}
+                  />
+                ))}
+                {tasksDueSoon.length > maxVisibleTasks ? (
+                  <button
+                    onClick={() => setShowAllDueSoon((value) => !value)}
+                    className="mx-auto mt-2 inline-flex items-center rounded-full px-3 py-1 text-[12px] font-medium transition hover:opacity-90"
+                    style={{
+                      color: "var(--foreground)",
+                      background: "var(--surface-muted)",
+                      border: "1px solid var(--border-strong)",
+                    }}
+                    type="button"
+                  >
+                    {showAllDueSoon
+                      ? "Show less \u2191"
+                      : `Show ${tasksDueSoon.length - maxVisibleTasks} more \u2192`}
+                  </button>
+                ) : null}
+              </>
+            ) : (
+              <p style={{ fontSize: 11.5, color: "var(--tertiary-foreground)", fontStyle: "italic", padding: "4px 0" }}>
+                No tasks due in the next week.
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Overdue */}
+        <div className="lg:col-span-2">
+          <div
+            style={{
+              background: "var(--surface)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-xl)",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "12px 16px",
+                borderBottom: "1px solid var(--border)",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                <div
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background: "var(--error)",
+                    flexShrink: 0,
+                  }}
+                />
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 500,
+                    color: "var(--error)",
+                  }}
+                >
+                  Overdue
+                </span>
+                <span style={{ fontSize: 11.5, color: "var(--tertiary-foreground)", fontWeight: 300, marginLeft: 4 }}>
+                  Past-due items that need attention.
+                </span>
+              </div>
+              <span style={{ fontSize: 11, color: "var(--faint-foreground)" }}>
+                {tasksOverdue.length} items
+              </span>
+            </div>
+
+            <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+              {tasksOverdue.length > 0 ? (
+                <>
+                  {(showAllOverdue ? tasksOverdue : tasksOverdue.slice(0, maxVisibleTasks)).map((task) => (
+                    <TaskRow
+                      key={task.id}
+                      task={task}
+                      accent="var(--error)"
+                      onClick={() => goToTab(task.tabId, task.tabName, task.id)}
+                      formatDueDate={formatDueDate}
+                      getPriorityColor={getPriorityColor}
+                      getPriorityLabel={getPriorityLabel}
+                      isOverdue
+                    />
+                  ))}
+                  {tasksOverdue.length > maxVisibleTasks ? (
+                    <button
+                      onClick={() => setShowAllOverdue((value) => !value)}
+                      className="mx-auto mt-2 inline-flex items-center rounded-full px-3 py-1 text-[12px] font-medium transition hover:opacity-90"
+                      style={{
+                        color: "var(--foreground)",
+                        background: "var(--surface-muted)",
+                        border: "1px solid var(--border-strong)",
+                      }}
+                      type="button"
+                    >
+                      {showAllOverdue
+                        ? "Show less \u2191"
+                        : `Show ${tasksOverdue.length - maxVisibleTasks} more \u2192`}
+                    </button>
+                  ) : null}
+                </>
+              ) : (
+                <p style={{ fontSize: 11.5, color: "var(--tertiary-foreground)", fontStyle: "italic", padding: "4px 0" }}>
+                  No overdue tasks. You&apos;re on track.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -341,6 +535,7 @@ export default function ProjectOverview({
 
 function TaskRow({
   task,
+  accent,
   onClick,
   formatDueDate,
   getPriorityColor,
@@ -348,33 +543,48 @@ function TaskRow({
   isOverdue = false,
 }: {
   task: ProjectOverviewTask;
+  accent: string;
   onClick: () => void;
   formatDueDate: (dueDate?: string, dueTime?: string) => string | null;
   getPriorityColor: (p?: ProjectOverviewTask["priority"]) => string;
   getPriorityLabel: (p?: ProjectOverviewTask["priority"]) => string;
   isOverdue?: boolean;
 }) {
+  const assigneeCount = Array.isArray(task.assignees) ? task.assignees.length : 0;
+  const primaryAssignee = assigneeCount > 0
+    ? task.assignees?.[0]?.name?.trim() || task.assignees?.[0]?.id || "Assigned"
+    : null;
+  const assigneeLabel = primaryAssignee
+    ? assigneeCount > 1
+      ? `${primaryAssignee} +${assigneeCount - 1}`
+      : primaryAssignee
+    : null;
+
   return (
     <button
       onClick={onClick}
-      className={cn(
-        "w-full rounded-[var(--radius-md)] border px-3 py-2 text-left text-xs transition hover:bg-[var(--secondary)]/5 hover:border-[var(--secondary)]/30 text-[var(--foreground)]",
-        isOverdue
-          ? "border-[var(--tile-orange)]/40 bg-[var(--tile-orange)]/5"
-          : "border-border/60 bg-transparent"
-      )}
+      className="group w-full text-left text-xs transition hover:bg-[var(--surface-hover)]"
+      style={{
+        background: "var(--surface)",
+        border: "1px solid var(--border)",
+        borderLeft: `2.5px solid ${accent}`,
+        borderRadius: "var(--radius-lg)",
+        padding: "10px 12px",
+      }}
     >
-      <div className="flex items-center justify-between gap-2">
-        <p className="font-medium text-[13px] line-clamp-1">{task.text}</p>
-        <span className="whitespace-nowrap text-[11px] text-[var(--muted-foreground)]">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <p className="line-clamp-1 text-[12.5px] font-medium text-[var(--foreground)]">
+          {task.text}
+        </p>
+        <span className="shrink-0 whitespace-nowrap text-[10.5px] text-[var(--tertiary-foreground)]">
           {task.tabName}
         </span>
       </div>
-      <div className="mt-1 flex items-center gap-2 flex-wrap">
+      <div className="flex flex-wrap items-center gap-1.5">
         {task.priority && task.priority !== "none" && (
           <span
             className={cn(
-              "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium",
+              "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10.5px] font-medium",
               getPriorityColor(task.priority)
             )}
           >
@@ -382,14 +592,25 @@ function TaskRow({
             {getPriorityLabel(task.priority)}
           </span>
         )}
+        {assigneeLabel && (
+          <span
+            className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10.5px] font-medium"
+            style={{
+              background: "var(--surface-muted)",
+              color: "var(--muted-foreground)",
+            }}
+          >
+            <User className="h-2.5 w-2.5" />
+            {assigneeLabel}
+          </span>
+        )}
         {task.dueDate && (
           <span
-            className={cn(
-              "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium",
-              isOverdue
-                ? "text-[var(--tile-orange)] bg-[var(--tile-orange)]/10 border border-[var(--tile-orange)]/30"
-                : "border border-[var(--tile-orange)]/30 bg-[var(--tile-orange)]/10 text-[var(--tile-orange)]"
-            )}
+            className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10.5px] font-medium"
+            style={{
+              background: isOverdue ? "var(--error-bg)" : "var(--surface-muted)",
+              color: isOverdue ? "var(--error)" : "var(--muted-foreground)",
+            }}
           >
             <Calendar className="h-2.5 w-2.5" />
             {formatDueDate(task.dueDate, task.dueTime)}

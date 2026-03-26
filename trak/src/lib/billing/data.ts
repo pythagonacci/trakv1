@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServiceClient } from "@/lib/supabase/service";
 import { normalizeBillingStatus, normalizePlanKey, resolveEffectivePlan, type BillingStatus, type PlanKey } from "@/lib/billing/config";
+import { BillingError } from "@/lib/billing/errors";
 import { planKeyFromPriceId, billingStatusFromStripeStatus } from "@/lib/billing/stripe";
 
 export interface WorkspaceBillingRow {
@@ -32,6 +33,20 @@ function mapBillingRow(row: any): WorkspaceBillingRow {
   };
 }
 
+function parseSeatQuantity(value: unknown) {
+  const parsed = typeof value === "number"
+    ? value
+    : typeof value === "string" && value.trim()
+      ? Number.parseInt(value, 10)
+      : Number.NaN;
+
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error("Seats must be a whole number greater than or equal to 1.");
+  }
+
+  return parsed;
+}
+
 export async function getWorkspaceSeatCount(workspaceId: string, supabase?: BillingClient) {
   const client = supabase ?? await createServiceClient();
   const { count, error } = await client
@@ -44,6 +59,20 @@ export async function getWorkspaceSeatCount(workspaceId: string, supabase?: Bill
   }
 
   return Math.max(count ?? 1, 1);
+}
+
+export async function validateWorkspaceSeatQuantity(workspaceId: string, requestedSeatQuantity: unknown, supabase?: BillingClient) {
+  const client = supabase ?? await createServiceClient();
+  const seatQuantity = parseSeatQuantity(requestedSeatQuantity);
+  const activeMemberCount = await getWorkspaceSeatCount(workspaceId, client);
+
+  if (seatQuantity < activeMemberCount) {
+    throw new Error(
+      `Seats cannot be lower than the current ${activeMemberCount} workspace member${activeMemberCount === 1 ? "" : "s"}.`
+    );
+  }
+
+  return { seatQuantity, activeMemberCount };
 }
 
 export async function getWorkspaceBillingRow(workspaceId: string, supabase?: BillingClient) {
@@ -112,37 +141,63 @@ export async function updateWorkspaceBillingRow(
   return mapBillingRow(data);
 }
 
-export async function syncWorkspaceSeatQuantity(workspaceId: string, supabase?: BillingClient) {
+export async function assertCanAddWorkspaceMember(workspaceId: string, supabase?: BillingClient) {
   const client = supabase ?? await createServiceClient();
-  const seatQuantity = await getWorkspaceSeatCount(workspaceId, client);
   const billing = await ensureWorkspaceBillingRow(workspaceId, client);
-  if (billing.seat_quantity === seatQuantity) {
-    return { billing, seatQuantity, changed: false };
+  const planKey = derivePlanFromBillingRow(billing);
+  const activeMemberCount = await getWorkspaceSeatCount(workspaceId, client);
+  const nextActiveMemberCount = activeMemberCount + 1;
+
+  if (planKey === "free") {
+    return {
+      allowed: true as const,
+      billing,
+      planKey,
+      activeMemberCount,
+      nextActiveMemberCount,
+      purchasedSeatQuantity: billing.seat_quantity,
+    };
   }
 
-  const updated = await updateWorkspaceBillingRow(workspaceId, { seat_quantity: seatQuantity }, client);
-  return { billing: updated, seatQuantity, changed: true };
+  if (nextActiveMemberCount > billing.seat_quantity) {
+    throw new BillingError({
+      code: "PLAN_LIMIT_REACHED",
+      message: `This workspace has ${billing.seat_quantity} purchased seat${billing.seat_quantity === 1 ? "" : "s"} and already includes ${activeMemberCount} active member${activeMemberCount === 1 ? "" : "s"}. Increase seats before adding another member.`,
+    });
+  }
+
+  return {
+    allowed: true as const,
+    billing,
+    planKey,
+    activeMemberCount,
+    nextActiveMemberCount,
+    purchasedSeatQuantity: billing.seat_quantity,
+  };
 }
 
-export async function updateStripeSubscriptionSeatQuantity(workspaceId: string) {
+export async function updateStripeSubscriptionPurchasedSeatQuantity(workspaceId: string, requestedSeatQuantity: unknown) {
   const supabase = await createServiceClient();
-  const { billing, seatQuantity } = await syncWorkspaceSeatQuantity(workspaceId, supabase);
+  const billing = await ensureWorkspaceBillingRow(workspaceId, supabase);
   const effectivePlan = derivePlanFromBillingRow(billing);
   if (!billing.stripe_subscription_id || effectivePlan === "free") {
-    return { billing, seatQuantity, syncedToStripe: false };
+    throw new Error("Only paid workspaces with an active Stripe subscription can update seats.");
   }
 
+  const { seatQuantity, activeMemberCount } = await validateWorkspaceSeatQuantity(workspaceId, requestedSeatQuantity, supabase);
   const { getStripe } = await import("@/lib/billing/stripe");
   const stripe = getStripe();
   const subscription = await stripe.subscriptions.retrieve(billing.stripe_subscription_id);
   const firstItem = subscription.items.data[0];
+  if (!firstItem) {
+    throw new Error("Stripe subscription is missing a billable line item.");
+  }
+
   await stripe.subscriptions.update(billing.stripe_subscription_id, {
-    items: firstItem
-      ? [{
-          id: firstItem.id,
-          quantity: seatQuantity,
-        }]
-      : undefined,
+    items: [{
+      id: firstItem.id,
+      quantity: seatQuantity,
+    }],
     proration_behavior: "create_prorations",
   });
 
@@ -150,7 +205,7 @@ export async function updateStripeSubscriptionSeatQuantity(workspaceId: string) 
     seat_quantity: seatQuantity,
   }, supabase);
 
-  return { billing: updated, seatQuantity, syncedToStripe: true };
+  return { billing: updated, seatQuantity, activeMemberCount, syncedToStripe: true };
 }
 
 export async function logBillingEvent(input: {

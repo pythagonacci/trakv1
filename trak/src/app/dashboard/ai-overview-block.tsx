@@ -5,7 +5,6 @@ import {
   Card,
   CardContent,
   CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -76,6 +75,9 @@ export default function AIOverviewBlock({
   const intervalMs = 15 * 60 * 1000; // 15 minutes
   const staleThresholdMs = 5 * 60 * 1000; // consider stale after 5 min for visibility refresh
 
+  const cardClassName =
+    "border border-[var(--border)] bg-[var(--surface)] shadow-none rounded-[var(--radius-xl)]";
+
   // Handle regenerate button click
   const handleRegenerate = useCallback(() => {
     if (refreshInFlight.current) return;
@@ -137,21 +139,48 @@ export default function AIOverviewBlock({
   // Loading state during regeneration
   if (isPending) {
     return (
-      <Card className="border border-[var(--border)] bg-[var(--surface)] animate-pulse">
-        <CardHeader className="cursor-pointer" onClick={() => setIsExpanded((e) => !e)}>
+      <Card className={`${cardClassName} animate-pulse`}>
+        <CardHeader
+          className="cursor-pointer px-4 pt-4 pb-3"
+          onClick={() => setIsExpanded((e) => !e)}
+        >
           <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2 text-base md:text-lg">
-              <Sparkles className="h-5 w-5" />
-              AI Overview
-            </CardTitle>
-            <ChevronDown className={`h-5 w-5 text-[var(--muted-foreground)] transition-transform ${isExpanded ? "" : "-rotate-90"}`} />
+            <div className="flex items-center gap-2">
+              <div
+                style={{
+                  width: 20,
+                  height: 20,
+                  background: "var(--primary-pale)",
+                  borderRadius: "var(--radius-sm)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 11,
+                  color: "var(--primary)",
+                }}
+              >
+                ✦
+              </div>
+              <span
+                style={{
+                  fontSize: 11,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.07em",
+                  fontWeight: 500,
+                  color: "var(--muted-foreground)",
+                }}
+              >
+                AI Overview
+              </span>
+            </div>
+            <ChevronDown className={`h-4 w-4 text-[var(--tertiary-foreground)] transition-transform ${isExpanded ? "" : "-rotate-90"}`} />
           </div>
         </CardHeader>
         {isExpanded && (
-          <CardContent>
+          <CardContent className="px-4 pb-4 pt-0">
             <div className="space-y-4">
-              <div className="h-16 bg-[var(--muted)]/10 rounded" />
-              <div className="h-16 bg-[var(--muted)]/10 rounded" />
+              <div className="h-16 rounded bg-[var(--muted)]/10" />
+              <div className="h-16 rounded bg-[var(--muted)]/10" />
             </div>
           </CardContent>
         )}
@@ -162,21 +191,48 @@ export default function AIOverviewBlock({
   // No data yet (e.g. new workspace) — friendly empty state
   if (!insights && !error) {
     return (
-      <Card className="border border-[var(--border)] bg-[var(--surface)]">
-        <CardHeader className="cursor-pointer" onClick={() => setIsExpanded((e) => !e)}>
+      <Card className={cardClassName}>
+        <CardHeader
+          className="cursor-pointer px-4 pt-4 pb-3"
+          onClick={() => setIsExpanded((e) => !e)}
+        >
           <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2 text-base md:text-lg">
-              <Sparkles className="h-5 w-5" />
-              AI Overview
-            </CardTitle>
-            <ChevronDown className={`h-5 w-5 text-[var(--muted-foreground)] transition-transform ${isExpanded ? "" : "-rotate-90"}`} />
+            <div className="flex items-center gap-2">
+              <div
+                style={{
+                  width: 20,
+                  height: 20,
+                  background: "var(--primary-pale)",
+                  borderRadius: "var(--radius-sm)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 11,
+                  color: "var(--primary)",
+                }}
+              >
+                ✦
+              </div>
+              <span
+                style={{
+                  fontSize: 11,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.07em",
+                  fontWeight: 500,
+                  color: "var(--muted-foreground)",
+                }}
+              >
+                AI Overview
+              </span>
+            </div>
+            <ChevronDown className={`h-4 w-4 text-[var(--tertiary-foreground)] transition-transform ${isExpanded ? "" : "-rotate-90"}`} />
           </div>
         </CardHeader>
         {isExpanded && (
-          <CardContent>
+          <CardContent className="px-4 pb-4 pt-0">
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <Sparkles className="h-8 w-8 text-[var(--muted-foreground)] mb-4" />
-              <p className="text-sm text-[var(--muted-foreground)] mb-4 max-w-sm">
+              <p className="mb-4 max-w-sm text-sm leading-relaxed font-[380] text-[var(--foreground)]">
                 Your workspace is new. Add some projects and tasks, then we&apos;ll generate an AI overview here.
               </p>
               <Button
@@ -201,21 +257,48 @@ export default function AIOverviewBlock({
   // Error state (something went wrong)
   if (error || !insights) {
     return (
-      <Card className="border border-[var(--border)] bg-[var(--surface)]">
-        <CardHeader className="cursor-pointer" onClick={() => setIsExpanded((e) => !e)}>
+      <Card className={cardClassName}>
+        <CardHeader
+          className="cursor-pointer px-4 pt-4 pb-3"
+          onClick={() => setIsExpanded((e) => !e)}
+        >
           <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2 text-base md:text-lg">
-              <Sparkles className="h-5 w-5" />
-              AI Overview
-            </CardTitle>
-            <ChevronDown className={`h-5 w-5 text-[var(--muted-foreground)] transition-transform ${isExpanded ? "" : "-rotate-90"}`} />
+            <div className="flex items-center gap-2">
+              <div
+                style={{
+                  width: 20,
+                  height: 20,
+                  background: "var(--primary-pale)",
+                  borderRadius: "var(--radius-sm)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 11,
+                  color: "var(--primary)",
+                }}
+              >
+                ✦
+              </div>
+              <span
+                style={{
+                  fontSize: 11,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.07em",
+                  fontWeight: 500,
+                  color: "var(--muted-foreground)",
+                }}
+              >
+                AI Overview
+              </span>
+            </div>
+            <ChevronDown className={`h-4 w-4 text-[var(--tertiary-foreground)] transition-transform ${isExpanded ? "" : "-rotate-90"}`} />
           </div>
         </CardHeader>
         {isExpanded && (
-          <CardContent>
+          <CardContent className="px-4 pb-4 pt-0">
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <AlertTriangle className="h-8 w-8 text-[var(--muted-foreground)] mb-4" />
-              <p className="text-sm text-[var(--muted-foreground)] mb-4">
+              <p className="mb-4 text-sm leading-relaxed font-[380] text-[var(--foreground)]">
                 {error ?? "Something went wrong. Try again."}
               </p>
               <Button
@@ -240,16 +323,40 @@ export default function AIOverviewBlock({
   const stale = isStale(insights.generatedAt);
 
   return (
-    <Card className="border border-[var(--border)] bg-[var(--surface)]">
+    <Card className={cardClassName}>
       <CardHeader
-        className="cursor-pointer"
+        className="cursor-pointer px-4 pt-4 pb-3"
         onClick={() => setIsExpanded((e) => !e)}
       >
         <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-base md:text-lg">
-            <Sparkles className="h-5 w-5 text-[var(--tile-orange)]" />
-            AI Overview
-          </CardTitle>
+          <div className="flex items-center gap-2">
+            <div
+              style={{
+                width: 20,
+                height: 20,
+                background: "var(--primary-pale)",
+                borderRadius: "var(--radius-sm)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 11,
+                color: "var(--primary)",
+              }}
+            >
+              ✦
+            </div>
+            <span
+              style={{
+                fontSize: 11,
+                textTransform: "uppercase",
+                letterSpacing: "0.07em",
+                fontWeight: 500,
+                color: "var(--muted-foreground)",
+              }}
+            >
+              AI Overview
+            </span>
+          </div>
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
@@ -259,37 +366,54 @@ export default function AIOverviewBlock({
                 handleRegenerate();
               }}
               disabled={isPending}
-              className="text-xs"
+              className="h-auto px-2 py-1 text-[11.5px] text-[var(--tertiary-foreground)]"
             >
               <RefreshCw className="h-3 w-3 mr-1" />
               Regenerate
             </Button>
-            <ChevronDown className={`h-5 w-5 text-[var(--muted-foreground)] transition-transform shrink-0 ${isExpanded ? "" : "-rotate-90"}`} />
+            <ChevronDown className={`h-4 w-4 shrink-0 text-[var(--tertiary-foreground)] transition-transform ${isExpanded ? "" : "-rotate-90"}`} />
           </div>
         </div>
       </CardHeader>
 
       {isExpanded && (
-      <CardContent className="space-y-4">
-        <div>
-          <p className="text-sm text-[var(--foreground)] leading-relaxed">
+        <CardContent className="px-4 pb-0 pt-0">
+          <p className="text-sm leading-relaxed font-[380] text-[var(--foreground)]">
             {insights.summary}
           </p>
-        </div>
-
-        <div className="pt-4 border-t border-[var(--border)]">
-          <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)]">
-            <span className="flex items-center gap-1">
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "8px 0",
+              marginTop: 12,
+              borderTop: "1px solid var(--border)",
+            }}
+          >
+            <span
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                fontSize: 10.5,
+                color: "var(--faint-foreground)",
+              }}
+            >
               <Info className="h-3 w-3" />
               Generated by AI
             </span>
-            <span className={stale ? "text-[var(--tram-yellow)]" : ""}>
+            <span
+              style={{
+                fontSize: 10.5,
+                color: stale ? "var(--warning)" : "var(--faint-foreground)",
+              }}
+            >
               {formatRelativeTime(insights.generatedAt)}
               {stale && " (stale)"}
             </span>
           </div>
-        </div>
-      </CardContent>
+        </CardContent>
       )}
     </Card>
   );

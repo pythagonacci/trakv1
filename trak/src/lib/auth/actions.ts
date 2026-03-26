@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { createServiceClient } from '@/lib/supabase/service'
 import { setCurrentWorkspaceAfterInvite } from '@/app/actions/workspace'
+import { assertCanAddWorkspaceMember } from '@/lib/billing/data'
 import { cookies } from 'next/headers'
 
 const AUTH_REQUEST_TIMEOUT_MS = 12000
@@ -199,6 +200,24 @@ export async function signupWithInvite(formData: FormData) {
     .maybeSingle()
 
   if (existingProfile) {
+    const { data: existingMembership } = await supabase
+      .from('workspace_members')
+      .select('id')
+      .eq('workspace_id', invite.workspace_id)
+      .eq('user_id', existingProfile.id)
+      .maybeSingle()
+
+    if (existingMembership) {
+      await supabase.from('workspace_invitations').delete().eq('id', invite.id)
+      redirect('/login?message=' + encodeURIComponent('You are already in this workspace. Sign in to continue.') + '&email=' + encodeURIComponent(email))
+    }
+
+    try {
+      await assertCanAddWorkspaceMember(invite.workspace_id, supabase)
+    } catch (error) {
+      redirect('/invite/accept?token=' + encodeURIComponent(token) + '&error=' + encodeURIComponent(error instanceof Error ? error.message : 'This workspace has no available seats right now.'))
+    }
+
     const { error: memberErr } = await supabase
       .from('workspace_members')
       .insert({
@@ -221,6 +240,12 @@ export async function signupWithInvite(formData: FormData) {
     }
     await setCurrentWorkspaceAfterInvite(invite.workspace_id)
     redirect('/dashboard')
+  }
+
+  try {
+    await assertCanAddWorkspaceMember(invite.workspace_id, supabase)
+  } catch (error) {
+    redirect('/invite/accept?token=' + encodeURIComponent(token) + '&error=' + encodeURIComponent(error instanceof Error ? error.message : 'This workspace has no available seats right now.'))
   }
 
   const { data: newUser, error: createError } = await supabase.auth.admin.createUser({

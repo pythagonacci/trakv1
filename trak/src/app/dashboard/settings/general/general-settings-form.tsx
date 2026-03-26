@@ -20,15 +20,21 @@ export default function GeneralSettingsForm({
   billingSummary,
 }: GeneralSettingsFormProps) {
   const router = useRouter();
+  const planKey = billingSummary.entitlements.planKey;
+  const billingStatus = billingSummary.entitlements.billingStatus;
+  const activeMemberCount = billingSummary.seatCount;
+  const purchasedSeatCount = Math.max(billingSummary.billing.seat_quantity ?? 1, 1);
+  const displayedSeatCount = planKey === "free" ? activeMemberCount : purchasedSeatCount;
+  const minimumSeatQuantity = Math.max(activeMemberCount, 1);
   const [name, setName] = useState(workspaceName);
+  const [seatQuantity, setSeatQuantity] = useState(String(Math.max(displayedSeatCount, minimumSeatQuantity)));
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isRedirectingBilling, setIsRedirectingBilling] = useState<"checkout_standard" | "checkout_business" | "portal" | null>(null);
+  const [isRedirectingBilling, setIsRedirectingBilling] = useState<"checkout_standard" | "checkout_business" | "portal" | "update_seats" | null>(null);
 
   const isDirty = name.trim() !== workspaceName;
-  const planKey = billingSummary.entitlements.planKey;
-  const billingStatus = billingSummary.entitlements.billingStatus;
+  const parsedSeatQuantity = Number.parseInt(seatQuantity, 10);
   const aiUsageLabel = billingSummary.usage.commandLimit == null
     ? "Unlimited AI commands on this plan"
     : `${billingSummary.usage.commandsUsed} / ${billingSummary.usage.commandLimit} AI commands used today`;
@@ -40,6 +46,10 @@ export default function GeneralSettingsForm({
       return () => clearTimeout(timeout);
     }
   }, [success]);
+
+  useEffect(() => {
+    setSeatQuantity(String(Math.max(displayedSeatCount, minimumSeatQuantity)));
+  }, [displayedSeatCount, minimumSeatQuantity]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,15 +95,27 @@ export default function GeneralSettingsForm({
     }
   };
 
-  const handleBillingAction = async (action: "checkout_standard" | "checkout_business" | "portal") => {
+  const handleBillingAction = async (action: "checkout_standard" | "checkout_business" | "portal" | "update_seats") => {
     setError(null);
     setIsRedirectingBilling(action);
 
     try {
-      const endpoint = action === "portal" ? "/api/billing/portal" : "/api/billing/checkout";
+      if (action !== "portal") {
+        if (!Number.isInteger(parsedSeatQuantity) || parsedSeatQuantity < minimumSeatQuantity) {
+          throw new Error(`Seats must be at least ${minimumSeatQuantity}.`);
+        }
+      }
+
+      const endpoint = action === "portal"
+        ? "/api/billing/portal"
+        : action === "update_seats"
+          ? "/api/billing/seats"
+          : "/api/billing/checkout";
       const payload = action === "portal"
         ? { workspaceId }
-        : { workspaceId, planKey: action === "checkout_business" ? "business" : "standard" };
+        : action === "update_seats"
+          ? { workspaceId, seatQuantity: parsedSeatQuantity }
+          : { workspaceId, planKey: action === "checkout_business" ? "business" : "standard", seatQuantity: parsedSeatQuantity };
 
       const response = await fetch(endpoint, {
         method: "POST",
@@ -102,6 +124,15 @@ export default function GeneralSettingsForm({
         body: JSON.stringify(payload),
       });
       const json = await response.json();
+
+      if (action === "update_seats") {
+        if (!response.ok) {
+          throw new Error(json?.error || "Failed to update seats");
+        }
+        router.refresh();
+        setIsRedirectingBilling(null);
+        return;
+      }
 
       if (!response.ok || !json?.data?.url) {
         throw new Error(json?.error || "Failed to open billing flow");
@@ -171,8 +202,17 @@ export default function GeneralSettingsForm({
             <p className="mt-1 text-sm text-[var(--muted-foreground)]">
               Plan <span className="capitalize text-[var(--foreground)]">{planKey}</span> · Status <span className="text-[var(--foreground)]">{billingStatus}</span>
             </p>
+            {planKey === "free" ? (
+              <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                Current Members: <span className="text-[var(--foreground)]">{activeMemberCount}</span>
+              </p>
+            ) : (
+              <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                Purchased seats <span className="text-[var(--foreground)]">{displayedSeatCount}</span> · Active members <span className="text-[var(--foreground)]">{activeMemberCount}</span>
+              </p>
+            )}
             <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-              Seats <span className="text-[var(--foreground)]">{billingSummary.seatCount}</span> · {aiUsageLabel}
+              {aiUsageLabel}
             </p>
             {billingSummary.billing.current_period_end && (
               <p className="mt-1 text-xs text-[var(--muted-foreground)]">
@@ -182,60 +222,100 @@ export default function GeneralSettingsForm({
           </div>
 
           {canManage && (
-            <div className="flex flex-wrap gap-2">
-              {planKey === "free" && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => handleBillingAction("checkout_standard")}
-                    disabled={isRedirectingBilling !== null}
-                    className="px-4 py-2 text-sm font-medium text-white bg-[var(--river-indigo)] hover:bg-[var(--river-indigo)]/90 rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
-                  >
-                    {isRedirectingBilling === "checkout_standard" ? "Opening..." : "Upgrade to Standard"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleBillingAction("checkout_business")}
-                    disabled={isRedirectingBilling !== null}
-                    className="px-4 py-2 text-sm font-medium border border-[var(--border)] hover:bg-[var(--surface-hover)] rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
-                  >
-                    {isRedirectingBilling === "checkout_business" ? "Opening..." : "Upgrade to Business"}
-                  </button>
-                </>
-              )}
-
-              {planKey === "standard" && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => handleBillingAction("portal")}
-                    disabled={isRedirectingBilling !== null}
-                    className="px-4 py-2 text-sm font-medium text-white bg-[var(--river-indigo)] hover:bg-[var(--river-indigo)]/90 rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
-                  >
-                    {isRedirectingBilling === "portal" ? "Opening..." : "Manage Billing"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleBillingAction("checkout_business")}
-                    disabled={isRedirectingBilling !== null}
-                    className="px-4 py-2 text-sm font-medium border border-[var(--border)] hover:bg-[var(--surface-hover)] rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
-                  >
-                    {isRedirectingBilling === "checkout_business" ? "Opening..." : "Upgrade to Business"}
-                  </button>
-                </>
-              )}
-
-              {planKey === "business" && (
-                <button
-                  type="button"
-                  onClick={() => handleBillingAction("portal")}
+            <>
+              <div className="space-y-2">
+                <label htmlFor="seat-quantity" className="block text-sm font-medium">
+                  {planKey === "free" ? "Seats to purchase" : "Purchased seats"}
+                </label>
+                <input
+                  id="seat-quantity"
+                  type="number"
+                  inputMode="numeric"
+                  min={minimumSeatQuantity}
+                  step={1}
+                  value={seatQuantity}
+                  onChange={(e) => setSeatQuantity(e.target.value)}
                   disabled={isRedirectingBilling !== null}
-                  className="px-4 py-2 text-sm font-medium text-white bg-[var(--river-indigo)] hover:bg-[var(--river-indigo)]/90 rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
-                >
-                  {isRedirectingBilling === "portal" ? "Opening..." : "Manage Billing"}
-                </button>
-              )}
-            </div>
+                  className="w-full max-w-[180px] px-3 py-2.5 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--background)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--river-indigo)]/50 focus:border-[var(--river-indigo)] disabled:opacity-50 disabled:cursor-not-allowed"
+                />
+                <p className="text-xs text-[var(--muted-foreground)]">
+                  Seats can be higher than your current member count, but never lower than {minimumSeatQuantity}.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {planKey === "free" && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleBillingAction("checkout_standard")}
+                      disabled={isRedirectingBilling !== null}
+                      className="px-4 py-2 text-sm font-medium text-white bg-[var(--river-indigo)] hover:bg-[var(--river-indigo)]/90 rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
+                    >
+                      {isRedirectingBilling === "checkout_standard" ? "Opening..." : "Upgrade to Standard"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleBillingAction("checkout_business")}
+                      disabled={isRedirectingBilling !== null}
+                      className="px-4 py-2 text-sm font-medium border border-[var(--border)] hover:bg-[var(--surface-hover)] rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
+                    >
+                      {isRedirectingBilling === "checkout_business" ? "Opening..." : "Upgrade to Business"}
+                    </button>
+                  </>
+                )}
+
+                {planKey === "standard" && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleBillingAction("update_seats")}
+                      disabled={isRedirectingBilling !== null}
+                      className="px-4 py-2 text-sm font-medium text-white bg-[var(--river-indigo)] hover:bg-[var(--river-indigo)]/90 rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
+                    >
+                      {isRedirectingBilling === "update_seats" ? "Saving..." : "Update Seats"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleBillingAction("portal")}
+                      disabled={isRedirectingBilling !== null}
+                      className="px-4 py-2 text-sm font-medium border border-[var(--border)] hover:bg-[var(--surface-hover)] rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
+                    >
+                      {isRedirectingBilling === "portal" ? "Opening..." : "Manage Billing"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleBillingAction("checkout_business")}
+                      disabled={isRedirectingBilling !== null}
+                      className="px-4 py-2 text-sm font-medium border border-[var(--border)] hover:bg-[var(--surface-hover)] rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
+                    >
+                      {isRedirectingBilling === "checkout_business" ? "Opening..." : "Upgrade to Business"}
+                    </button>
+                  </>
+                )}
+
+                {planKey === "business" && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleBillingAction("update_seats")}
+                      disabled={isRedirectingBilling !== null}
+                      className="px-4 py-2 text-sm font-medium text-white bg-[var(--river-indigo)] hover:bg-[var(--river-indigo)]/90 rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
+                    >
+                      {isRedirectingBilling === "update_seats" ? "Saving..." : "Update Seats"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleBillingAction("portal")}
+                      disabled={isRedirectingBilling !== null}
+                      className="px-4 py-2 text-sm font-medium border border-[var(--border)] hover:bg-[var(--surface-hover)] rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
+                    >
+                      {isRedirectingBilling === "portal" ? "Opening..." : "Manage Billing"}
+                    </button>
+                  </>
+                )}
+              </div>
+            </>
           )}
         </div>
 

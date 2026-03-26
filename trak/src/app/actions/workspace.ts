@@ -9,7 +9,7 @@ import { logger } from '@/lib/logger'
 import { setTestUserContext, clearTestUserContext } from '@/lib/auth-utils'
 import { enableTestMode, disableTestMode, setTestUserId } from '@/lib/supabase/server'
 import { assertCanCreateWorkspace } from '@/lib/billing/entitlements'
-import { ensureWorkspaceBillingRow, updateStripeSubscriptionSeatQuantity } from '@/lib/billing/data'
+import { assertCanAddWorkspaceMember, ensureWorkspaceBillingRow } from '@/lib/billing/data'
 
 const CURRENT_WORKSPACE_COOKIE = "trak_current_workspace"
 
@@ -251,15 +251,18 @@ export async function inviteMember(workspaceId: string, email: string, role: 'ad
         .maybeSingle()
       if (existingMember) return { error: 'User is already a member of this workspace.' }
 
+      try {
+        await assertCanAddWorkspaceMember(workspaceId, supabase)
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Failed to validate seat availability.' }
+      }
+
       const { data: newMember, error: memberError } = await supabase
         .from('workspace_members')
         .insert({ workspace_id: workspaceId, user_id: inviteeProfile.id, role })
         .select('id, role, created_at, user_id')
         .single()
       if (memberError) return { error: memberError.message }
-      updateStripeSubscriptionSeatQuantity(workspaceId).catch((error) => {
-        logger.error("Failed to sync workspace seats after member add", error)
-      })
       safeRevalidatePath('/dashboard')
       return { data: newMember }
     }
@@ -520,10 +523,6 @@ export async function removeMember(workspaceId: string, memberId: string) {
     if (deleteError) {
       return { error: deleteError.message }
     }
-
-    updateStripeSubscriptionSeatQuantity(workspaceId).catch((error) => {
-      logger.error("Failed to sync workspace seats after member removal", error)
-    })
     
     revalidatePath('/dashboard')
     

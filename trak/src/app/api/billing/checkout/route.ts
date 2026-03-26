@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/require-user";
 import { requireWorkspaceAdminRole } from "@/lib/billing/access";
-import { ensureWorkspaceBillingRow, getWorkspaceSeatCount, updateWorkspaceBillingRow } from "@/lib/billing/data";
+import { ensureWorkspaceBillingRow, getWorkspaceSeatCount, updateWorkspaceBillingRow, validateWorkspaceSeatQuantity } from "@/lib/billing/data";
 import { getBaseAppUrl, getPlanPriceId, getStripe } from "@/lib/billing/stripe";
 import { normalizePlanKey } from "@/lib/billing/config";
 
@@ -15,6 +15,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const workspaceId = typeof body.workspaceId === "string" ? body.workspaceId : "";
     const requestedPlan = normalizePlanKey(body.planKey);
+    const requestedSeatQuantity = body.seatQuantity;
     console.log("[billing/checkout] request:parsed", { workspaceId, requestedPlan });
 
     if (!workspaceId) {
@@ -56,12 +57,14 @@ export async function POST(request: NextRequest) {
       console.log("[billing/checkout] billing:update-customer:ok", { workspaceId, customerId });
     }
 
-    const seatQuantity = await getWorkspaceSeatCount(workspaceId);
+    const seatQuantityInput = requestedSeatQuantity ?? await getWorkspaceSeatCount(workspaceId);
+    const { seatQuantity, activeMemberCount } = await validateWorkspaceSeatQuantity(workspaceId, seatQuantityInput);
     const appUrl = getBaseAppUrl();
     console.log("[billing/checkout] checkout-session:create:start", {
       workspaceId,
       customerId,
       seatQuantity,
+      activeMemberCount,
       appUrl,
       priceId,
     });
@@ -79,12 +82,14 @@ export async function POST(request: NextRequest) {
         metadata: {
           workspaceId,
           planKey: requestedPlan,
+          seatQuantity: String(seatQuantity),
           initiatingUserId: user.id,
         },
       },
       metadata: {
         workspaceId,
         planKey: requestedPlan,
+        seatQuantity: String(seatQuantity),
         initiatingUserId: user.id,
       },
     });
