@@ -5,6 +5,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
 import { claimSharedClientPagesForUser } from '@/lib/client-page-shares'
+import { ensureWorkspaceBillingRow, startAppManagedStandardTrial } from '@/lib/billing/data'
 
 /**
  * Signup stage values stored in user_metadata.signup_stage:
@@ -17,14 +18,85 @@ import { claimSharedClientPagesForUser } from '@/lib/client-page-shares'
  * Legacy users also lack this field and are treated as complete.
  */
 
+type SignupFlow = 'default' | 'free_trial'
+
+function getFlowBasePath(flow: SignupFlow | null | undefined) {
+  return flow === 'free_trial' ? '/start-free-trial' : '/signup'
+}
+
+async function getSignupFlow() {
+  const cookieStore = await cookies()
+  const flow = cookieStore.get('signup_flow')?.value
+  return flow === 'free_trial' ? 'free_trial' : 'default'
+}
+
+async function getSignupBasePath() {
+  return getFlowBasePath(await getSignupFlow())
+}
+
+async function setSignupFlow(flow: SignupFlow) {
+  const cookieStore = await cookies()
+  cookieStore.set('signup_flow', flow, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 2 * 60 * 60,
+    path: '/',
+  })
+}
+
+async function clearSignupFlow() {
+  const cookieStore = await cookies()
+  cookieStore.delete('signup_flow')
+  cookieStore.delete('signup_first_name')
+  cookieStore.delete('signup_last_name')
+  cookieStore.delete('signup_workspace_name')
+}
+
+async function setFreeTrialPrefill(values: { firstName: string; lastName: string; workspaceName: string }) {
+  const cookieStore = await cookies()
+  cookieStore.set('signup_first_name', values.firstName, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 2 * 60 * 60,
+    path: '/',
+  })
+  cookieStore.set('signup_last_name', values.lastName, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 2 * 60 * 60,
+    path: '/',
+  })
+  cookieStore.set('signup_workspace_name', values.workspaceName, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 2 * 60 * 60,
+    path: '/',
+  })
+}
+
+export async function getSignupPrefill() {
+  const cookieStore = await cookies()
+  return {
+    firstName: cookieStore.get('signup_first_name')?.value ?? '',
+    lastName: cookieStore.get('signup_last_name')?.value ?? '',
+    workspaceName: cookieStore.get('signup_workspace_name')?.value ?? '',
+    flow: (cookieStore.get('signup_flow')?.value === 'free_trial' ? 'free_trial' : 'default') as SignupFlow,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Stage 1 — Send OTP
 // ---------------------------------------------------------------------------
 
 export async function sendSignupOtp(formData: FormData) {
+  const basePath = await getSignupBasePath()
   const email = (formData.get('email') as string)?.toLowerCase()?.trim()
   if (!email) {
-    redirect('/signup?error=' + encodeURIComponent('Email is required.'))
+    redirect(basePath + '?error=' + encodeURIComponent('Email is required.'))
   }
 
   // Detect existing complete users — redirect to login instead of re-entering signup
@@ -61,7 +133,7 @@ export async function sendSignupOtp(formData: FormData) {
       user_metadata: { signup_stage: 'otp_sent' },
     })
     if (createError && !createError.message.includes('already been registered')) {
-      redirect('/signup?error=' + encodeURIComponent(createError.message))
+      redirect(basePath + '?error=' + encodeURIComponent(createError.message))
     }
   }
 
@@ -75,7 +147,7 @@ export async function sendSignupOtp(formData: FormData) {
   })
 
   if (error) {
-    redirect('/signup?error=' + encodeURIComponent(error.message))
+    redirect(basePath + '?error=' + encodeURIComponent(error.message))
   }
 
   // Persist email so the verify page knows who we're verifying
@@ -88,7 +160,7 @@ export async function sendSignupOtp(formData: FormData) {
     path: '/',
   })
 
-  redirect('/signup/verify')
+  redirect(basePath + '/verify')
 }
 
 // ---------------------------------------------------------------------------
@@ -96,16 +168,17 @@ export async function sendSignupOtp(formData: FormData) {
 // ---------------------------------------------------------------------------
 
 export async function verifySignupOtp(formData: FormData) {
+  const basePath = await getSignupBasePath()
   const token = (formData.get('otp') as string)?.trim()
   const cookieStore = await cookies()
   const email = cookieStore.get('signup_email')?.value
 
   if (!email) {
-    redirect('/signup?error=' + encodeURIComponent('Session expired. Please start again.'))
+    redirect(basePath + '?error=' + encodeURIComponent('Session expired. Please start again.'))
   }
 
   if (!token || token.length !== 6) {
-    redirect('/signup/verify?error=' + encodeURIComponent('Please enter a valid 6-digit code.'))
+    redirect(basePath + '/verify?error=' + encodeURIComponent('Please enter a valid 6-digit code.'))
   }
 
   const supabase = await createClient()
@@ -119,7 +192,7 @@ export async function verifySignupOtp(formData: FormData) {
     const msg = error.message.toLowerCase().includes('expired')
       ? 'Code expired. Please request a new one.'
       : error.message
-    redirect('/signup/verify?error=' + encodeURIComponent(msg))
+    redirect(basePath + '/verify?error=' + encodeURIComponent(msg))
   }
 
   // User now has a session — advance stage
@@ -127,7 +200,7 @@ export async function verifySignupOtp(formData: FormData) {
     data: { signup_stage: 'email_verified' },
   })
 
-  redirect('/signup/password')
+  redirect(basePath + '/password')
 }
 
 // ---------------------------------------------------------------------------
@@ -157,26 +230,27 @@ export async function resendSignupOtp(): Promise<{ error?: string; success?: boo
 // ---------------------------------------------------------------------------
 
 export async function setSignupPassword(formData: FormData) {
+  const basePath = await getSignupBasePath()
   const password = formData.get('password') as string
   const confirmPassword = formData.get('confirmPassword') as string
 
   if (!password || password.length < 8) {
-    redirect('/signup/password?error=' + encodeURIComponent('Password must be at least 8 characters.'))
+    redirect(basePath + '/password?error=' + encodeURIComponent('Password must be at least 8 characters.'))
   }
 
   if (password !== confirmPassword) {
-    redirect('/signup/password?error=' + encodeURIComponent('Passwords do not match.'))
+    redirect(basePath + '/password?error=' + encodeURIComponent('Passwords do not match.'))
   }
 
   if (!/\d/.test(password) || !/[^a-zA-Z0-9\s]/.test(password)) {
-    redirect('/signup/password?error=' + encodeURIComponent('Password must contain at least one number and one symbol.'))
+    redirect(basePath + '/password?error=' + encodeURIComponent('Password must contain at least one number and one symbol.'))
   }
 
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
   if (!user) {
-    redirect('/signup?error=' + encodeURIComponent('Session expired. Please start again.'))
+    redirect(basePath + '?error=' + encodeURIComponent('Session expired. Please start again.'))
   }
 
   const { error } = await supabase.auth.updateUser({
@@ -185,10 +259,10 @@ export async function setSignupPassword(formData: FormData) {
   })
 
   if (error) {
-    redirect('/signup/password?error=' + encodeURIComponent(error.message))
+    redirect(basePath + '/password?error=' + encodeURIComponent(error.message))
   }
 
-  redirect('/signup/account-setup')
+  redirect(basePath + '/account-setup')
 }
 
 // ---------------------------------------------------------------------------
@@ -196,23 +270,25 @@ export async function setSignupPassword(formData: FormData) {
 // ---------------------------------------------------------------------------
 
 export async function completeAccountSetup(formData: FormData) {
+  const basePath = await getSignupBasePath()
+  const flow = await getSignupFlow()
   const firstName = (formData.get('firstName') as string)?.trim()
   const lastName = (formData.get('lastName') as string)?.trim()
   const workspaceName = (formData.get('workspaceName') as string)?.trim()
 
   if (!firstName || !lastName) {
-    redirect('/signup/account-setup?error=' + encodeURIComponent('First and last name are required.'))
+    redirect(basePath + '/account-setup?error=' + encodeURIComponent('First and last name are required.'))
   }
 
   if (!workspaceName) {
-    redirect('/signup/account-setup?error=' + encodeURIComponent('Workspace name is required.'))
+    redirect(basePath + '/account-setup?error=' + encodeURIComponent('Workspace name is required.'))
   }
 
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
   if (!user) {
-    redirect('/signup?error=' + encodeURIComponent('Session expired. Please start again.'))
+    redirect(basePath + '?error=' + encodeURIComponent('Session expired. Please start again.'))
   }
 
   // 1. Finalize user metadata
@@ -220,7 +296,7 @@ export async function completeAccountSetup(formData: FormData) {
     data: { first_name: firstName, last_name: lastName, signup_stage: 'complete' },
   })
   if (metaError) {
-    redirect('/signup/account-setup?error=' + encodeURIComponent(metaError.message))
+    redirect(basePath + '/account-setup?error=' + encodeURIComponent(metaError.message))
   }
 
   // 2. Update profile name
@@ -235,7 +311,7 @@ export async function completeAccountSetup(formData: FormData) {
     .single()
 
   if (wsError || !workspace) {
-    redirect('/signup/account-setup?error=' + encodeURIComponent('Failed to create workspace.'))
+    redirect(basePath + '/account-setup?error=' + encodeURIComponent('Failed to create workspace.'))
   }
 
   await supabase.from('workspace_members').insert({
@@ -243,6 +319,11 @@ export async function completeAccountSetup(formData: FormData) {
     user_id: user.id,
     role: 'owner',
   })
+
+  if (flow === 'free_trial') {
+    await ensureWorkspaceBillingRow(workspace.id)
+    await startAppManagedStandardTrial(workspace.id)
+  }
 
   // 4. Set current workspace cookie + clean up signup cookie
   const cookieStore = await cookies()
@@ -254,7 +335,35 @@ export async function completeAccountSetup(formData: FormData) {
     path: '/',
   })
   cookieStore.delete('signup_email')
+  await clearSignupFlow()
   await claimSharedClientPagesForUser({ userId: user.id, email: user.email })
 
   redirect('/dashboard')
+}
+
+export async function beginFreeTrialSignup(formData: FormData) {
+  const firstName = (formData.get('firstName') as string)?.trim()
+  const lastName = (formData.get('lastName') as string)?.trim()
+  const email = (formData.get('email') as string)?.toLowerCase()?.trim()
+  const workspaceName = (formData.get('workspaceName') as string)?.trim()
+
+  if (!firstName || !lastName) {
+    redirect('/start-free-trial?error=' + encodeURIComponent('First and last name are required.'))
+  }
+
+  if (!email) {
+    redirect('/start-free-trial?error=' + encodeURIComponent('Email is required.'))
+  }
+
+  if (!workspaceName) {
+    redirect('/start-free-trial?error=' + encodeURIComponent('Workspace name is required.'))
+  }
+
+  await setSignupFlow('free_trial')
+  await setFreeTrialPrefill({ firstName, lastName, workspaceName })
+
+  const nextFormData = new FormData()
+  nextFormData.set('email', email)
+
+  await sendSignupOtp(nextFormData)
 }
