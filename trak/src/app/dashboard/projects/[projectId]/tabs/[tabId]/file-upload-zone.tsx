@@ -293,14 +293,11 @@ const FileUploadZone = forwardRef<FileUploadZoneHandle, FileUploadZoneProps>(
             return;
           }
 
-          updateUploadingFile(fileId, {
-            status: "success",
-            progress: 100,
-          });
-
-          if (result.data && onUploadComplete) {
-            onUploadComplete([result.data]);
+          if (result.data) {
+            onUploadComplete?.([result.data]);
           }
+          // Row would only duplicate the block's file list; remove local entry once persisted.
+          setUploadingFiles((prev) => prev.filter((item) => item.id !== fileId));
         } catch (error) {
           const message =
             error instanceof Error ? error.message : "Upload failed";

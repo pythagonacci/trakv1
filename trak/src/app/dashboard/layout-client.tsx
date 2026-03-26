@@ -42,6 +42,8 @@ import { useTheme } from "./theme-context";
 import NotificationBell from "@/components/notifications/notification-bell";
 import { OPEN_CREATE_PROJECT_EVENT } from "@/lib/projects";
 import { useWorkspaceBilling } from "@/hooks/use-workspace-billing";
+// DEMO (magic links): remove DemoUploadToastTrigger + related state when recording is done
+import Toast from "@/app/dashboard/projects/toast";
 import {
   createUnavailableSplashWeather,
   resolveSplashWeather,
@@ -77,6 +79,20 @@ export default function DashboardLayoutClient({
   const isProjectView =
     pathname?.startsWith("/dashboard/projects/") && pathname !== "/dashboard/projects";
   const isWorkflowRoute = pathname?.startsWith("/dashboard/workflow");
+
+  const normalizedPathname = pathname?.replace(/\/$/, "") ?? "";
+  const isProjectOverviewTab =
+    normalizedPathname.startsWith("/dashboard/projects/") &&
+    normalizedPathname !== "/dashboard/projects" &&
+    normalizedPathname.endsWith("/overview");
+
+  const [demoUploadToastOpen, setDemoUploadToastOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isProjectOverviewTab) {
+      setDemoUploadToastOpen(false);
+    }
+  }, [isProjectOverviewTab]);
 
   useEffect(() => {
     // After hydration, align with route-driven default once.
@@ -118,6 +134,29 @@ export default function DashboardLayoutClient({
           </div>
         )}
       </div>
+
+      {isProjectOverviewTab && demoUploadToastOpen && (
+        <Toast
+          message='Edward just uploaded "Final_Campaign_Shots.JPEG" in the Campaign Shoot tab.'
+          type="success"
+          duration={6000}
+          onClose={() => setDemoUploadToastOpen(false)}
+          action={{ label: "View Upload", href: "#" }}
+        />
+      )}
+      {isProjectOverviewTab ? (
+        <button
+          type="button"
+          onClick={() => {
+            setDemoUploadToastOpen(false);
+            requestAnimationFrame(() => setDemoUploadToastOpen(true));
+          }}
+          className="fixed bottom-4 left-4 z-[90] rounded-[2px] border border-dashed border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)] shadow-sm hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+          title="Temporary control for magic-links demo recording"
+        >
+          Demo: upload toast
+        </button>
+      ) : null}
       </DashboardConfigModalProvider>
     </DashboardHeaderProvider>
   );
