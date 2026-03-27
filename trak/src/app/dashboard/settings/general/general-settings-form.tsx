@@ -10,6 +10,7 @@ interface GeneralSettingsFormProps {
   workspaceId: string;
   workspaceName: string;
   canManage: boolean;
+  canManageManualBillingOverrides: boolean;
   billingSummary: WorkspaceBillingSummary;
 }
 
@@ -17,11 +18,17 @@ export default function GeneralSettingsForm({
   workspaceId,
   workspaceName,
   canManage,
+  canManageManualBillingOverrides,
   billingSummary,
 }: GeneralSettingsFormProps) {
   const router = useRouter();
   const planKey = billingSummary.entitlements.planKey;
   const billingStatus = billingSummary.entitlements.billingStatus;
+  const manualPlanKey = billingSummary.entitlements.manualPlanKey;
+  const isManualOverride = billingSummary.entitlements.isManualOverride;
+  const manualPlanNote = billingSummary.entitlements.manualPlanNote;
+  const manualPlanSetAt = billingSummary.entitlements.manualPlanSetAt;
+  const manualPlanSetByEmail = billingSummary.entitlements.manualPlanSetByEmail;
   const isAppManagedTrial = billingSummary.entitlements.isAppManagedTrial;
   const canStartStandardTrial = billingSummary.entitlements.canStartStandardTrial;
   const trialEndsAt = billingSummary.entitlements.trialEndsAt;
@@ -32,9 +39,12 @@ export default function GeneralSettingsForm({
   const [name, setName] = useState(workspaceName);
   const [seatQuantity, setSeatQuantity] = useState(String(Math.max(displayedSeatCount, minimumSeatQuantity)));
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRedirectingBilling, setIsRedirectingBilling] = useState<"checkout_standard" | "checkout_business" | "portal" | "update_seats" | null>(null);
+  const [manualOverridePlan, setManualOverridePlan] = useState<"" | "standard" | "business">(manualPlanKey ?? "");
+  const [manualOverrideNote, setManualOverrideNote] = useState(manualPlanNote ?? "");
+  const [isSubmittingManualOverride, setIsSubmittingManualOverride] = useState(false);
 
   const isDirty = name.trim() !== workspaceName;
   const parsedSeatQuantity = Number.parseInt(seatQuantity, 10);
@@ -44,20 +54,25 @@ export default function GeneralSettingsForm({
 
   // Auto-dismiss success message after 3 seconds
   useEffect(() => {
-    if (success) {
-      const timeout = setTimeout(() => setSuccess(false), 3000);
+    if (successMessage) {
+      const timeout = setTimeout(() => setSuccessMessage(null), 3000);
       return () => clearTimeout(timeout);
     }
-  }, [success]);
+  }, [successMessage]);
 
   useEffect(() => {
     setSeatQuantity(String(Math.max(displayedSeatCount, minimumSeatQuantity)));
   }, [displayedSeatCount, minimumSeatQuantity]);
 
+  useEffect(() => {
+    setManualOverridePlan(manualPlanKey ?? "");
+    setManualOverrideNote(manualPlanNote ?? "");
+  }, [manualPlanKey, manualPlanNote]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    setSuccess(false);
+    setSuccessMessage(null);
 
     // Validation
     if (!name.trim()) {
@@ -89,7 +104,7 @@ export default function GeneralSettingsForm({
       }
 
       // Success
-      setSuccess(true);
+      setSuccessMessage("Workspace settings updated successfully");
       setIsSubmitting(false);
       router.refresh();
     } catch (err) {
@@ -100,6 +115,7 @@ export default function GeneralSettingsForm({
 
   const handleBillingAction = async (action: "checkout_standard" | "checkout_business" | "portal" | "update_seats") => {
     setError(null);
+    setSuccessMessage(null);
     setIsRedirectingBilling(action);
 
     try {
@@ -138,7 +154,7 @@ export default function GeneralSettingsForm({
       }
 
       if (json?.data?.mode === "trial_started") {
-        setSuccess(true);
+        setSuccessMessage("Standard trial started");
         setIsRedirectingBilling(null);
         router.refresh();
         return;
@@ -152,6 +168,44 @@ export default function GeneralSettingsForm({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to open billing flow");
       setIsRedirectingBilling(null);
+    }
+  };
+
+  const handleManualOverrideSubmit = async (clearOverride = false) => {
+    setError(null);
+    setSuccessMessage(null);
+
+    if (!clearOverride && !manualOverridePlan) {
+      setError("Choose a plan to apply a manual override.");
+      return;
+    }
+
+    setIsSubmittingManualOverride(true);
+
+    try {
+      const response = await fetch("/api/internal/billing/override", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          workspaceId,
+          planKey: clearOverride ? "" : manualOverridePlan,
+          note: clearOverride ? "" : manualOverrideNote,
+          clearOverride,
+        }),
+      });
+      const json = await response.json();
+
+      if (!response.ok) {
+        throw new Error(json?.error || "Failed to update manual billing override");
+      }
+
+      setSuccessMessage(clearOverride ? "Manual billing override cleared" : "Manual billing override updated");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update manual billing override");
+    } finally {
+      setIsSubmittingManualOverride(false);
     }
   };
 
@@ -176,10 +230,10 @@ export default function GeneralSettingsForm({
         )}
 
         {/* Success Alert */}
-        {success && (
+        {successMessage && (
           <div className="flex items-start gap-3 rounded-[var(--radius-md)] border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
             <CheckCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
-            <p>Workspace settings updated successfully</p>
+            <p>{successMessage}</p>
           </div>
         )}
 
@@ -210,8 +264,20 @@ export default function GeneralSettingsForm({
           <div>
             <h3 className="text-sm font-medium">Billing</h3>
             <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-              Plan <span className="capitalize text-[var(--foreground)]">{planKey}</span> · Status <span className="text-[var(--foreground)]">{billingStatus}</span>
+              Plan <span className="capitalize text-[var(--foreground)]">{planKey}</span>{isManualOverride ? " (manual override)" : ""} · Billing status <span className="text-[var(--foreground)]">{billingStatus}</span>
             </p>
+            {isManualOverride && (
+              <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                Override grants <span className="capitalize text-[var(--foreground)]">{manualPlanKey}</span>
+                {manualPlanSetAt ? ` since ${new Date(manualPlanSetAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : ""}
+                {manualPlanSetByEmail ? ` by ${manualPlanSetByEmail}` : ""}.
+              </p>
+            )}
+            {isManualOverride && manualPlanNote && (
+              <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                Note: <span className="text-[var(--foreground)]">{manualPlanNote}</span>
+              </p>
+            )}
             {isAppManagedTrial && trialEndsAt && (
               <p className="mt-1 text-sm text-[var(--muted-foreground)]">
                 Your Standard trial ends <span className="text-[var(--foreground)]">{new Date(trialEndsAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>. Add a payment method before then to keep Standard.
@@ -355,6 +421,68 @@ export default function GeneralSettingsForm({
             </>
           )}
         </div>
+
+        {canManageManualBillingOverrides && (
+          <div className="rounded-[var(--radius-md)] border border-amber-200 bg-amber-50/70 p-6 space-y-4">
+            <div>
+              <h3 className="text-sm font-medium text-amber-950">Internal Manual Plan Override</h3>
+              <p className="mt-1 text-sm text-amber-900/80">
+                This bypasses Stripe and grants paid plan access directly from the billing record for this workspace.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="manual-override-plan" className="block text-sm font-medium text-amber-950">
+                Override plan
+              </label>
+              <select
+                id="manual-override-plan"
+                value={manualOverridePlan}
+                onChange={(e) => setManualOverridePlan(e.target.value as "" | "standard" | "business")}
+                disabled={isSubmittingManualOverride}
+                className="w-full max-w-[220px] px-3 py-2.5 rounded-[var(--radius-md)] border border-amber-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 disabled:opacity-50"
+              >
+                <option value="">No override</option>
+                <option value="standard">Standard</option>
+                <option value="business">Business</option>
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="manual-override-note" className="block text-sm font-medium text-amber-950">
+                Internal note
+              </label>
+              <textarea
+                id="manual-override-note"
+                value={manualOverrideNote}
+                onChange={(e) => setManualOverrideNote(e.target.value)}
+                disabled={isSubmittingManualOverride}
+                rows={3}
+                placeholder="Why this workspace is being comped or upgraded manually"
+                className="w-full rounded-[var(--radius-md)] border border-amber-200 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 disabled:opacity-50"
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => handleManualOverrideSubmit(false)}
+                disabled={isSubmittingManualOverride || !manualOverridePlan}
+                className="px-4 py-2 text-sm font-medium text-white bg-amber-700 hover:bg-amber-800 rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
+              >
+                {isSubmittingManualOverride ? "Saving..." : isManualOverride ? "Update Manual Override" : "Apply Manual Override"}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleManualOverrideSubmit(true)}
+                disabled={isSubmittingManualOverride || !isManualOverride}
+                className="px-4 py-2 text-sm font-medium border border-amber-300 text-amber-950 hover:bg-amber-100 rounded-[var(--radius-md)] transition-colors disabled:opacity-50"
+              >
+                Clear Override
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Save Button */}
         {canManage && (

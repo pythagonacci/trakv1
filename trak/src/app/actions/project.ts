@@ -9,6 +9,10 @@ import { createBlock } from './block'
 import type { BlockType } from './block';
 import { syncTagsFieldConfigsForProject } from '@/lib/tables/tag-field-config';
 import { assertCanCreateProject } from '@/lib/billing/limits';
+import { assertCanUseProjectTemplates } from '@/lib/billing/entitlements';
+import { planMeetsRequirement, type PlanKey } from '@/lib/billing/config';
+import { createServiceClient } from '@/lib/supabase/service';
+import { IndexingQueue } from '@/lib/search/job-queue';
 
 // Type for project status
 type ProjectStatus = 'not_started' | 'in_progress' | 'complete'
@@ -32,6 +36,10 @@ type ProjectData = {
   member_ids?: string[] | 'all'  // Project permissions: 'all' or array of user IDs
   assigned_tags?: string[]  // Tags on the project itself (stored in projects.tags)
   tag_bank?: string[]  // Initial tag bank for tasks (inserted into project_tags, create only)
+}
+
+type ProjectTemplateCreationData = ProjectData & {
+  template_id: string
 }
 
 // Type for project filters
@@ -294,6 +302,314 @@ function summarizeBlockPreview(
   }
 }
 
+type TemplateCloneMaps = {
+  tab: Map<string, string>;
+  block: Map<string, string>;
+  task: Map<string, string>;
+  subtask: Map<string, string>;
+  table: Map<string, string>;
+  field: Map<string, string>;
+  row: Map<string, string>;
+  timelineEvent: Map<string, string>;
+};
+
+function createTemplateCloneMaps(): TemplateCloneMaps {
+  return {
+    tab: new Map(),
+    block: new Map(),
+    task: new Map(),
+    subtask: new Map(),
+    table: new Map(),
+    field: new Map(),
+    row: new Map(),
+    timelineEvent: new Map(),
+  };
+}
+
+function cloneJsonValue<T>(value: T): T {
+  if (value == null) return value;
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function uniqueStrings(values: Array<string | null | undefined>) {
+  return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
+}
+
+function remapUuid(value: string, maps: TemplateCloneMaps) {
+  return (
+    maps.tab.get(value) ||
+    maps.block.get(value) ||
+    maps.task.get(value) ||
+    maps.subtask.get(value) ||
+    maps.table.get(value) ||
+    maps.field.get(value) ||
+    maps.row.get(value) ||
+    maps.timelineEvent.get(value) ||
+    value
+  );
+}
+
+function remapKnownIdsInValue(value: any, maps: TemplateCloneMaps): any {
+  if (Array.isArray(value)) {
+    return value.map((item) => remapKnownIdsInValue(item, maps));
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nested]) => [key, remapKnownIdsInValue(nested, maps)])
+    );
+  }
+
+  if (typeof value === "string") {
+    return remapUuid(value, maps);
+  }
+
+  return value;
+}
+
+function sanitizeClonedBlockContent(content: Record<string, any> | null | undefined, maps: TemplateCloneMaps): Record<string, any> {
+  const walk = (value: any, key?: string): any => {
+    if (Array.isArray(value)) {
+      if (key === "files") return [];
+      return value.map((item) => walk(item));
+    }
+
+    if (value && typeof value === "object") {
+      return Object.fromEntries(
+        Object.entries(value).map(([nestedKey, nestedValue]) => {
+          if (nestedKey === "files") return [nestedKey, []];
+          if (nestedKey === "fileId" || nestedKey === "file_id") return [nestedKey, null];
+          return [nestedKey, walk(nestedValue, nestedKey)];
+        })
+      );
+    }
+
+    if (typeof value === "string") {
+      if (key === "fileId" || key === "file_id") return null;
+      return remapUuid(value, maps);
+    }
+
+    return value;
+  };
+
+  return walk(cloneJsonValue(content ?? {}));
+}
+
+function sanitizeTemplateFieldConfig(config: Record<string, any> | null | undefined, maps: TemplateCloneMaps) {
+  const original = (cloneJsonValue(config) ?? {}) as Record<string, any>;
+  const next = remapKnownIdsInValue(original, maps) as Record<string, any>;
+  const relatedTableId = (original.relation_table_id as string | undefined) || (original.linkedTableId as string | undefined);
+  const reverseFieldId = (original.reverse_field_id as string | undefined) || (original.reverseFieldId as string | undefined);
+  const displayFieldId = (original.display_field_id as string | undefined) || (original.displayFieldId as string | undefined);
+  const relationFieldId = (original.relation_field_id as string | undefined) || (original.relationFieldId as string | undefined);
+
+  if (relatedTableId && !maps.table.has(relatedTableId)) {
+    delete next.relation_table_id;
+    delete next.linkedTableId;
+    delete next.reverse_field_id;
+    delete next.reverseFieldId;
+    delete next.display_field_id;
+    delete next.displayFieldId;
+    delete next.relation_field_id;
+    delete next.relationFieldId;
+  }
+
+  if (reverseFieldId && !maps.field.has(reverseFieldId)) {
+    delete next.reverse_field_id;
+    delete next.reverseFieldId;
+  }
+
+  if (displayFieldId && !maps.field.has(displayFieldId)) {
+    delete next.display_field_id;
+    delete next.displayFieldId;
+  }
+
+  if (relationFieldId && !maps.field.has(relationFieldId)) {
+    delete next.relation_field_id;
+    delete next.relationFieldId;
+  }
+
+  return next;
+}
+
+function remapTableRowData(data: Record<string, any> | null | undefined, maps: TemplateCloneMaps) {
+  const source = (cloneJsonValue(data) ?? {}) as Record<string, any>;
+  return Object.fromEntries(
+    Object.entries(source).map(([key, value]) => [maps.field.get(key) || key, remapKnownIdsInValue(value, maps)])
+  );
+}
+
+function sanitizeSourceLinkedRecord<T extends Record<string, any>>(record: T): T {
+  const next = { ...record } as Record<string, any>;
+  if ("source_entity_type" in next) next.source_entity_type = null;
+  if ("source_entity_id" in next) next.source_entity_id = null;
+  if ("source_sync_mode" in next) next.source_sync_mode = null;
+  if ("source_task_id" in next) next.source_task_id = null;
+  if ("edited" in next) next.edited = false;
+  return next as T;
+}
+
+function sanitizeAssignmentFields<T extends Record<string, any>>(record: T): T {
+  const next = { ...record } as Record<string, any>;
+  if ("assignee_id" in next) next.assignee_id = null;
+  if ("assignee_team_id" in next) next.assignee_team_id = null;
+  if ("assignees" in next) next.assignees = [];
+  return next as T;
+}
+
+function sanitizeEntityPropertyValue(fieldName: string, value: any) {
+  if (fieldName === "assignee_id") return null;
+  if (fieldName === "assignee_ids") return [];
+  if (fieldName === "assignees") return [];
+  return cloneJsonValue(value);
+}
+
+function remapReferenceTarget(referenceType: string, referenceId: string, maps: TemplateCloneMaps) {
+  switch (referenceType) {
+    case "block":
+      return maps.block.get(referenceId) || null;
+    case "tab":
+      return maps.tab.get(referenceId) || null;
+    case "task":
+      return maps.task.get(referenceId) || null;
+    case "table_row":
+      return maps.row.get(referenceId) || null;
+    default:
+      return null;
+  }
+}
+
+async function resolveProjectClientId(
+  supabase: Awaited<ReturnType<typeof import('@/lib/supabase/server').createClient>> | Awaited<ReturnType<typeof createServiceClient>>,
+  workspaceId: string,
+  projectData: Pick<ProjectData, "client_id" | "client_name">
+) {
+  let finalClientId = projectData.client_id;
+
+  if (projectData.client_name && !projectData.client_id) {
+    const { data: newClient, error: clientCreateError } = await supabase
+      .from('clients')
+      .insert({
+        workspace_id: workspaceId,
+        name: projectData.client_name.trim(),
+      })
+      .select('id')
+      .single();
+
+    if (clientCreateError) {
+      return { error: `Failed to create client: ${clientCreateError.message}` };
+    }
+
+    finalClientId = newClient.id;
+  } else if (finalClientId) {
+    const { data: client, error: clientError } = await supabase
+      .from('clients')
+      .select('workspace_id')
+      .eq('id', finalClientId)
+      .single();
+
+    if (clientError) {
+      return { error: 'Client not found' };
+    }
+
+    if (client.workspace_id !== workspaceId) {
+      return { error: 'Client does not belong to this workspace' };
+    }
+  }
+
+  return { data: finalClientId || null };
+}
+
+async function insertProjectMembers(
+  supabase: Awaited<ReturnType<typeof import('@/lib/supabase/server').createClient>> | Awaited<ReturnType<typeof createServiceClient>>,
+  workspaceId: string,
+  projectId: string,
+  userId: string,
+  memberIds?: string[] | 'all'
+) {
+  if (!memberIds || memberIds === 'all') return;
+
+  const memberIdsToAssign = new Set(memberIds);
+  memberIdsToAssign.add(userId);
+  const memberIdsArray = Array.from(memberIdsToAssign);
+
+  const { data: validMembers } = await supabase
+    .from('workspace_members')
+    .select('user_id')
+    .eq('workspace_id', workspaceId)
+    .in('user_id', memberIdsArray);
+
+  const validUserIds = validMembers?.map((member) => member.user_id) || [];
+
+  if (validUserIds.length === 0) return;
+
+  await supabase
+    .from('project_members')
+    .insert(validUserIds.map((uid) => ({ project_id: projectId, user_id: uid, added_by: userId })));
+}
+
+async function upsertProjectTagBank(
+  supabase: Awaited<ReturnType<typeof import('@/lib/supabase/server').createClient>> | Awaited<ReturnType<typeof createServiceClient>>,
+  projectId: string,
+  tagNames: string[]
+) {
+  const normalized = Array.from(new Set(tagNames.map((tag) => tag.trim()).filter((tag) => tag.length > 0)));
+  if (normalized.length === 0) return;
+
+  const { error } = await supabase
+    .from('project_tags')
+    .insert(normalized.map((name) => ({ project_id: projectId, name })));
+
+  if (error) {
+    console.error('Failed to add project tag bank:', error);
+    return;
+  }
+
+  await syncTagsFieldConfigsForProject(supabase as any, projectId);
+}
+
+async function ensureWorkspaceTaskTags(
+  supabase: Awaited<ReturnType<typeof createServiceClient>>,
+  workspaceId: string,
+  tags: Array<{ name: string; color: string | null }>
+) {
+  const normalized = Array.from(
+    new Map(
+      tags
+        .filter((tag) => tag.name.trim().length > 0)
+        .map((tag) => [tag.name.trim().toLowerCase(), { name: tag.name.trim(), color: tag.color ?? null }])
+    ).values()
+  );
+
+  if (normalized.length === 0) return new Map<string, string>();
+
+  const { data: existing } = await supabase
+    .from("task_tags")
+    .select("id, name")
+    .eq("workspace_id", workspaceId)
+    .in("name", normalized.map((tag) => tag.name));
+
+  const tagIdByName = new Map<string, string>((existing ?? []).map((tag: any) => [String(tag.name).toLowerCase(), String(tag.id)]));
+  const missing = normalized.filter((tag) => !tagIdByName.has(tag.name.toLowerCase()));
+
+  if (missing.length > 0) {
+    const { data: inserted, error } = await supabase
+      .from("task_tags")
+      .insert(missing.map((tag) => ({ workspace_id: workspaceId, name: tag.name, color: tag.color })))
+      .select("id, name");
+
+    if (error) {
+      throw new Error(`Failed to clone task tags: ${error.message}`);
+    }
+
+    for (const row of inserted ?? []) {
+      tagIdByName.set(String((row as any).name).toLowerCase(), String((row as any).id));
+    }
+  }
+
+  return tagIdByName;
+}
+
 // 1. CREATE PROJECT
 export async function createProject(workspaceId: string, projectData: ProjectData, opts?: { authContext?: AuthContext }) {
   try {
@@ -444,6 +760,703 @@ export async function createProject(workspaceId: string, projectData: ProjectDat
     return { data: project }
   } catch (error) {
     return { error: error instanceof Error ? error.message : 'Failed to create project' }
+  }
+}
+
+export async function createProjectFromTemplate(
+  workspaceId: string,
+  projectData: ProjectTemplateCreationData,
+  opts?: { authContext?: AuthContext }
+) {
+  try {
+    let userId: string
+    if (opts?.authContext) {
+      userId = opts.authContext.userId
+    } else {
+      const authResult = await getServerUser()
+      if (!authResult) return { error: 'Unauthorized' }
+      userId = authResult.user.id
+    }
+
+    const serviceSupabase = await createServiceClient()
+
+    const { data: membership, error: memberError } = await serviceSupabase
+      .from('workspace_members')
+      .select('role')
+      .eq('workspace_id', workspaceId)
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    if (memberError || !membership) {
+      return { error: 'You must be a workspace member to create projects' }
+    }
+
+    const entitlements = await assertCanUseProjectTemplates(workspaceId)
+
+    const { data: template, error: templateError } = await serviceSupabase
+      .from('project_templates')
+      .select('id, source_project_id, min_plan, is_active')
+      .eq('id', projectData.template_id)
+      .eq('is_active', true)
+      .single()
+
+    if (templateError || !template) {
+      return { error: 'Template not found' }
+    }
+
+    const minimumPlan = (template.min_plan ?? 'standard') as PlanKey
+    if (!planMeetsRequirement(entitlements.planKey, minimumPlan)) {
+      return { error: `This template requires the ${minimumPlan} plan.` }
+    }
+
+    const { data: sourceProject, error: sourceProjectError } = await serviceSupabase
+      .from('projects')
+      .select('id, name, project_type, status, due_date_date, due_date_text, priority, tags')
+      .eq('id', template.source_project_id)
+      .single()
+
+    if (sourceProjectError || !sourceProject) {
+      return { error: 'Template source project not found' }
+    }
+
+    await assertCanCreateProject(workspaceId, (sourceProject.project_type as ProjectType | undefined) || 'project')
+
+    const clientResolution = await resolveProjectClientId(serviceSupabase, workspaceId, projectData)
+    if ('error' in clientResolution) {
+      return { error: clientResolution.error }
+    }
+
+    const [
+      sourceProjectTagsResult,
+      sourceTabsResult,
+    ] = await Promise.all([
+      serviceSupabase.from('project_tags').select('name').eq('project_id', sourceProject.id).order('name'),
+      serviceSupabase
+        .from('tabs')
+        .select('id, parent_tab_id, name, position, is_client_visible, client_title, is_workflow_page, workflow_metadata')
+        .eq('project_id', sourceProject.id)
+        .order('position', { ascending: true }),
+    ])
+
+    if (sourceTabsResult.error) {
+      return { error: 'Failed to load template tabs' }
+    }
+
+    const sourceTabs = sourceTabsResult.data ?? []
+    const sourceTabIds = sourceTabs.map((tab: any) => String(tab.id))
+
+    const { data: sourceBlocks, error: sourceBlocksError } = sourceTabIds.length === 0
+      ? { data: [] as any[], error: null }
+      : await serviceSupabase
+          .from('blocks')
+          .select('id, tab_id, parent_block_id, type, content, position, column, locked')
+          .in('tab_id', sourceTabIds)
+          .order('position', { ascending: true })
+
+    if (sourceBlocksError) {
+      return { error: 'Failed to load template blocks' }
+    }
+
+    const blocks = sourceBlocks ?? []
+    const sourceTaskBlockIds = blocks.filter((block: any) => block.type === 'task').map((block: any) => String(block.id))
+    const sourceTimelineBlockIds = blocks.filter((block: any) => block.type === 'timeline').map((block: any) => String(block.id))
+    const sourceTableIds = uniqueStrings(
+      blocks
+        .filter((block: any) => block.type === 'table')
+        .map((block: any) => {
+          const content = (block.content ?? {}) as Record<string, any>
+          const tableId = content.tableId || content.table_id
+          return typeof tableId === 'string' ? tableId : null
+        })
+    )
+
+    const [
+      sourceTaskItemsResult,
+      sourceTimelineEventsResult,
+      sourceTablesResult,
+      sourceFieldsResult,
+      sourceRowsResult,
+      sourceViewsResult,
+      sourceRelationsResult,
+    ] = await Promise.all([
+      sourceTaskBlockIds.length === 0
+        ? Promise.resolve({ data: [] as any[], error: null })
+        : serviceSupabase
+            .from('task_items')
+            .select('*')
+            .in('task_block_id', sourceTaskBlockIds)
+            .order('display_order', { ascending: true }),
+      sourceTimelineBlockIds.length === 0
+        ? Promise.resolve({ data: [] as any[], error: null })
+        : serviceSupabase
+            .from('timeline_events')
+            .select('*')
+            .in('timeline_block_id', sourceTimelineBlockIds)
+            .order('display_order', { ascending: true }),
+      sourceTableIds.length === 0
+        ? Promise.resolve({ data: [] as any[], error: null })
+        : serviceSupabase.from('tables').select('*').in('id', sourceTableIds),
+      sourceTableIds.length === 0
+        ? Promise.resolve({ data: [] as any[], error: null })
+        : serviceSupabase.from('table_fields').select('*').in('table_id', sourceTableIds).order('order', { ascending: true }),
+      sourceTableIds.length === 0
+        ? Promise.resolve({ data: [] as any[], error: null })
+        : serviceSupabase.from('table_rows').select('*').in('table_id', sourceTableIds).order('order', { ascending: true }),
+      sourceTableIds.length === 0
+        ? Promise.resolve({ data: [] as any[], error: null })
+        : serviceSupabase.from('table_views').select('*').in('table_id', sourceTableIds),
+      sourceTableIds.length === 0
+        ? Promise.resolve({ data: [] as any[], error: null })
+        : serviceSupabase
+            .from('table_relations')
+            .select('*')
+            .in('from_table_id', sourceTableIds)
+            .in('to_table_id', sourceTableIds),
+    ])
+
+    if (sourceTaskItemsResult.error) return { error: 'Failed to load template tasks' }
+    if (sourceTimelineEventsResult.error) return { error: 'Failed to load template timeline events' }
+    if (sourceTablesResult.error || sourceFieldsResult.error || sourceRowsResult.error || sourceViewsResult.error || sourceRelationsResult.error) {
+      return { error: 'Failed to load template table data' }
+    }
+
+    const taskItems = sourceTaskItemsResult.data ?? []
+    const timelineEvents = sourceTimelineEventsResult.data ?? []
+    const tableRows = sourceRowsResult.data ?? []
+
+    const sourceTaskIds = taskItems.map((task: any) => String(task.id))
+    const sourceSubtaskIdsPromise = sourceTaskIds.length === 0
+      ? Promise.resolve({ data: [] as any[], error: null })
+      : serviceSupabase.from('task_subtasks').select('*').in('task_id', sourceTaskIds).order('display_order', { ascending: true })
+
+    const sourceTaskTagLinksPromise = sourceTaskIds.length === 0
+      ? Promise.resolve({ data: [] as any[], error: null })
+      : serviceSupabase
+          .from('task_tag_links')
+          .select('task_id, tag:task_tags(id, name, color)')
+          .in('task_id', sourceTaskIds)
+
+    const sourceTimelineEventIds = timelineEvents.map((event: any) => String(event.id))
+    const sourceDependenciesPromise = sourceTimelineBlockIds.length === 0
+      ? Promise.resolve({ data: [] as any[], error: null })
+      : serviceSupabase.from('timeline_dependencies').select('*').in('timeline_block_id', sourceTimelineBlockIds)
+
+    const sourceTimelineRefsPromise = sourceTimelineEventIds.length === 0
+      ? Promise.resolve({ data: [] as any[], error: null })
+      : serviceSupabase.from('timeline_references').select('*').in('event_id', sourceTimelineEventIds)
+
+    const sourceEntityPropsPromise = Promise.all([
+      blocks.length === 0
+        ? Promise.resolve({ data: [] as any[], error: null })
+        : serviceSupabase.from('entity_properties').select('*').eq('entity_type', 'block').in('entity_id', blocks.map((block: any) => String(block.id))),
+      sourceTaskIds.length === 0
+        ? Promise.resolve({ data: [] as any[], error: null })
+        : serviceSupabase.from('entity_properties').select('*').eq('entity_type', 'task').in('entity_id', sourceTaskIds),
+      sourceTimelineEventIds.length === 0
+        ? Promise.resolve({ data: [] as any[], error: null })
+        : serviceSupabase.from('entity_properties').select('*').eq('entity_type', 'timeline_event').in('entity_id', sourceTimelineEventIds),
+    ])
+
+    const [
+      sourceSubtasksResult,
+      sourceTaskTagLinksResult,
+      sourceDependenciesResult,
+      sourceTimelineRefsResult,
+      sourceEntityPropsResults,
+    ] = await Promise.all([
+      sourceSubtaskIdsPromise,
+      sourceTaskTagLinksPromise,
+      sourceDependenciesPromise,
+      sourceTimelineRefsPromise,
+      sourceEntityPropsPromise,
+    ])
+
+    if (sourceSubtasksResult.error) return { error: 'Failed to load template subtasks' }
+    if (sourceTaskTagLinksResult.error) return { error: 'Failed to load template task tags' }
+    if (sourceDependenciesResult.error || sourceTimelineRefsResult.error) return { error: 'Failed to load template timeline metadata' }
+    if (sourceEntityPropsResults.some((result) => result.error)) return { error: 'Failed to load template entity properties' }
+
+    const sourceSubtasks = sourceSubtasksResult.data ?? []
+    const sourceSubtaskIds = sourceSubtasks.map((subtask: any) => String(subtask.id))
+
+    const sourceSubtaskRefsResult = sourceSubtaskIds.length === 0
+      ? { data: [] as any[], error: null }
+      : await serviceSupabase.from('task_subtask_references').select('*').in('subtask_id', sourceSubtaskIds)
+
+    const sourceSubtaskPropsResult = sourceSubtaskIds.length === 0
+      ? { data: [] as any[], error: null }
+      : await serviceSupabase.from('entity_properties').select('*').eq('entity_type', 'subtask').in('entity_id', sourceSubtaskIds)
+
+    if (sourceSubtaskRefsResult.error || sourceSubtaskPropsResult.error) {
+      return { error: 'Failed to load template subtask metadata' }
+    }
+
+    const maps = createTemplateCloneMaps()
+    sourceTabs.forEach((tab: any) => maps.tab.set(String(tab.id), crypto.randomUUID()))
+    blocks.forEach((block: any) => maps.block.set(String(block.id), crypto.randomUUID()))
+    taskItems.forEach((task: any) => maps.task.set(String(task.id), crypto.randomUUID()))
+    sourceSubtasks.forEach((subtask: any) => maps.subtask.set(String(subtask.id), crypto.randomUUID()))
+    ;(sourceTablesResult.data ?? []).forEach((table: any) => maps.table.set(String(table.id), crypto.randomUUID()))
+    ;(sourceFieldsResult.data ?? []).forEach((field: any) => maps.field.set(String(field.id), crypto.randomUUID()))
+    tableRows.forEach((row: any) => maps.row.set(String(row.id), crypto.randomUUID()))
+    timelineEvents.forEach((event: any) => maps.timelineEvent.set(String(event.id), crypto.randomUUID()))
+
+    const assignedTags = Array.from(new Set([...(sourceProject.tags ?? []), ...(projectData.assigned_tags ?? [])]))
+
+    const { data: project, error: createError } = await serviceSupabase
+      .from('projects')
+      .insert({
+        workspace_id: workspaceId,
+        client_id: clientResolution.data,
+        name: projectData.name || sourceProject.name,
+        status: projectData.status || sourceProject.status || 'not_started',
+        due_date_date: projectData.due_date_date ?? sourceProject.due_date_date ?? null,
+        due_date_text: projectData.due_date_text ?? sourceProject.due_date_text ?? null,
+        project_type: sourceProject.project_type || 'project',
+        priority: projectData.priority ?? sourceProject.priority ?? null,
+        tags: assignedTags,
+        source_template_id: template.id,
+        client_page_enabled: false,
+        client_comments_enabled: false,
+        client_editing_enabled: false,
+        public_token: null,
+        folder_id: null,
+        internal_group_id: null,
+      })
+      .select('*, client:clients(name)')
+      .single()
+
+    if (createError || !project) {
+      return { error: createError?.message || 'Failed to create project from template' }
+    }
+
+    await insertProjectMembers(serviceSupabase, workspaceId, project.id, userId, projectData.member_ids)
+
+    const mergedTagBank = Array.from(
+      new Set([
+        ...((sourceProjectTagsResult.data ?? []).map((row: any) => String(row.name))),
+        ...(projectData.tag_bank ?? []),
+      ])
+    )
+    await upsertProjectTagBank(serviceSupabase, project.id, mergedTagBank)
+
+    if (sourceTabs.length === 0) {
+      const defaultTabId = crypto.randomUUID()
+      const { error: defaultTabError } = await serviceSupabase.from('tabs').insert({
+        id: defaultTabId,
+        project_id: project.id,
+        parent_tab_id: null,
+        name: 'Untitled',
+        position: 0,
+      })
+
+      if (defaultTabError) {
+        return { error: 'Project created but failed to create default tab' }
+      }
+    } else {
+      const tabPayload = sourceTabs.map((tab: any) => ({
+        id: maps.tab.get(String(tab.id)),
+        project_id: project.id,
+        parent_tab_id: tab.parent_tab_id ? maps.tab.get(String(tab.parent_tab_id)) || null : null,
+        name: tab.name,
+        position: tab.position,
+        is_client_visible: Boolean(tab.is_client_visible),
+        client_title: tab.client_title ?? null,
+        is_workflow_page: Boolean(tab.is_workflow_page),
+        workflow_metadata: remapKnownIdsInValue(cloneJsonValue(tab.workflow_metadata ?? {}), maps),
+      }))
+
+      const { error: tabInsertError } = await serviceSupabase.from('tabs').insert(tabPayload)
+      if (tabInsertError) {
+        return { error: `Failed to clone tabs: ${tabInsertError.message}` }
+      }
+    }
+
+    if ((sourceTablesResult.data ?? []).length > 0) {
+      const tablePayload = (sourceTablesResult.data ?? []).map((table: any) => ({
+        id: maps.table.get(String(table.id)),
+        workspace_id: workspaceId,
+        project_id: project.id,
+        tab_id: table.tab_id ? maps.tab.get(String(table.tab_id)) || null : null,
+        title: table.title,
+        description: table.description ?? null,
+        icon: table.icon ?? null,
+        created_by: userId,
+      }))
+
+      const { error: tableInsertError } = await serviceSupabase.from('tables').insert(tablePayload)
+      if (tableInsertError) {
+        return { error: `Failed to clone tables: ${tableInsertError.message}` }
+      }
+
+      const fieldPayload = (sourceFieldsResult.data ?? []).map((field: any) => ({
+        id: maps.field.get(String(field.id)),
+        table_id: maps.table.get(String(field.table_id)),
+        name: field.name,
+        type: field.type,
+        config: sanitizeTemplateFieldConfig(field.config, maps),
+        order: field.order,
+        is_primary: Boolean(field.is_primary),
+        width: field.width ?? null,
+      }))
+
+      if (fieldPayload.length > 0) {
+        const { error: fieldInsertError } = await serviceSupabase.from('table_fields').insert(fieldPayload)
+        if (fieldInsertError) {
+          return { error: `Failed to clone table fields: ${fieldInsertError.message}` }
+        }
+      }
+
+      const rowPayload = tableRows.map((row: any) => {
+        const sanitizedRow = sanitizeSourceLinkedRecord(row)
+        return {
+          id: maps.row.get(String(row.id)),
+          table_id: maps.table.get(String(row.table_id)),
+          data: remapTableRowData(sanitizedRow.data, maps),
+          order: row.order,
+          created_by: userId,
+          updated_by: userId,
+          source_entity_type: sanitizedRow.source_entity_type ?? null,
+          source_entity_id: sanitizedRow.source_entity_id ?? null,
+          source_sync_mode: sanitizedRow.source_sync_mode ?? null,
+          edited: Boolean(sanitizedRow.edited),
+        }
+      })
+
+      if (rowPayload.length > 0) {
+        const { error: rowInsertError } = await serviceSupabase.from('table_rows').insert(rowPayload)
+        if (rowInsertError) {
+          return { error: `Failed to clone table rows: ${rowInsertError.message}` }
+        }
+      }
+
+      const viewPayload = (sourceViewsResult.data ?? []).map((view: any) => ({
+        table_id: maps.table.get(String(view.table_id)),
+        name: view.name,
+        type: view.type,
+        config: remapKnownIdsInValue(cloneJsonValue(view.config ?? {}), maps),
+        is_default: Boolean(view.is_default),
+        created_by: userId,
+      }))
+
+      if (viewPayload.length > 0) {
+        const { error: viewInsertError } = await serviceSupabase.from('table_views').insert(viewPayload)
+        if (viewInsertError) {
+          return { error: `Failed to clone table views: ${viewInsertError.message}` }
+        }
+      }
+
+      const relationPayload = (sourceRelationsResult.data ?? [])
+        .map((relation: any) => {
+          const fromTableId = maps.table.get(String(relation.from_table_id))
+          const toTableId = maps.table.get(String(relation.to_table_id))
+          const fromFieldId = maps.field.get(String(relation.from_field_id))
+          const fromRowId = maps.row.get(String(relation.from_row_id))
+          const toRowId = maps.row.get(String(relation.to_row_id))
+          if (!fromTableId || !toTableId || !fromFieldId || !fromRowId || !toRowId) return null
+          return {
+            from_table_id: fromTableId,
+            from_field_id: fromFieldId,
+            from_row_id: fromRowId,
+            to_table_id: toTableId,
+            to_row_id: toRowId,
+          }
+        })
+        .filter(Boolean)
+
+      if (relationPayload.length > 0) {
+        const { error: relationInsertError } = await serviceSupabase.from('table_relations').insert(relationPayload)
+        if (relationInsertError) {
+          return { error: `Failed to clone table relations: ${relationInsertError.message}` }
+        }
+      }
+    }
+
+    if (blocks.length > 0) {
+      const blockPayload = blocks.map((block: any) => ({
+        id: maps.block.get(String(block.id)),
+        tab_id: maps.tab.get(String(block.tab_id)),
+        parent_block_id: block.parent_block_id ? maps.block.get(String(block.parent_block_id)) || null : null,
+        type: block.type,
+        content: sanitizeClonedBlockContent(block.content, maps),
+        position: block.position,
+        column: block.column,
+        original_block_id: null,
+        is_template: false,
+        template_name: null,
+        locked: Boolean(block.locked),
+      }))
+
+      const { error: blockInsertError } = await serviceSupabase.from('blocks').insert(blockPayload)
+      if (blockInsertError) {
+        return { error: `Failed to clone blocks: ${blockInsertError.message}` }
+      }
+    }
+
+    if (taskItems.length > 0) {
+      const taskPayload = taskItems.map((task: any) => {
+        const sanitizedTask = sanitizeAssignmentFields(sanitizeSourceLinkedRecord(task))
+        return {
+          id: maps.task.get(String(task.id)),
+          task_block_id: maps.block.get(String(task.task_block_id)),
+          workspace_id: workspaceId,
+          project_id: project.id,
+          tab_id: task.tab_id ? maps.tab.get(String(task.tab_id)) || null : null,
+          title: task.title,
+          description: task.description ?? null,
+          due_date: task.due_date ?? null,
+          due_time: task.due_time ?? null,
+          start_date: task.start_date ?? null,
+          hide_icons: Boolean(task.hide_icons),
+          display_order: task.display_order,
+          recurring_enabled: Boolean(task.recurring_enabled),
+          recurring_frequency: task.recurring_frequency ?? null,
+          recurring_interval: task.recurring_interval ?? 1,
+          created_by: userId,
+          updated_by: userId,
+          assignee_id: sanitizedTask.assignee_id ?? null,
+          due_time_end: task.due_time_end ?? null,
+          source_task_id: null,
+          source_sync_mode: sanitizedTask.source_sync_mode ?? null,
+          source_entity_type: sanitizedTask.source_entity_type ?? null,
+          source_entity_id: sanitizedTask.source_entity_id ?? null,
+          edited: Boolean(sanitizedTask.edited),
+          priorities: cloneJsonValue(task.priorities ?? []),
+          statuses: cloneJsonValue(task.statuses ?? []),
+          is_placeholder: Boolean(task.is_placeholder),
+          assignees: [],
+          due_dates: cloneJsonValue(task.due_dates ?? []),
+        }
+      })
+
+      const { error: taskInsertError } = await serviceSupabase.from('task_items').insert(taskPayload)
+      if (taskInsertError) {
+        return { error: `Failed to clone tasks: ${taskInsertError.message}` }
+      }
+    }
+
+    if (sourceSubtasks.length > 0) {
+      const subtaskPayload = sourceSubtasks.map((subtask: any) => {
+        const sanitizedSubtask = sanitizeSourceLinkedRecord(subtask)
+        return {
+          id: maps.subtask.get(String(subtask.id)),
+          task_id: maps.task.get(String(subtask.task_id)),
+          title: subtask.title,
+          completed: Boolean(subtask.completed),
+          display_order: subtask.display_order,
+          description: subtask.description ?? null,
+          source_entity_type: sanitizedSubtask.source_entity_type ?? null,
+          source_entity_id: sanitizedSubtask.source_entity_id ?? null,
+          source_sync_mode: sanitizedSubtask.source_sync_mode ?? null,
+        }
+      })
+
+      const { error: subtaskInsertError } = await serviceSupabase.from('task_subtasks').insert(subtaskPayload)
+      if (subtaskInsertError) {
+        return { error: `Failed to clone subtasks: ${subtaskInsertError.message}` }
+      }
+    }
+
+    const taskTagLinks = sourceTaskTagLinksResult.data ?? []
+    if (taskTagLinks.length > 0) {
+      const workspaceTagIds = await ensureWorkspaceTaskTags(
+        serviceSupabase,
+        workspaceId,
+        taskTagLinks
+          .map((link: any) => link.tag)
+          .filter((tag: any) => tag?.name)
+          .map((tag: any) => ({ name: String(tag.name), color: tag.color ? String(tag.color) : null }))
+      )
+
+      const tagLinkPayload = taskTagLinks
+        .map((link: any) => {
+          const taskId = maps.task.get(String(link.task_id))
+          const tagName = link.tag?.name ? String(link.tag.name).toLowerCase() : null
+          const tagId = tagName ? workspaceTagIds.get(tagName) : null
+          if (!taskId || !tagId) return null
+          return { task_id: taskId, tag_id: tagId }
+        })
+        .filter(Boolean)
+
+      if (tagLinkPayload.length > 0) {
+        const { error: tagLinkInsertError } = await serviceSupabase.from('task_tag_links').insert(tagLinkPayload)
+        if (tagLinkInsertError) {
+          return { error: `Failed to clone task tags: ${tagLinkInsertError.message}` }
+        }
+      }
+    }
+
+    const subtaskRefPayload = (sourceSubtaskRefsResult.data ?? [])
+      .map((reference: any) => {
+        const subtaskId = maps.subtask.get(String(reference.subtask_id))
+        const referenceId = remapReferenceTarget(String(reference.reference_type), String(reference.reference_id), maps)
+        if (!subtaskId || !referenceId) return null
+        return {
+          workspace_id: workspaceId,
+          subtask_id: subtaskId,
+          reference_type: reference.reference_type,
+          reference_id: referenceId,
+          table_id: reference.table_id ? maps.table.get(String(reference.table_id)) || null : null,
+          created_by: userId,
+        }
+      })
+      .filter(Boolean)
+
+    if (subtaskRefPayload.length > 0) {
+      const { error: subtaskRefInsertError } = await serviceSupabase.from('task_subtask_references').insert(subtaskRefPayload)
+      if (subtaskRefInsertError) {
+        return { error: `Failed to clone subtask references: ${subtaskRefInsertError.message}` }
+      }
+    }
+
+    if (timelineEvents.length > 0) {
+      const timelinePayload = timelineEvents.map((event: any) => {
+        const sanitizedEvent = sanitizeAssignmentFields(sanitizeSourceLinkedRecord(event))
+        return {
+          id: maps.timelineEvent.get(String(event.id)),
+          timeline_block_id: maps.block.get(String(event.timeline_block_id)),
+          workspace_id: workspaceId,
+          title: event.title,
+          start_date: event.start_date,
+          end_date: event.end_date,
+          assignee_id: null,
+          progress: event.progress ?? 0,
+          notes: event.notes ?? null,
+          color: event.color,
+          is_milestone: Boolean(event.is_milestone),
+          baseline_start: event.baseline_start ?? null,
+          baseline_end: event.baseline_end ?? null,
+          display_order: event.display_order,
+          created_by: userId,
+          updated_by: userId,
+          source_entity_type: sanitizedEvent.source_entity_type ?? null,
+          source_entity_id: sanitizedEvent.source_entity_id ?? null,
+          source_sync_mode: sanitizedEvent.source_sync_mode ?? null,
+          edited: Boolean(sanitizedEvent.edited),
+          priorities: cloneJsonValue(event.priorities ?? []),
+          statuses: cloneJsonValue(event.statuses ?? []),
+          assignee_team_id: null,
+          parent_event_id: event.parent_event_id ? maps.timelineEvent.get(String(event.parent_event_id)) || null : null,
+          assignees: [],
+          tags: cloneJsonValue(event.tags ?? []),
+        }
+      })
+
+      const { error: timelineInsertError } = await serviceSupabase.from('timeline_events').insert(timelinePayload)
+      if (timelineInsertError) {
+        return { error: `Failed to clone timeline events: ${timelineInsertError.message}` }
+      }
+    }
+
+    const dependencyPayload = (sourceDependenciesResult.data ?? [])
+      .map((dependency: any) => {
+        const timelineBlockId = maps.block.get(String(dependency.timeline_block_id))
+        const fromId = maps.timelineEvent.get(String(dependency.from_id))
+        const toId = maps.timelineEvent.get(String(dependency.to_id))
+        if (!timelineBlockId || !fromId || !toId) return null
+        return {
+          timeline_block_id: timelineBlockId,
+          workspace_id: workspaceId,
+          from_id: fromId,
+          to_id: toId,
+          dependency_type: dependency.dependency_type,
+          created_by: userId,
+        }
+      })
+      .filter(Boolean)
+
+    if (dependencyPayload.length > 0) {
+      const { error: dependencyInsertError } = await serviceSupabase.from('timeline_dependencies').insert(dependencyPayload)
+      if (dependencyInsertError) {
+        return { error: `Failed to clone timeline dependencies: ${dependencyInsertError.message}` }
+      }
+    }
+
+    const timelineRefPayload = (sourceTimelineRefsResult.data ?? [])
+      .map((reference: any) => {
+        const eventId = maps.timelineEvent.get(String(reference.event_id))
+        const referenceId = remapReferenceTarget(String(reference.reference_type), String(reference.reference_id), maps)
+        if (!eventId || !referenceId) return null
+        return {
+          workspace_id: workspaceId,
+          event_id: eventId,
+          reference_type: reference.reference_type,
+          reference_id: referenceId,
+          table_id: reference.table_id ? maps.table.get(String(reference.table_id)) || null : null,
+          created_by: userId,
+        }
+      })
+      .filter(Boolean)
+
+    if (timelineRefPayload.length > 0) {
+      const { error: timelineRefInsertError } = await serviceSupabase.from('timeline_references').insert(timelineRefPayload)
+      if (timelineRefInsertError) {
+        return { error: `Failed to clone timeline references: ${timelineRefInsertError.message}` }
+      }
+    }
+
+    const entityPropertyRows = [
+      ...(sourceEntityPropsResults[0].data ?? []).map((row: any) => ({ ...row, entity_type: 'block' })),
+      ...(sourceEntityPropsResults[1].data ?? []).map((row: any) => ({ ...row, entity_type: 'task' })),
+      ...(sourceEntityPropsResults[2].data ?? []).map((row: any) => ({ ...row, entity_type: 'timeline_event' })),
+      ...(sourceSubtaskPropsResult.data ?? []).map((row: any) => ({ ...row, entity_type: 'subtask' })),
+    ]
+
+    const entityPropertyPayload = entityPropertyRows
+      .map((row: any) => {
+        const entityType = String(row.entity_type)
+        const sourceId = String(row.entity_id)
+        const entityId =
+          entityType === 'block'
+            ? maps.block.get(sourceId)
+            : entityType === 'task'
+            ? maps.task.get(sourceId)
+            : entityType === 'subtask'
+            ? maps.subtask.get(sourceId)
+            : entityType === 'timeline_event'
+            ? maps.timelineEvent.get(sourceId)
+            : null
+
+        if (!entityId) return null
+
+        return {
+          entity_id: entityId,
+          entity_type: entityType,
+          field_name: row.field_name,
+          field_type: row.field_type,
+          value: sanitizeEntityPropertyValue(String(row.field_name), row.value),
+          workspace_id: workspaceId,
+        }
+      })
+      .filter(Boolean)
+
+    if (entityPropertyPayload.length > 0) {
+      const { error: entityPropertyInsertError } = await serviceSupabase.from('entity_properties').insert(entityPropertyPayload)
+      if (entityPropertyInsertError) {
+        return { error: `Failed to clone entity properties: ${entityPropertyInsertError.message}` }
+      }
+    }
+
+    if (blocks.length > 0) {
+      try {
+        const queue = new IndexingQueue(serviceSupabase as any)
+        await queue.bulkEnqueue(
+          blocks.map((block: any) => ({
+            workspaceId,
+            resourceType: 'block',
+            resourceId: maps.block.get(String(block.id))!,
+          }))
+        )
+      } catch (error) {
+        console.error('Failed to enqueue cloned blocks for indexing:', error)
+      }
+    }
+
+    revalidatePath('/dashboard')
+    await safeRevalidatePath('/dashboard')
+    return { data: project }
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : 'Failed to create project from template' }
   }
 }
 

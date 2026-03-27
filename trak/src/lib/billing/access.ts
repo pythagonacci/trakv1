@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import type { User } from "@supabase/supabase-js";
 
 export async function requireWorkspaceAdminRole(workspaceId: string, userId: string) {
   const supabase = await createClient();
@@ -18,4 +19,23 @@ export async function requireWorkspaceAdminRole(workspaceId: string, userId: str
   }
 
   return membership;
+}
+
+function getManualBillingOverrideAdminEmails() {
+  return (process.env.BILLING_OVERRIDE_ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+export function canManageManualBillingOverrides(user: Pick<User, "email"> | null | undefined) {
+  const email = user?.email?.trim().toLowerCase();
+  if (!email) return false;
+  return getManualBillingOverrideAdminEmails().includes(email);
+}
+
+export function requireManualBillingOverrideAdmin(user: Pick<User, "email"> | null | undefined) {
+  if (!canManageManualBillingOverrides(user)) {
+    throw new Error("You are not allowed to apply manual billing overrides.");
+  }
 }

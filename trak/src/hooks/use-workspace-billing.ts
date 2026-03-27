@@ -7,6 +7,10 @@ export interface WorkspaceBillingSummary {
     workspace_id: string;
     plan_key: "free" | "standard" | "business";
     billing_status: string;
+    manual_plan_key: "standard" | "business" | null;
+    manual_plan_note: string | null;
+    manual_plan_set_at: string | null;
+    manual_plan_set_by_email: string | null;
     stripe_customer_id: string | null;
     stripe_subscription_id: string | null;
     stripe_price_id: string | null;
@@ -22,6 +26,11 @@ export interface WorkspaceBillingSummary {
     workspaceId: string;
     planKey: "free" | "standard" | "business";
     billingStatus: string;
+    manualPlanKey: "standard" | "business" | null;
+    isManualOverride: boolean;
+    manualPlanNote: string | null;
+    manualPlanSetAt: string | null;
+    manualPlanSetByEmail: string | null;
     trialStartedAt: string | null;
     trialEndsAt: string | null;
     hasUsedStandardTrial: boolean;
@@ -31,6 +40,7 @@ export interface WorkspaceBillingSummary {
     allowEverythingPage: boolean;
     allowDashboardConfiguration: boolean;
     allowWorkspaceScopeCharts: boolean;
+    allowProjectTemplates: boolean;
   };
   usage: {
     date: string;

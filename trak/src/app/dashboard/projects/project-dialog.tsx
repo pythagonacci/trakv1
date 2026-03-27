@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import { getAllClients } from "@/app/actions/client";
 import { getWorkspaceMembers } from "@/app/actions/workspace";
 import { getProjectTags, addProjectTag, removeProjectTag } from "@/app/actions/project";
+import { useWorkspaceBilling } from "@/hooks/use-workspace-billing";
 
 interface Client {
   id: string;
@@ -37,12 +38,22 @@ interface FormData {
   name: string;
   client_id: string;
   client_name?: string; // For creating new clients
+  template_id?: string;
   status: "not_started" | "in_progress" | "complete";
   due_date: string;
   priority: ProjectPriority;
   assigned_tags?: string[]; // Tags for this project (saved to project.tags)
   tag_bank?: string[]; // Tag bank for tasks (project_tags table, create only)
   member_ids?: string[] | "all"; // Project permissions
+}
+
+interface ProjectTemplateSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string | null;
+  minimumPlan: "free" | "standard" | "business";
+  isAvailable: boolean;
 }
 
 interface ProjectDialogProps {
@@ -66,11 +77,15 @@ export default function ProjectDialog({
   clients: initialClients = [],
   onClientsLoad,
 }: ProjectDialogProps) {
+  const { data: billingSummary } = useWorkspaceBilling(workspaceId);
   const [clients, setClients] = useState<Client[]>(initialClients);
   const [clientsLoaded, setClientsLoaded] = useState(initialClients.length > 0);
+  const [templates, setTemplates] = useState<ProjectTemplateSummary[]>([]);
+  const [templatesLoaded, setTemplatesLoaded] = useState(false);
   const [formData, setFormData] = useState<FormData>({
     name: "",
     client_id: "",
+    template_id: undefined,
     status: "not_started",
     due_date: "",
     priority: null,
@@ -88,6 +103,27 @@ export default function ProjectDialog({
   const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceMember[]>([]);
   const [permissionMode, setPermissionMode] = useState<"all" | "specific">("all");
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!isOpen || mode !== "create" || templatesLoaded) return;
+
+    fetch("/api/project-templates", {
+      credentials: "include",
+      cache: "no-store",
+    })
+      .then(async (response) => {
+        const json = await response.json();
+        if (!response.ok) {
+          throw new Error(json?.error || "Failed to load templates");
+        }
+        setTemplates((json?.data ?? []) as ProjectTemplateSummary[]);
+        setTemplatesLoaded(true);
+      })
+      .catch(() => {
+        setTemplates([]);
+        setTemplatesLoaded(true);
+      });
+  }, [isOpen, mode, templatesLoaded]);
 
   // Load clients if not already loaded
   useEffect(() => {
@@ -145,6 +181,7 @@ export default function ProjectDialog({
         setFormData({
           name: "",
           client_id: "",
+          template_id: undefined,
           status: "not_started",
           due_date: "",
           priority: null,
@@ -206,8 +243,8 @@ export default function ProjectDialog({
 
       await onSubmit(submitData);
       // Parent handles success, close, and toast
-    } catch (error: any) {
-      setFormError(error.message || "Failed to save project");
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "Failed to save project");
       setIsSubmitting(false);
     }
   };
@@ -248,6 +285,40 @@ export default function ProjectDialog({
           )}
 
           {/* Project Name */}
+          {mode === "create" && (
+            <div>
+              <label htmlFor="project-template" className="mb-1.5 block text-xs font-medium text-[var(--foreground)]">
+                Starting Point
+              </label>
+              <select
+                id="project-template"
+                value={formData.template_id ?? ""}
+                onChange={(e) => setFormData({ ...formData, template_id: e.target.value || undefined })}
+                className="w-full rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-xs text-[var(--foreground)] transition-colors focus:border-[var(--primary)] focus:outline-none"
+                disabled={isSubmitting}
+              >
+                <option value="">Blank project</option>
+                {templates.map((template) => (
+                  <option key={template.id} value={template.id} disabled={!template.isAvailable}>
+                    {template.name}{!template.isAvailable ? ` (${template.minimumPlan})` : ""}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-[10px] text-[var(--muted-foreground)]">
+                {templates.length > 0
+                  ? "Templates clone into a normal project. After creation, everything behaves like a regular Trak project."
+                  : templatesLoaded
+                  ? "No templates have been seeded yet."
+                  : "Loading templates..."}
+              </p>
+              {!billingSummary?.entitlements.allowProjectTemplates && (
+                <p className="mt-1 text-[10px] text-[var(--muted-foreground)]">
+                  Templates are available on Standard and Business.
+                </p>
+              )}
+            </div>
+          )}
+
           <div>
             <label htmlFor="project-name" className="mb-1.5 block text-xs font-medium text-[var(--foreground)]">
               Project Name <span className="text-red-500">*</span>
@@ -316,7 +387,7 @@ export default function ProjectDialog({
 
             {clientInput && !formData.client_id && (
               <p className="mt-0.5 text-[10px] text-[var(--primary)]">
-                ✨ New client "{clientInput}" will be created
+                ✨ New client &quot;{clientInput}&quot; will be created
               </p>
             )}
           </div>
@@ -611,7 +682,7 @@ export default function ProjectDialog({
 
                 {permissionMode === "specific" && selectedMemberIds.length === 0 && (
                   <p className="ml-5 text-[10px] text-[var(--muted-foreground)]">
-                    Select at least one member (you'll be automatically included)
+                    Select at least one member (you&apos;ll be automatically included)
                   </p>
                 )}
               </div>

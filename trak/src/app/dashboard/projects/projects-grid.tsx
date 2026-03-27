@@ -31,7 +31,7 @@ import {
   Plus,
   Lock,
 } from "lucide-react";
-import { createProject, updateProject, deleteProject } from "@/app/actions/project";
+import { createProject, createProjectFromTemplate, updateProject, deleteProject } from "@/app/actions/project";
 import { getAllClients } from "@/app/actions/client";
 import { moveProjectToFolder, deleteFolder } from "@/app/actions/folder";
 import ProjectDialog from "./project-dialog";
@@ -68,6 +68,12 @@ interface Project {
   is_plan_locked?: boolean;
 }
 
+type CreatedProjectResult = Project & {
+  client?: {
+    name?: string | null;
+  } | null;
+};
+
 interface Client {
   id: string;
   name: string;
@@ -90,12 +96,14 @@ interface FormData {
   name: string;
   client_id: string;
   client_name?: string;
+  template_id?: string;
   status: "not_started" | "in_progress" | "complete";
   due_date: string;
   tags?: string[];
   priority?: string | null;
   assigned_tags?: string[];
   tag_bank?: string[];
+  member_ids?: string[] | "all";
 }
 
 interface TabPreviewBlock {
@@ -334,7 +342,7 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
 
     setProjects([optimisticProject, ...projects]);
 
-    const result = await createProject(workspaceId, {
+    const payload = {
       name: formData.name,
       client_id: formData.client_id || null,
       client_name: formData.client_name,
@@ -344,16 +352,25 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
       priority: (formData.priority && ["low", "medium", "high", "urgent"].includes(formData.priority) ? formData.priority : null) as "low" | "medium" | "high" | "urgent" | null,
       assigned_tags: formData.assigned_tags ?? [],
       tag_bank: formData.tag_bank,
-    });
+      member_ids: formData.member_ids,
+    };
+
+    const result = formData.template_id
+      ? await createProjectFromTemplate(workspaceId, {
+          ...payload,
+          template_id: formData.template_id,
+        })
+      : await createProject(workspaceId, payload);
 
     if ("error" in result) {
       setProjects(projects);
       setToast({ message: result.error ?? "Failed to create project", type: "error" });
       throw new Error(result.error ?? "Failed to create project");
     } else {
+      const resultData = result.data as CreatedProjectResult;
       const createdProject = {
-        ...result.data,
-        client_name: (result.data as any).client?.name || optimisticProject.client_name,
+        ...resultData,
+        client_name: resultData.client?.name || optimisticProject.client_name,
       };
       
       setProjects((prev) =>

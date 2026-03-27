@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import {
   STANDARD_TRIAL_DAYS,
   normalizeBillingStatus,
+  normalizeManualPlanKey,
   normalizePlanKey,
   resolveEffectivePlan,
   type BillingStatus,
@@ -16,6 +17,10 @@ export interface WorkspaceBillingRow {
   workspace_id: string;
   plan_key: PlanKey;
   billing_status: BillingStatus;
+  manual_plan_key: Exclude<PlanKey, "free"> | null;
+  manual_plan_note: string | null;
+  manual_plan_set_at: string | null;
+  manual_plan_set_by_email: string | null;
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
   stripe_price_id: string | null;
@@ -38,6 +43,14 @@ function mapBillingRow(row: any): WorkspaceBillingRow {
     ...row,
     plan_key: normalizePlanKey(row?.plan_key),
     billing_status: normalizeBillingStatus(row?.billing_status),
+    manual_plan_key: normalizeManualPlanKey(row?.manual_plan_key),
+    manual_plan_note: typeof row?.manual_plan_note === "string" && row.manual_plan_note.trim()
+      ? row.manual_plan_note
+      : null,
+    manual_plan_set_at: typeof row?.manual_plan_set_at === "string" ? row.manual_plan_set_at : null,
+    manual_plan_set_by_email: typeof row?.manual_plan_set_by_email === "string" && row.manual_plan_set_by_email.trim()
+      ? row.manual_plan_set_by_email
+      : null,
     seat_quantity: typeof row?.seat_quantity === "number" && row.seat_quantity > 0 ? row.seat_quantity : 1,
     cancel_at_period_end: Boolean(row?.cancel_at_period_end),
     trial_started_at: typeof row?.trial_started_at === "string" ? row.trial_started_at : null,
@@ -246,6 +259,32 @@ export async function updateWorkspaceBillingRow(
   return mapBillingRow(data);
 }
 
+export async function setManualWorkspacePlanOverride(input: {
+  workspaceId: string;
+  manualPlanKey: Exclude<PlanKey, "free"> | null;
+  manualPlanNote?: string | null;
+  actorEmail?: string | null;
+  supabase?: BillingClient;
+}) {
+  const client = input.supabase ?? await createServiceClient();
+  await ensureWorkspaceBillingRow(input.workspaceId, client);
+
+  const trimmedNote = typeof input.manualPlanNote === "string" && input.manualPlanNote.trim()
+    ? input.manualPlanNote.trim()
+    : null;
+  const actorEmail = typeof input.actorEmail === "string" && input.actorEmail.trim()
+    ? input.actorEmail.trim().toLowerCase()
+    : null;
+  const timestamp = new Date().toISOString();
+
+  return updateWorkspaceBillingRow(input.workspaceId, {
+    manual_plan_key: input.manualPlanKey,
+    manual_plan_note: input.manualPlanKey ? trimmedNote : null,
+    manual_plan_set_at: input.manualPlanKey ? timestamp : null,
+    manual_plan_set_by_email: input.manualPlanKey ? actorEmail : null,
+  }, client);
+}
+
 export async function assertCanAddWorkspaceMember(workspaceId: string, supabase?: BillingClient) {
   const client = supabase ?? await createServiceClient();
   const billing = await ensureWorkspaceBillingRow(workspaceId, client);
@@ -384,8 +423,10 @@ export async function findWorkspaceBillingByStripeSubscription(subscriptionId: s
   return data ? mapBillingRow(data) : null;
 }
 
-export function derivePlanFromBillingRow(row: Pick<WorkspaceBillingRow, "plan_key" | "billing_status">) {
-  return resolveEffectivePlan(row.plan_key, row.billing_status);
+export function derivePlanFromBillingRow(
+  row: Pick<WorkspaceBillingRow, "plan_key" | "billing_status" | "manual_plan_key">
+) {
+  return resolveEffectivePlan(row.plan_key, row.billing_status, row.manual_plan_key);
 }
 
 export function buildBillingUpdateFromStripeSubscription(subscription: {

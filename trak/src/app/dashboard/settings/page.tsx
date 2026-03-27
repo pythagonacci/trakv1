@@ -4,6 +4,7 @@ import { getWorkspaceMembers } from "@/app/actions/workspace";
 import { getAllTeams } from "@/app/actions/workspace-teams";
 import { requireWorkspaceAccess } from "@/lib/auth-utils";
 import { createClient } from "@/lib/supabase/server";
+import { canManageManualBillingOverrides } from "@/lib/billing/access";
 import { SettingsClient } from "./settings-client";
 import { getWorkspaceBillingSummary } from "@/lib/billing/entitlements";
 
@@ -64,6 +65,7 @@ export default async function SettingsPage({
       billingSummary={billingSummary}
       currentUserRole={membership.role}
       currentUserId={user.id}
+      canManageManualBillingOverrides={canManageManualBillingOverrides(user)}
       initialTab={initialTab}
     />
   );

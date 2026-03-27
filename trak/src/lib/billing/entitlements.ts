@@ -5,20 +5,25 @@ import {
   isAppManagedStandardTrial,
 } from "@/lib/billing/data";
 import { BillingError } from "@/lib/billing/errors";
-import { getEntitlementTemplate, resolveEffectivePlan, type WorkspaceEntitlements, type PlanKey } from "@/lib/billing/config";
+import { getEntitlementTemplate, resolveEffectivePlan, type WorkspaceEntitlements, type PlanKey, type BillingStatus } from "@/lib/billing/config";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 
 export async function getWorkspaceEntitlements(workspaceId: string): Promise<WorkspaceEntitlements> {
   const supabase = await createServiceClient();
   const billing = await ensureWorkspaceBillingRow(workspaceId, supabase);
-  const effectivePlan = resolveEffectivePlan(billing.plan_key, billing.billing_status);
+  const effectivePlan = resolveEffectivePlan(billing.plan_key, billing.billing_status, billing.manual_plan_key);
   const template = getEntitlementTemplate(effectivePlan);
 
   return {
     workspaceId,
     planKey: effectivePlan,
     billingStatus: billing.billing_status,
+    manualPlanKey: billing.manual_plan_key,
+    isManualOverride: Boolean(billing.manual_plan_key),
+    manualPlanNote: billing.manual_plan_note,
+    manualPlanSetAt: billing.manual_plan_set_at,
+    manualPlanSetByEmail: billing.manual_plan_set_by_email,
     trialStartedAt: billing.trial_started_at,
     trialEndsAt: billing.trial_ends_at,
     hasUsedStandardTrial: hasWorkspaceUsedStandardTrial(billing),
@@ -83,6 +88,18 @@ export async function assertCanUseWorkspaceScopeCharts(workspaceId: string) {
   return entitlements;
 }
 
+export async function assertCanUseProjectTemplates(workspaceId: string) {
+  const entitlements = await getWorkspaceEntitlements(workspaceId);
+  if (!entitlements.allowProjectTemplates) {
+    throw new BillingError({
+      code: "FEATURE_NOT_AVAILABLE",
+      message: "Project templates are available on Standard and Business plans.",
+      upgradeTargetPlan: "standard",
+    });
+  }
+  return entitlements;
+}
+
 export async function assertCanCreateWorkspace(userId: string) {
   const supabase = await createServiceClient();
   const { data: memberships, error } = await supabase
@@ -101,7 +118,7 @@ export async function assertCanCreateWorkspace(userId: string) {
   const workspaceIds = memberships.map((membership) => membership.workspace_id);
   const { data: billingRows, error: billingError } = await supabase
     .from("workspace_billing")
-    .select("workspace_id, plan_key, billing_status")
+    .select("workspace_id, plan_key, billing_status, manual_plan_key")
     .in("workspace_id", workspaceIds);
 
   if (billingError) {
@@ -109,7 +126,10 @@ export async function assertCanCreateWorkspace(userId: string) {
   }
 
   const billingByWorkspace = new Map(
-    (billingRows ?? []).map((row: any) => [row.workspace_id, resolveEffectivePlan(row.plan_key, row.billing_status)])
+    (billingRows ?? []).map((row: { workspace_id: string; plan_key: PlanKey; billing_status: BillingStatus; manual_plan_key?: Exclude<PlanKey, "free"> | null }) => [
+      row.workspace_id,
+      resolveEffectivePlan(row.plan_key, row.billing_status, row.manual_plan_key),
+    ])
   );
 
   const hasBusinessAdminWorkspace = memberships.some((membership) => {

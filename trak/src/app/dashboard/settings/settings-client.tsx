@@ -43,6 +43,7 @@ interface SettingsClientProps {
   billingSummary: WorkspaceBillingSummary;
   currentUserRole: "owner" | "admin" | "teammate";
   currentUserId: string;
+  canManageManualBillingOverrides: boolean;
   initialTab: "members" | "general" | "teams" | "notifications";
 }
 
@@ -53,6 +54,7 @@ export function SettingsClient({
   billingSummary,
   currentUserRole,
   currentUserId,
+  canManageManualBillingOverrides,
   initialTab,
 }: SettingsClientProps) {
   const pathname = usePathname();
@@ -206,6 +208,7 @@ export function SettingsClient({
             workspaceId={workspace.id}
             workspaceName={workspace.name}
             canManage={canManage}
+            canManageManualBillingOverrides={canManageManualBillingOverrides}
             billingSummary={billingSummary}
           />
         )}

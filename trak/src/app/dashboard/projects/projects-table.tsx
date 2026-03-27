@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useTransition, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { MoreHorizontal, Edit, Trash2, ArrowUp, ArrowDown, Lock } from "lucide-react";
-import { createProject, updateProject, deleteProject } from "@/app/actions/project";
+import { createProject, createProjectFromTemplate, updateProject, deleteProject } from "@/app/actions/project";
 import { getAllClients } from "@/app/actions/client";
 import { moveProjectToFolder, deleteFolder } from "@/app/actions/folder";
 import ProjectDialog from "./project-dialog";
@@ -47,6 +47,12 @@ interface Project {
   is_plan_locked?: boolean;
 }
 
+type CreatedProjectResult = Project & {
+  client?: {
+    name?: string | null;
+  } | null;
+};
+
 interface Client {
   id: string;
   name: string;
@@ -73,12 +79,14 @@ interface FormData {
   name: string;
   client_id: string;
   client_name?: string;  // For creating new clients on the fly
+  template_id?: string;
   status: "not_started" | "in_progress" | "complete";
   due_date: string;
   tags?: string[];
   priority?: string | null;
   assigned_tags?: string[];
   tag_bank?: string[];
+  member_ids?: string[] | "all";
 }
 
 export default function ProjectsTable({ projects: initialProjects, workspaceId, folders: initialFolders, currentSort }: ProjectsTableProps) {
@@ -220,7 +228,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
 
     setProjects([optimisticProject, ...projects]);
 
-    const result = await createProject(workspaceId, {
+    const payload = {
       name: formData.name,
       client_id: formData.client_id || null,
       client_name: formData.client_name, // Pass client_name for auto-creation
@@ -230,7 +238,15 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
       priority: (formData.priority && ["low", "medium", "high", "urgent"].includes(formData.priority) ? formData.priority : null) as "low" | "medium" | "high" | "urgent" | null,
       assigned_tags: formData.assigned_tags ?? [],
       tag_bank: formData.tag_bank,
-    });
+      member_ids: formData.member_ids,
+    };
+
+    const result = formData.template_id
+      ? await createProjectFromTemplate(workspaceId, {
+          ...payload,
+          template_id: formData.template_id,
+        })
+      : await createProject(workspaceId, payload);
 
     if ("error" in result) {
       setProjects(projects);
@@ -238,9 +254,10 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
       throw new Error(result.error!);
     } else {
       // Transform the returned project data to match our interface
+      const resultData = result.data as CreatedProjectResult;
       const createdProject = {
-        ...result.data,
-        client_name: (result.data as any).client?.name || optimisticProject.client_name,
+        ...resultData,
+        client_name: resultData.client?.name || optimisticProject.client_name,
       };
       
       setProjects((prev) =>
