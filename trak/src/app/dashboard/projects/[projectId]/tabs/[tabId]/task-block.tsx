@@ -5135,6 +5135,7 @@ export default function TaskBlock({
               </div>
               <div className="w-9 flex-shrink-0" aria-hidden />
             </div>
+            <div className="[&>div:last-child>div.grid:last-child]:border-b-0">
             {orderedTasks.map((task) => {
               const taskClientKey = getTaskClientKey(task);
               const taskEntityId = getPersistedEntityId(task.id);
@@ -5178,7 +5179,7 @@ export default function TaskBlock({
                         setSelectedTaskId(String(task.id));
                       }
                     }}
-                    className="grid border-b border-l border-[var(--border)] transition-colors duration-150 bg-[var(--surface)] w-full last:border-b-0 group-hover/task-row:bg-[var(--primary)]/10 cursor-pointer"
+                    className="grid border-b border-l border-[var(--border)] transition-colors duration-150 bg-[var(--surface)] w-full group-hover/task-row:bg-[var(--primary)]/10 cursor-pointer"
                     style={{ gridTemplateColumns: tableColumnTemplate }}
                     onContextMenu={(e) => {
                       e.preventDefault();
@@ -5683,7 +5684,7 @@ export default function TaskBlock({
                               setSelectedSubtaskParentTaskId(String(task.id));
                             }
                           }}
-                          className="grid transition-colors duration-150 w-full group-hover/task-row:bg-[var(--primary)]/10 subtask-table-row cursor-pointer"
+                          className="grid border-b border-l border-[var(--border)] transition-colors duration-150 w-full bg-[var(--surface)] group-hover/task-row:bg-[var(--primary)]/10 subtask-table-row cursor-pointer"
                           style={{ gridTemplateColumns: tableColumnTemplate }}
                           onContextMenu={(e) => {
                             e.preventDefault();
@@ -6011,6 +6012,7 @@ export default function TaskBlock({
                 </div>
               );
             })}
+            </div>
             </div>
           </div>
           </div>
