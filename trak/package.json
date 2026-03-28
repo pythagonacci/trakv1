@@ -9,6 +9,7 @@
     "start": "next start --port ${PORT:-3000}",
     "lint": "eslint",
     "format": "prettier --write .",
+    "seed:project-template": "node scripts/seed-project-template.js",
     "test:prod": "npm run build && npm start",
     "test": "vitest run",
     "test:watch": "vitest",

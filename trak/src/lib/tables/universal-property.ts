@@ -35,10 +35,21 @@ function normalizeToken(value: unknown): string {
 
 export function normalizeCanonicalPriorityValue(value: unknown): Priority | null {
   if (value === null || value === undefined) return null;
-  const token = normalizeToken(value);
+  const token = normalizeToken(value)
+    .replace(/[^a-z0-9_]+/g, "")
+    .replace(/^_+|_+$/g, "");
   if (!token) return null;
 
-  if (token === "urgent" || token === "critical" || token === "highest" || token === "p0") return "urgent";
+  if (
+    token === "urgent" ||
+    token === "critical" ||
+    token === "highest" ||
+    token === "p0" ||
+    token === "must_have" ||
+    token === "musthave"
+  ) {
+    return "urgent";
+  }
   if (token === "high" || token === "p1") return "high";
   if (token === "medium" || token === "normal" || token === "med" || token === "p2") return "medium";
   if (token === "low" || token === "lowest" || token === "minor" || token === "p3") return "low";
@@ -55,15 +66,36 @@ export function normalizeCanonicalStatusValue(value: unknown): Status | null {
     return "todo";
   }
   if (
+    token === "pending" ||
+    token === "queued" ||
+    token === "quoting" ||
+    token === "under_consideration" ||
+    token === "underconsideration"
+  ) {
+    return "todo";
+  }
+  if (
     token === "in_progress" ||
     token === "inprogress" ||
     token === "doing" ||
     token === "active" ||
-    token === "working"
+    token === "working" ||
+    token === "review" ||
+    token === "in_review" ||
+    token === "inreview" ||
+    token === "reviewing"
   ) {
     return "in_progress";
   }
-  if (token === "done" || token === "complete" || token === "completed" || token === "finished") return "done";
+  if (
+    token === "done" ||
+    token === "complete" ||
+    token === "completed" ||
+    token === "finished" ||
+    token === "approved"
+  ) {
+    return "done";
+  }
   if (token === "blocked" || token === "on_hold" || token === "stuck") return "blocked";
 
   return null;

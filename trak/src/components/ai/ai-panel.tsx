@@ -619,8 +619,7 @@ export function AIPanel({
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const submitInput = async () => {
     if (!input.trim()) return;
 
     // Collapse header after first query is sent
@@ -741,6 +740,20 @@ export function AIPanel({
       confirmation: null,
       routingMode,
     });
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    void submitInput();
+  };
+
+  const handleInputKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (variant !== "modal") return;
+    if (event.key !== "Enter" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.nativeEvent.isComposing) return;
+
+    event.preventDefault();
+    void submitInput();
   };
 
   const handleApprovePendingWrite = async () => {
@@ -1816,6 +1829,7 @@ export function AIPanel({
                   rows={1}
                   value={input}
                   onChange={(e) => handleMentionInput(e.target.value)}
+                  onKeyDown={handleInputKeyDown}
                   placeholder={
                     mode === "file"
                       ? "Ask about your files..."

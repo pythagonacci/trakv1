@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { executeAICommandStream } from "@/lib/ai";
 import { executeWorkflowAICommandStream } from "@/lib/ai/workflow-executor";
 import type { AIMessage } from "@/lib/ai/executor";
 import type { WriteConfirmationApproval } from "@/lib/ai/write-confirmation";
@@ -29,11 +30,12 @@ import { toBillingErrorPayload } from "@/lib/billing/errors";
  */
 export async function POST(request: NextRequest) {
   try {
-    const { supabase } = await requireUser();
+    const { user, supabase } = await requireUser();
 
     const body = await request.json();
-    const { command, tabId, messages, confirmation, resumeFromConfirmation, routingMode, attachedFiles, contextBlockId } = body as {
+    const { command, projectId, tabId, messages, confirmation, resumeFromConfirmation, routingMode, attachedFiles, contextBlockId } = body as {
       command: string;
+      projectId?: string;
       tabId?: string;
       contextBlockId?: string;
       messages?: AIMessage[];
@@ -69,42 +71,11 @@ export async function POST(request: NextRequest) {
     }
 
     let resolvedTabId = (tabId || "").trim();
+    let resolvedProjectId = (projectId || "").trim();
     const workspaceId = await getCurrentWorkspaceId();
-    if (workspaceId) {
-      try {
-        await assertAndConsumeFreeAiCommandQuota(workspaceId);
-      } catch (error) {
-        const billingError = toBillingErrorPayload(error);
-        if (billingError) {
-          return new Response(
-            `data: ${JSON.stringify({ type: "error", content: billingError.message, code: billingError.code, upgradeTargetPlan: billingError.upgradeTargetPlan })}\n\n`,
-            {
-              status: 402,
-              headers: {
-                "Content-Type": "text/event-stream",
-                "Cache-Control": "no-cache",
-                Connection: "keep-alive",
-              },
-            }
-          );
-        }
-        throw error;
-      }
-    }
-    if (workspaceId && refererPathname) {
-      const resolvedRoute = await resolveRouteContextFromPathname({
-        supabase,
-        workspaceId,
-        pathname: refererPathname,
-      });
-      if (resolvedRoute.tabId) {
-        resolvedTabId = resolvedRoute.tabId;
-      }
-    }
-
-    if (!resolvedTabId) {
+    if (!workspaceId) {
       return new Response(
-        `data: ${JSON.stringify({ type: "error", content: "Missing tab context" })}\n\n`,
+        `data: ${JSON.stringify({ type: "error", content: "No workspace selected" })}\n\n`,
         {
           status: 400,
           headers: {
@@ -115,27 +86,87 @@ export async function POST(request: NextRequest) {
         }
       );
     }
+    try {
+      await assertAndConsumeFreeAiCommandQuota(workspaceId);
+    } catch (error) {
+      const billingError = toBillingErrorPayload(error);
+      if (billingError) {
+        return new Response(
+          `data: ${JSON.stringify({ type: "error", content: billingError.message, code: billingError.code, upgradeTargetPlan: billingError.upgradeTargetPlan })}\n\n`,
+          {
+            status: 402,
+            headers: {
+              "Content-Type": "text/event-stream",
+              "Cache-Control": "no-cache",
+              Connection: "keep-alive",
+            },
+          }
+        );
+      }
+      throw error;
+    }
+    if (refererPathname) {
+      const resolvedRoute = await resolveRouteContextFromPathname({
+        supabase,
+        workspaceId,
+        pathname: refererPathname,
+      });
+      if (resolvedRoute.projectId) {
+        resolvedProjectId = resolvedRoute.projectId;
+      }
+      if (resolvedRoute.tabId) {
+        resolvedTabId = resolvedRoute.tabId;
+      }
+    }
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          const generator = executeWorkflowAICommandStream({
-            tabId: resolvedTabId,
-            command,
-            contextBlockId: typeof contextBlockId === "string" && contextBlockId.trim().length > 0 ? contextBlockId.trim() : undefined,
-            conversationHistory: messages,
-            persistSession: false,
-            confirmation: confirmation ?? null,
-            resumeFromConfirmation: Boolean(resumeFromConfirmation),
-            routingMode:
-              routingMode === "chart"
-                ? "chart"
-                : routingMode === "shopify"
-                  ? "shopify"
-                  : "default",
-            attachedFiles: Array.isArray(attachedFiles) && attachedFiles.length > 0 ? attachedFiles : undefined,
-          });
+          const normalizedContextBlockId =
+            typeof contextBlockId === "string" && contextBlockId.trim().length > 0 ? contextBlockId.trim() : undefined;
+          const normalizedRoutingMode =
+            routingMode === "chart"
+              ? "chart"
+              : routingMode === "shopify"
+                ? "shopify"
+                : "default";
+          const normalizedAttachedFiles =
+            Array.isArray(attachedFiles) && attachedFiles.length > 0 ? attachedFiles : undefined;
+          const genericCommand =
+            normalizedAttachedFiles && normalizedAttachedFiles.length > 0
+              ? `[Attached files for context: ${normalizedAttachedFiles.map((file) => `${file.name} (id: ${file.id})`).join(", ")}. Use fileAnalysisQuery with these file IDs when relevant to answer their question.]\n\n${command}`
+              : command;
+
+          const generator = resolvedTabId
+            ? executeWorkflowAICommandStream({
+                tabId: resolvedTabId,
+                command,
+                contextBlockId: normalizedContextBlockId,
+                conversationHistory: messages,
+                persistSession: false,
+                confirmation: confirmation ?? null,
+                resumeFromConfirmation: Boolean(resumeFromConfirmation),
+                routingMode: normalizedRoutingMode,
+                attachedFiles: normalizedAttachedFiles,
+              })
+            : executeAICommandStream(
+                genericCommand,
+                {
+                  workspaceId,
+                  userId: user.id,
+                  currentProjectId: resolvedProjectId || undefined,
+                  contextBlockId: normalizedContextBlockId,
+                },
+                Array.isArray(messages) ? messages.filter((message) => message.role !== "system") : [],
+                {
+                  routingMode: normalizedRoutingMode,
+                  disableDeterministic: true,
+                  disableOptimisticEarlyExit: true,
+                  requireWriteConfirmation: true,
+                  approvedWriteAction: confirmation ?? null,
+                }
+              );
 
           for await (const event of generator) {
             const data = JSON.stringify(event);

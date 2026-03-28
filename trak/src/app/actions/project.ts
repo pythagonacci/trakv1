@@ -303,6 +303,7 @@ function summarizeBlockPreview(
 }
 
 type TemplateCloneMaps = {
+  project: Map<string, string>;
   tab: Map<string, string>;
   block: Map<string, string>;
   task: Map<string, string>;
@@ -315,6 +316,7 @@ type TemplateCloneMaps = {
 
 function createTemplateCloneMaps(): TemplateCloneMaps {
   return {
+    project: new Map(),
     tab: new Map(),
     block: new Map(),
     task: new Map(),
@@ -337,6 +339,7 @@ function uniqueStrings(values: Array<string | null | undefined>) {
 
 function remapUuid(value: string, maps: TemplateCloneMaps) {
   return (
+    maps.project.get(value) ||
     maps.tab.get(value) ||
     maps.block.get(value) ||
     maps.task.get(value) ||
@@ -346,6 +349,53 @@ function remapUuid(value: string, maps: TemplateCloneMaps) {
     maps.row.get(value) ||
     maps.timelineEvent.get(value) ||
     value
+  );
+}
+
+type TemplateTimelineSeedConfig = {
+  defaultLaunchOffsetDays?: number;
+  rangeStartOffsetDays?: number;
+  rangeEndOffsetDays?: number;
+  eventOffsets?: Record<string, { startOffsetDays?: number; endOffsetDays?: number }>;
+};
+
+function isTemplateTimelineSeedConfig(value: unknown): value is TemplateTimelineSeedConfig {
+  return typeof value === "object" && value !== null;
+}
+
+function buildNoonUtcIsoForOffset(anchorDate: Date, offsetDays: number) {
+  return new Date(
+    Date.UTC(
+      anchorDate.getUTCFullYear(),
+      anchorDate.getUTCMonth(),
+      anchorDate.getUTCDate() + offsetDays,
+      12,
+      0,
+      0,
+      0
+    )
+  ).toISOString();
+}
+
+function resolveTemplateTimelineAnchorDate(projectDueDate: string | null | undefined, defaultLaunchOffsetDays: number) {
+  if (projectDueDate) {
+    const dueDate = new Date(`${projectDueDate}T12:00:00.000Z`);
+    if (!Number.isNaN(dueDate.getTime())) {
+      return dueDate;
+    }
+  }
+
+  const today = new Date();
+  return new Date(
+    Date.UTC(
+      today.getUTCFullYear(),
+      today.getUTCMonth(),
+      today.getUTCDate() + defaultLaunchOffsetDays,
+      12,
+      0,
+      0,
+      0
+    )
   );
 }
 
@@ -375,13 +425,15 @@ function sanitizeClonedBlockContent(content: Record<string, any> | null | undefi
     }
 
     if (value && typeof value === "object") {
-      return Object.fromEntries(
-        Object.entries(value).map(([nestedKey, nestedValue]) => {
+      const entries = Object.entries(value)
+        .map(([nestedKey, nestedValue]) => {
+          if (nestedKey === "templateTimelineSeed") return [nestedKey, undefined];
           if (nestedKey === "files") return [nestedKey, []];
           if (nestedKey === "fileId" || nestedKey === "file_id") return [nestedKey, null];
           return [nestedKey, walk(nestedValue, nestedKey)];
         })
-      );
+        .filter(([, nestedValue]) => nestedValue !== undefined);
+      return Object.fromEntries(entries);
     }
 
     if (typeof value === "string") {
@@ -393,6 +445,63 @@ function sanitizeClonedBlockContent(content: Record<string, any> | null | undefi
   };
 
   return walk(cloneJsonValue(content ?? {}));
+}
+
+function resolveTimelineBlockContent(
+  content: Record<string, any> | null | undefined,
+  maps: TemplateCloneMaps,
+  projectDueDate: string | null | undefined
+) {
+  const sanitized = sanitizeClonedBlockContent(content, maps);
+  const seed = content?.templateTimelineSeed;
+  if (!isTemplateTimelineSeedConfig(seed)) {
+    return sanitized;
+  }
+
+  const anchorDate = resolveTemplateTimelineAnchorDate(projectDueDate, seed.defaultLaunchOffsetDays ?? 30);
+  const next = cloneJsonValue(sanitized);
+  const rangeStart = seed.rangeStartOffsetDays ?? -14;
+  const rangeEnd = seed.rangeEndOffsetDays ?? 14;
+  const existingViewConfig =
+    next.viewConfig && typeof next.viewConfig === "object" ? (next.viewConfig as Record<string, any>) : {};
+
+  next.viewConfig = {
+    startDate: buildNoonUtcIsoForOffset(anchorDate, rangeStart),
+    endDate: buildNoonUtcIsoForOffset(anchorDate, rangeEnd),
+    zoomLevel: existingViewConfig.zoomLevel ?? "week",
+    groupBy: existingViewConfig.groupBy ?? "none",
+    filters: existingViewConfig.filters ?? {},
+  };
+
+  return next;
+}
+
+function resolveClonedTimelineEventDates(
+  event: Record<string, any>,
+  sourceBlockContent: Record<string, any> | null | undefined,
+  projectDueDate: string | null | undefined
+) {
+  const seed = sourceBlockContent?.templateTimelineSeed;
+  if (!isTemplateTimelineSeedConfig(seed)) {
+    return {
+      start_date: event.start_date,
+      end_date: event.end_date,
+    };
+  }
+
+  const offsets = seed.eventOffsets?.[String(event.title)] ?? null;
+  if (!offsets) {
+    return {
+      start_date: event.start_date,
+      end_date: event.end_date,
+    };
+  }
+
+  const anchorDate = resolveTemplateTimelineAnchorDate(projectDueDate, seed.defaultLaunchOffsetDays ?? 30);
+  return {
+    start_date: buildNoonUtcIsoForOffset(anchorDate, offsets.startOffsetDays ?? 0),
+    end_date: buildNoonUtcIsoForOffset(anchorDate, offsets.endOffsetDays ?? offsets.startOffsetDays ?? 0),
+  };
 }
 
 function sanitizeTemplateFieldConfig(config: Record<string, any> | null | undefined, maps: TemplateCloneMaps) {
@@ -1030,6 +1139,8 @@ export async function createProjectFromTemplate(
       return { error: createError?.message || 'Failed to create project from template' }
     }
 
+    maps.project.set(String(sourceProject.id), String(project.id))
+
     await insertProjectMembers(serviceSupabase, workspaceId, project.id, userId, projectData.member_ids)
 
     const mergedTagBank = Array.from(
@@ -1172,13 +1283,19 @@ export async function createProjectFromTemplate(
       }
     }
 
+    const clonedProjectDueDate = projectData.due_date_date ?? sourceProject.due_date_date ?? null
+    const sourceBlocksById = new Map<string, any>(blocks.map((block: any) => [String(block.id), block]))
+
     if (blocks.length > 0) {
       const blockPayload = blocks.map((block: any) => ({
         id: maps.block.get(String(block.id)),
         tab_id: maps.tab.get(String(block.tab_id)),
         parent_block_id: block.parent_block_id ? maps.block.get(String(block.parent_block_id)) || null : null,
         type: block.type,
-        content: sanitizeClonedBlockContent(block.content, maps),
+        content:
+          block.type === 'timeline'
+            ? resolveTimelineBlockContent(block.content, maps, clonedProjectDueDate)
+            : sanitizeClonedBlockContent(block.content, maps),
         position: block.position,
         column: block.column,
         original_block_id: null,
@@ -1312,13 +1429,15 @@ export async function createProjectFromTemplate(
     if (timelineEvents.length > 0) {
       const timelinePayload = timelineEvents.map((event: any) => {
         const sanitizedEvent = sanitizeAssignmentFields(sanitizeSourceLinkedRecord(event))
+        const sourceBlockContent = sourceBlocksById.get(String(event.timeline_block_id))?.content as Record<string, any> | undefined
+        const resolvedDates = resolveClonedTimelineEventDates(event, sourceBlockContent, clonedProjectDueDate)
         return {
           id: maps.timelineEvent.get(String(event.id)),
           timeline_block_id: maps.block.get(String(event.timeline_block_id)),
           workspace_id: workspaceId,
           title: event.title,
-          start_date: event.start_date,
-          end_date: event.end_date,
+          start_date: resolvedDates.start_date,
+          end_date: resolvedDates.end_date,
           assignee_id: null,
           progress: event.progress ?? 0,
           notes: event.notes ?? null,

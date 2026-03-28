@@ -20,6 +20,7 @@ import {
 import { getWorkspacePlanLockState } from "@/lib/billing/locks";
 import PlanLockedState from "@/components/billing/plan-locked-state";
 import type { Block } from "@/app/actions/block";
+import { getDefaultSubtabForEmptyParent } from "@/lib/tabs/default-subtab";
 
 // 🔒 Force dynamic - user-specific data shouldn't be cached across users
 export const dynamic = "force-dynamic";
@@ -130,6 +131,26 @@ export default async function TabPage({
   const blocks = blocksData as Block[];
   const isWorkflowTab = Boolean(tab?.is_workflow_page);
   const planLockState = await getWorkspacePlanLockState(workspaceId);
+
+  const defaultSubtab = getDefaultSubtabForEmptyParent(tabId, hierarchicalTabs, blocks.length > 0);
+  if (defaultSubtab) {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(searchParamsData)) {
+      if (typeof value === "string") {
+        query.append(key, value);
+      } else if (Array.isArray(value)) {
+        for (const item of value) {
+          if (typeof item === "string") {
+            query.append(key, item);
+          }
+        }
+      }
+    }
+
+    const nextPath = buildProjectTabPath(project.id, defaultSubtab.id, project.name, defaultSubtab.name);
+    const queryString = query.toString();
+    redirect(queryString ? `${nextPath}?${queryString}` : nextPath);
+  }
 
   if (planLockState.lockedTabIds.includes(tabId)) {
     return (

@@ -26,6 +26,14 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
   const fileUrls = useFileUrls();
   const fileId = block.content?.fileId as string;
   const imageUrl = fileId ? fileUrls[fileId] : null;
+  const templateTitle =
+    typeof block.content?.title === "string" && block.content.title.trim()
+      ? block.content.title.trim()
+      : null;
+  const templateDescription =
+    typeof block.content?.description === "string" && block.content.description.trim()
+      ? block.content.description.trim()
+      : null;
 
   const [uploading, setUploading] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -160,6 +168,7 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
       const updateResult = await updateBlock({
         blockId: block.id,
         content: {
+          ...block.content,
           fileId,
           caption: "",
           width: 400,
@@ -261,27 +270,43 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
   // Empty state - show upload zone
   if (!block.content?.fileId && !uploading) {
     return (
-      <div
-        onDrop={handleDrop}
-        onDragOver={(e) => e.preventDefault()}
-        onClick={() => fileInputRef.current?.click()}
-        className="p-8 border-2 border-dashed border-neutral-300 dark:border-neutral-700 rounded-lg cursor-pointer transition-colors hover:border-neutral-400 dark:hover:border-neutral-600"
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={handleFileSelect}
-        />
-        <div className="flex flex-col items-center justify-center text-center space-y-2">
-          <ImageIcon className="w-12 h-12 text-neutral-400" />
-          <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-            Drop image here or click to browse
-          </p>
-          <p className="text-xs text-neutral-500">
-            Maximum 50MB
-          </p>
+      <div className="space-y-3">
+        {(templateTitle || templateDescription) && (
+          <div className="space-y-1">
+            {templateTitle && (
+              <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                {templateTitle}
+              </p>
+            )}
+            {templateDescription && (
+              <p className="text-sm text-neutral-600 dark:text-neutral-400">
+                {templateDescription}
+              </p>
+            )}
+          </div>
+        )}
+        <div
+          onDrop={handleDrop}
+          onDragOver={(e) => e.preventDefault()}
+          onClick={() => fileInputRef.current?.click()}
+          className="p-8 border-2 border-dashed border-neutral-300 dark:border-neutral-700 rounded-lg cursor-pointer transition-colors hover:border-neutral-400 dark:hover:border-neutral-600"
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleFileSelect}
+          />
+          <div className="flex flex-col items-center justify-center text-center space-y-2">
+            <ImageIcon className="w-12 h-12 text-neutral-400" />
+            <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+              Drop image here or click to browse
+            </p>
+            <p className="text-xs text-neutral-500">
+              Maximum 50MB
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -299,6 +324,20 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
   // Image display
   return (
     <div className="p-4">
+      {(templateTitle || templateDescription) && (
+        <div className="mb-3 space-y-1">
+          {templateTitle && (
+            <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+              {templateTitle}
+            </p>
+          )}
+          {templateDescription && (
+            <p className="text-sm text-neutral-600 dark:text-neutral-400">
+              {templateDescription}
+            </p>
+          )}
+        </div>
+      )}
       <div className="relative inline-block group" style={{ maxWidth: "100%" }}>
         {/* Image Container with Resize Handle */}
         <div
@@ -309,7 +348,7 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
             <div className="relative w-full" style={{ aspectRatio: `${width} / ${Math.round(width * 0.75)}` }}>
               <Image
                 src={imageUrl}
-                alt={caption || "Image"}
+                alt={caption || templateTitle || "Image"}
                 width={width}
                 height={Math.round(width * 0.75)}
                 onClick={() => setLightboxOpen(true)}
@@ -438,7 +477,7 @@ export default function ImageBlock({ block, workspaceId, projectId, onUpdate }: 
           {/* Full-Size Image */}
           <Image
             src={imageUrl}
-            alt={caption || "Image"}
+            alt={caption || templateTitle || "Image"}
             onClick={(e) => e.stopPropagation()}
             className="max-w-full max-h-full object-contain rounded-lg"
             width={1920}

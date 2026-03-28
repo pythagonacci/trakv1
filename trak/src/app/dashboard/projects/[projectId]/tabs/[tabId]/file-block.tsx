@@ -452,9 +452,17 @@ export default function FileBlock({
   const canManageFiles = !isPublicClientPage && !readOnly;
   const canAnalyzeFiles = !isPublicClientPage;
   
-  const content = (block.content || {}) as { heightPx?: number };
+  const content = (block.content || {}) as {
+    heightPx?: number;
+    title?: string;
+    description?: string;
+  };
   const initialPreviewHeight =
     typeof content.heightPx === "number" && content.heightPx > 0 ? content.heightPx : null;
+  const templateTitle =
+    typeof content.title === "string" && content.title.trim() ? content.title.trim() : null;
+  const templateDescription =
+    typeof content.description === "string" && content.description.trim() ? content.description.trim() : null;
 
   const [files, setFiles] = useState<BlockFile[]>(() => initialFiles ?? []);
   const [loading, setLoading] = useState(() => !hasInitialPublicFiles);
@@ -777,19 +785,37 @@ export default function FileBlock({
   const mergedFileUrls = { ...fileUrls, ...resolvedFileUrls };
   const pdfFiles = files.filter((blockFile) => isPdfFile(blockFile.file));
   const otherFiles = files.filter((blockFile) => !isPdfFile(blockFile.file));
+  const templateHeader = (templateTitle || templateDescription) ? (
+    <div className="space-y-1">
+      {templateTitle && (
+        <p className="text-sm font-medium text-[var(--foreground)]">
+          {templateTitle}
+        </p>
+      )}
+      {templateDescription && (
+        <p className="text-sm text-[var(--muted-foreground)]">
+          {templateDescription}
+        </p>
+      )}
+    </div>
+  ) : null;
 
   // Show empty state if no files
   if (files.length === 0) {
     if (!canUploadFiles) {
       return (
-        <div className="rounded-[6px] border border-dashed border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-center text-sm text-[var(--muted-foreground)]">
-          No files attached yet.
+        <div className="space-y-3">
+          {templateHeader}
+          <div className="rounded-[6px] border border-dashed border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-center text-sm text-[var(--muted-foreground)]">
+            No files attached yet.
+          </div>
         </div>
       );
     }
 
     return (
       <div className="space-y-3">
+        {templateHeader}
         <FileUploadZone
           workspaceId={workspaceId}
           projectId={projectId}
@@ -812,6 +838,7 @@ export default function FileBlock({
 
   return (
     <div className="space-y-3">
+      {templateHeader}
       <div className="flex items-center justify-between text-xs text-[var(--tertiary-foreground)]">
         <span className="uppercase tracking-wide">Files</span>
         <span>{files.length} attached</span>
