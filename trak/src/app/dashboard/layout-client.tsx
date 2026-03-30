@@ -200,18 +200,18 @@ function SplashScreen({ onFinish }: { onFinish: () => void }) {
 
   useEffect(() => {
     if (resolvedName) return;
-    if (!isLoading && currentUser?.name) {
-      setResolvedName(normalizeName(currentUser.name));
+    if (!isLoading && currentUser?.firstName) {
+      setResolvedName(normalizeName(currentUser.firstName));
     }
-  }, [currentUser, isLoading, resolvedName]);
+  }, [currentUser?.firstName, isLoading, resolvedName]);
 
   useEffect(() => {
     if (resolvedName) return;
     const fallbackTimer = setTimeout(() => {
-      setResolvedName(normalizeName(currentUser?.name || "there"));
+      setResolvedName(normalizeName(currentUser?.firstName || "there"));
     }, 700);
     return () => clearTimeout(fallbackTimer);
-  }, [currentUser, resolvedName]);
+  }, [currentUser?.firstName, resolvedName]);
 
   const name = resolvedName || "there";
   const greeting = `Good Morning, ${name}`;
@@ -824,7 +824,7 @@ function Header() {
 
   if (hideBar) return null;
 
-  const rawName = isLoading ? "…" : (currentUser?.name || "User");
+  const rawName = isLoading ? "…" : (currentUser?.firstName || currentUser?.name || "User");
   const displayName = rawName === "…" ? rawName : normalizeUserName(rawName);
   const displayDate = formatHeaderDate(new Date());
 

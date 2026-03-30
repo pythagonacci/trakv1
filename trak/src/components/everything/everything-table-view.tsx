@@ -222,7 +222,18 @@ function AssigneeCell({ item, members, onUpdate }: TableRowComponentProps) {
     return memberIds.some((id) => item.properties.assignee_ids.includes(id));
   });
 
-  if (assignedMembers.length === 0) {
+  const memberNameKeys = new Set(
+    assignedMembers
+      .flatMap((member) => [member.name, member.email])
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      .map((value) => value.trim().toLowerCase())
+  );
+  const fallbackNames = (item.properties.assignee_names ?? []).filter((name) => {
+    const trimmed = name.trim();
+    return trimmed.length > 0 && !memberNameKeys.has(trimmed.toLowerCase());
+  });
+
+  if (assignedMembers.length === 0 && fallbackNames.length === 0) {
     return <span className="text-sm text-[var(--tertiary-foreground)]">—</span>;
   }
 
@@ -243,6 +254,16 @@ function AssigneeCell({ item, members, onUpdate }: TableRowComponentProps) {
           )}
           <span className="text-sm text-neutral-700 dark:text-neutral-300">
             {member.name || member.email}
+          </span>
+        </div>
+      ))}
+      {fallbackNames.map((name) => (
+        <div
+          key={`fallback:${name}`}
+          className="flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-md)] bg-[var(--surface-muted)] dark:bg-neutral-800"
+        >
+          <span className="text-sm text-neutral-700 dark:text-neutral-300">
+            {name}
           </span>
         </div>
       ))}

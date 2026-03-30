@@ -11,7 +11,7 @@ import { createClient } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 
 interface PageProps {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; flow?: string }>;
 }
 
 export default async function SignupPage({ searchParams }: PageProps) {
@@ -27,15 +27,24 @@ export default async function SignupPage({ searchParams }: PageProps) {
   }
 
   const params = await searchParams;
+  const isFreeTrialFlow = params.flow === "free_trial";
 
   return (
-    <AuthShell title="Create account" subtitle="Enter your email to get started.">
+    <AuthShell
+      title={isFreeTrialFlow ? "Start free trial" : "Create account"}
+      subtitle={
+        isFreeTrialFlow
+          ? "Enter your email to verify your account and launch your Standard trial."
+          : "Enter your email to get started."
+      }
+    >
       {params.error && (
         <div className="mb-4 rounded-[var(--radius-md)] border border-[var(--error)]/30 bg-[var(--error)]/10 px-3 py-2 text-sm text-[var(--error)]">
           {params.error}
         </div>
       )}
       <form action={sendSignupOtp} className="space-y-5">
+        {isFreeTrialFlow && <input type="hidden" name="flow" value="free_trial" />}
         <div>
           <Label htmlFor="email">Email</Label>
           <div className="relative">
@@ -44,7 +53,7 @@ export default async function SignupPage({ searchParams }: PageProps) {
           </div>
         </div>
         <Button type="submit" className="w-full">
-          Continue <ArrowRight className="h-4 w-4" />
+          {isFreeTrialFlow ? "Continue to free trial" : "Continue"} <ArrowRight className="h-4 w-4" />
         </Button>
         <p className="text-xs text-[var(--muted-foreground)] text-center">
           Already have an account?{" "}

@@ -906,6 +906,102 @@ function queryTypeToEntityType(
   return "table_row";
 }
 
+async function loadRefreshableChartRows(
+  dataSource: Extract<SpecChartBlockContent["dataSource"], { mode: "refreshable" }>,
+  spec: ChartSpec,
+  fallbackUniverseTotal: number | undefined,
+  authContext: AuthContext
+): Promise<ChartActionResult<{ rows: ChartRow[]; universeTotal?: number }>> {
+  const safeSpec = (await import("@/lib/charts/chartSpec")).applySpecFallbacks(spec);
+  const needsUniverseTotal = safeSpec.normalizeTo === "universe";
+  const limit = 500;
+
+  let newRows: ChartRow[] = [];
+  let universeTotal: number | undefined = fallbackUniverseTotal;
+
+  if (dataSource.scope === "query" && "query" in dataSource) {
+    const q = dataSource.query;
+    const params = { ...(q.params as Record<string, unknown>), limit, authContext };
+
+    if (q.type === "tasks") {
+      const res = await searchTasks(params as Parameters<typeof searchTasks>[0]);
+      if (res.error) return { error: res.error };
+      newRows = normalizeToChartRows("tasks", res.data ?? []);
+      if (needsUniverseTotal) {
+        const countRes = await searchTasks({
+          ...(q.params as Record<string, unknown>),
+          limit: 5000,
+          authContext,
+        } as Parameters<typeof searchTasks>[0]);
+        if (countRes.error) return { error: countRes.error };
+        universeTotal = countRes.data?.length ?? newRows.length;
+      }
+    } else if (q.type === "timeline_events") {
+      const res = await searchTimelineEvents(params as Parameters<typeof searchTimelineEvents>[0]);
+      if (res.error) return { error: res.error };
+      newRows = normalizeToChartRows("timeline_events", res.data ?? []);
+      if (needsUniverseTotal) {
+        const countRes = await searchTimelineEvents({
+          ...(q.params as Record<string, unknown>),
+          limit: 5000,
+          authContext,
+        } as Parameters<typeof searchTimelineEvents>[0]);
+        if (countRes.error) return { error: countRes.error };
+        universeTotal = countRes.data?.length ?? newRows.length;
+      }
+    } else if (q.type === "cards") {
+      const res = await searchCards(params as Parameters<typeof searchCards>[0]);
+      if (res.error) return { error: res.error };
+      newRows = normalizeToChartRows("cards", res.data ?? []);
+      if (needsUniverseTotal) {
+        const countRes = await searchCards({
+          ...(q.params as Record<string, unknown>),
+          limit: 5000,
+          authContext,
+        } as Parameters<typeof searchCards>[0]);
+        if (countRes.error) return { error: countRes.error };
+        universeTotal = countRes.data?.length ?? newRows.length;
+      }
+    } else {
+      const res = await searchTableRows(params as Parameters<typeof searchTableRows>[0]);
+      if (res.error) return { error: res.error };
+      newRows = normalizeToChartRows("table_rows", res.data ?? []);
+      if (needsUniverseTotal) {
+        const countRes = await searchTableRows({
+          ...(q.params as Record<string, unknown>),
+          limit: 5000,
+          authContext,
+        } as Parameters<typeof searchTableRows>[0]);
+        if (countRes.error) return { error: countRes.error };
+        universeTotal = countRes.data?.length ?? newRows.length;
+      }
+    }
+  } else if (dataSource.scope === "fixed" && "entityIds" in dataSource) {
+    const { entityType, entityIds } = dataSource;
+    const idLimit = Math.max(entityIds.length, limit);
+
+    if (entityType === "task") {
+      const res = await searchTasks({ taskIds: entityIds, limit: idLimit, authContext });
+      if (res.error) return { error: res.error };
+      newRows = normalizeToChartRows("tasks", res.data ?? []);
+    } else if (entityType === "timeline_event") {
+      const res = await searchTimelineEvents({ eventIds: entityIds, limit: idLimit, authContext });
+      if (res.error) return { error: res.error };
+      newRows = normalizeToChartRows("timeline_events", res.data ?? []);
+    } else if (entityType === "card") {
+      const res = await searchCards({ cardIds: entityIds, limit: idLimit, authContext });
+      if (res.error) return { error: res.error };
+      newRows = normalizeToChartRows("cards", res.data ?? []);
+    } else {
+      const res = await searchTableRows({ rowIds: entityIds, limit: idLimit, authContext });
+      if (res.error) return { error: res.error };
+      newRows = normalizeToChartRows("table_rows", res.data ?? []);
+    }
+  }
+
+  return { data: { rows: newRows, universeTotal } };
+}
+
 export async function refreshChartBlock(
   blockId: string,
   opts?: { authContext?: AuthContext }
@@ -925,94 +1021,13 @@ export async function refreshChartBlock(
       return { error: "Chart is not refreshable" };
     }
 
-    const safeSpec = (await import("@/lib/charts/chartSpec")).applySpecFallbacks(content.spec);
-    const needsUniverseTotal = safeSpec.normalizeTo === "universe";
-    const limit = 500;
-
-    let newRows: ChartRow[] = [];
-    let universeTotal: number | undefined = content.universeTotal;
-
-    if (dataSource.scope === "query" && "query" in dataSource) {
-      const q = dataSource.query;
-      const params = { ...(q.params as Record<string, unknown>), limit, authContext };
-
-      if (q.type === "tasks") {
-        const res = await searchTasks(params as Parameters<typeof searchTasks>[0]);
-        if (res.error) return { error: res.error };
-        newRows = normalizeToChartRows("tasks", res.data ?? []);
-        if (needsUniverseTotal) {
-          const countRes = await searchTasks({
-            ...(q.params as Record<string, unknown>),
-            limit: 5000,
-            authContext,
-          } as Parameters<typeof searchTasks>[0]);
-          universeTotal = countRes.data?.length ?? newRows.length;
-        }
-      } else if (q.type === "timeline_events") {
-        const res = await searchTimelineEvents(params as Parameters<typeof searchTimelineEvents>[0]);
-        if (res.error) return { error: res.error };
-        newRows = normalizeToChartRows("timeline_events", res.data ?? []);
-        if (needsUniverseTotal) {
-          const countRes = await searchTimelineEvents({
-            ...(q.params as Record<string, unknown>),
-            limit: 5000,
-            authContext,
-          } as Parameters<typeof searchTimelineEvents>[0]);
-          universeTotal = countRes.data?.length ?? newRows.length;
-        }
-      } else if (q.type === "cards") {
-        const res = await searchCards(params as Parameters<typeof searchCards>[0]);
-        if (res.error) return { error: res.error };
-        newRows = normalizeToChartRows("cards", res.data ?? []);
-        if (needsUniverseTotal) {
-          const countRes = await searchCards({
-            ...(q.params as Record<string, unknown>),
-            limit: 5000,
-            authContext,
-          } as Parameters<typeof searchCards>[0]);
-          universeTotal = countRes.data?.length ?? newRows.length;
-        }
-      } else {
-        const res = await searchTableRows(params as Parameters<typeof searchTableRows>[0]);
-        if (res.error) return { error: res.error };
-        newRows = normalizeToChartRows("table_rows", res.data ?? []);
-        if (needsUniverseTotal) {
-          const countRes = await searchTableRows({
-            ...(q.params as Record<string, unknown>),
-            limit: 5000,
-            authContext,
-          } as Parameters<typeof searchTableRows>[0]);
-          universeTotal = countRes.data?.length ?? newRows.length;
-        }
-      }
-    } else if (dataSource.scope === "fixed" && "entityIds" in dataSource) {
-      const { entityType, entityIds } = dataSource;
-      const idLimit = Math.max(entityIds.length, limit);
-
-      if (entityType === "task") {
-        const res = await searchTasks({ taskIds: entityIds, limit: idLimit, authContext });
-        if (res.error) return { error: res.error };
-        newRows = normalizeToChartRows("tasks", res.data ?? []);
-      } else if (entityType === "timeline_event") {
-        const res = await searchTimelineEvents({ eventIds: entityIds, limit: idLimit, authContext });
-        if (res.error) return { error: res.error };
-        newRows = normalizeToChartRows("timeline_events", res.data ?? []);
-      } else if (entityType === "card") {
-        const res = await searchCards({ cardIds: entityIds, limit: idLimit, authContext });
-        if (res.error) return { error: res.error };
-        newRows = normalizeToChartRows("cards", res.data ?? []);
-      } else {
-        const res = await searchTableRows({ rowIds: entityIds, limit: idLimit, authContext });
-        if (res.error) return { error: res.error };
-        newRows = normalizeToChartRows("table_rows", res.data ?? []);
-      }
-      // Fixed scope: keep existing universeTotal; do not recompute
-    }
+    const loaded = await loadRefreshableChartRows(dataSource, content.spec, content.universeTotal, authContext);
+    if ("error" in loaded) return loaded;
 
     const updatedContent: SpecChartBlockContent = {
       ...content,
-      rows: newRows as SpecChartBlockContent["rows"],
-      universeTotal,
+      rows: loaded.data.rows as SpecChartBlockContent["rows"],
+      universeTotal: loaded.data.universeTotal,
     };
 
     const result = await updateBlock({
@@ -1023,6 +1038,35 @@ export async function refreshChartBlock(
     return { data: { blockId } };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Failed to refresh chart" };
+  }
+}
+
+export async function loadChartBlockData(
+  blockId: string,
+  opts?: { authContext?: AuthContext }
+): Promise<ChartActionResult<{ rows: ChartRow[]; universeTotal?: number }>> {
+  try {
+    const authContext = opts?.authContext ?? (await getAuthContext());
+    if ("error" in authContext) return { error: authContext.error };
+
+    const got = await getSpecChartBlockWithAuth(blockId, authContext);
+    if ("error" in got) return { error: got.error };
+
+    const content = got.block.content as SpecChartBlockContent;
+    const dataSource = content.dataSource;
+
+    if (!dataSource || dataSource.mode !== "refreshable") {
+      return {
+        data: {
+          rows: content.rows ?? [],
+          universeTotal: content.universeTotal,
+        },
+      };
+    }
+
+    return await loadRefreshableChartRows(dataSource, content.spec, content.universeTotal, authContext);
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Failed to load chart data" };
   }
 }
 

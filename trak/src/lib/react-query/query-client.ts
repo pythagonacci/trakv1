@@ -40,6 +40,7 @@ export const queryKeys = {
   userWorkspaces: () => ['userWorkspaces'] as const,
   projectTabs: (projectId: string) => ['projectTabs', projectId] as const,
   tabBlocks: (tabId: string) => ['tabBlocks', tabId] as const,
+  chartLiveData: (...parts: string[]) => ['chartLiveData', ...parts] as const,
   fileUrls: (fileIds: string[]) => ['fileUrls', [...fileIds].sort().join(',')] as const,
   workspace: (workspaceId: string) => ['workspace', workspaceId] as const,
   table: (tableId: string) => ['table', tableId] as const,

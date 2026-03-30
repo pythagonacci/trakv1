@@ -1,12 +1,15 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
   Flag,
   Calendar,
   MessageSquare,
+  Loader2,
+  Sparkles,
 } from "lucide-react";
 import {
   Card,
@@ -31,6 +34,8 @@ import DashboardProjectGroup from "./widgets/dashboard-project-group";
 import DashboardTaskWidget from "./widgets/dashboard-task-widget";
 import DashboardChartWidget from "./widgets/dashboard-chart-widget";
 import type { DashboardInsight } from "@/app/actions/dashboard-insights";
+import { useWorkspaceBilling } from "@/hooks/use-workspace-billing";
+import { useWorkspace } from "./workspace-context";
 
 interface Project {
   id: string;
@@ -229,6 +234,8 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
         </div>
       </div>
 
+      <DashboardFreeTrialBanner workspaceId={workspaceId} />
+
       {dashboardConfig.widgets.map((widget) => {
         if (isBuiltInWidget(widget)) {
           if (widget.type === "notifications") {
@@ -403,6 +410,140 @@ export default function DashboardOverview(props: DashboardOverviewProps) {
         return null;
       })}
     </div>
+  );
+}
+
+function DashboardFreeTrialBanner({ workspaceId }: { workspaceId: string }) {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const { currentWorkspace } = useWorkspace();
+  const { data: billingSummary } = useWorkspaceBilling(workspaceId);
+  const [isStartingTrial, setIsStartingTrial] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [startedTrialEndsAt, setStartedTrialEndsAt] = useState<string | null>(null);
+
+  const canManageWorkspace = currentWorkspace?.role === "owner" || currentWorkspace?.role === "admin";
+  const canStartTrial = billingSummary?.entitlements.canStartStandardTrial ?? false;
+
+  const formatTrialEndDate = (value: string | null) => {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  };
+
+  const handleStartTrial = async () => {
+    setError(null);
+    setIsStartingTrial(true);
+
+    try {
+      const response = await fetch("/api/billing/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          workspaceId,
+          planKey: "standard",
+        }),
+      });
+      const json = await response.json();
+
+      if (!response.ok) {
+        throw new Error(json?.error || "Failed to start free trial");
+      }
+
+      if (json?.data?.mode === "trial_started") {
+        setStartedTrialEndsAt(typeof json.data.trialEndsAt === "string" ? json.data.trialEndsAt : null);
+        void queryClient.invalidateQueries({ queryKey: ["workspaceBilling", workspaceId] });
+        router.refresh();
+        return;
+      }
+
+      throw new Error("Unexpected billing response while starting the free trial");
+    } catch (trialError) {
+      setError(trialError instanceof Error ? trialError.message : "Failed to start free trial");
+    } finally {
+      setIsStartingTrial(false);
+    }
+  };
+
+  if (!canManageWorkspace) {
+    return null;
+  }
+
+  if (startedTrialEndsAt) {
+    const formattedEndDate = formatTrialEndDate(startedTrialEndsAt);
+
+    return (
+      <Card className="overflow-hidden border border-[#bfd9ca] bg-[linear-gradient(135deg,#f7fbf8_0%,#edf7f1_100%)] shadow-none rounded-[var(--radius-xl)]">
+        <CardContent className="flex flex-col gap-4 px-5 py-5 md:flex-row md:items-center md:justify-between">
+          <div className="space-y-1.5">
+            <div className="inline-flex items-center gap-2 rounded-full border border-[#bfd9ca] bg-white/80 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#29543c]">
+              <Sparkles className="h-3 w-3" />
+              Standard Trial Started
+            </div>
+            <p className="text-[15px] font-medium text-[#173224]">
+              Your workspace is now on Standard{formattedEndDate ? ` until ${formattedEndDate}` : ""}.
+            </p>
+            <p className="text-sm text-[#3d5d4b]">
+              You can keep working as usual and add a payment method later if you want to stay on Standard.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="border-[#bfd9ca] bg-white text-[#173224] hover:bg-white/90"
+            onClick={() => router.push("/dashboard/settings?tab=general")}
+          >
+            View Billing
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!canStartTrial) {
+    return null;
+  }
+
+  return (
+    <Card className="overflow-hidden border border-[#d5dd98] bg-[linear-gradient(135deg,#fbfbe8_0%,#f5f2d4_100%)] shadow-none rounded-[var(--radius-xl)]">
+      <CardContent className="flex flex-col gap-4 px-5 py-5 md:flex-row md:items-center md:justify-between">
+        <div className="space-y-1.5">
+          <div className="inline-flex items-center gap-2 rounded-full border border-[#d5dd98] bg-white/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#4e5624]">
+            <Sparkles className="h-3 w-3" />
+            Free Trial Available
+          </div>
+          <p className="text-[15px] font-medium text-[#252b10]">
+            Try Standard free for 14 days.
+          </p>
+          <p className="text-sm text-[#5c6135]">
+            Start the trial to unlock unlimited projects and tabs in this workspace. No payment method is required right now.
+          </p>
+          {error && (
+            <p className="text-sm text-[var(--error)]">{error}</p>
+          )}
+        </div>
+        <Button
+          type="button"
+          className="bg-[#252b10] text-white hover:bg-[#252b10]/90"
+          onClick={handleStartTrial}
+          disabled={isStartingTrial}
+        >
+          {isStartingTrial ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Starting Trial...
+            </>
+          ) : (
+            <>
+              Start 14-Day Trial
+              <ArrowRight className="h-4 w-4" />
+            </>
+          )}
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 

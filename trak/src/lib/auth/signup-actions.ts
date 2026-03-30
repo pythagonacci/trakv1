@@ -93,6 +93,11 @@ export async function getSignupPrefill() {
 // ---------------------------------------------------------------------------
 
 export async function sendSignupOtp(formData: FormData) {
+  const requestedFlow = formData.get('flow')
+  if (requestedFlow === 'free_trial') {
+    await setSignupFlow('free_trial')
+  }
+
   const basePath = await getSignupBasePath()
   const email = (formData.get('email') as string)?.toLowerCase()?.trim()
   if (!email) {

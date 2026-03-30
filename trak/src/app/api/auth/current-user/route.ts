@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerUser } from "@/lib/auth/get-server-user";
+import { resolveUserDisplayName, resolveUserFirstName } from "@/lib/user-display";
 
 export const dynamic = "force-dynamic";
 
@@ -8,12 +9,27 @@ export async function GET(_request: NextRequest) {
   if (!authResult) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
-  const { user } = authResult;
+  const { user, supabase } = authResult;
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("name")
+    .eq("id", user.id)
+    .maybeSingle();
+
   return NextResponse.json({
     data: {
       id: user.id,
       email: user.email || "",
-      name: user.user_metadata?.name || user.email?.split("@")[0] || "User",
+      name: resolveUserDisplayName({
+        profileName: profile?.name,
+        userMetadata: user.user_metadata,
+        email: user.email,
+      }),
+      firstName: resolveUserFirstName({
+        profileName: profile?.name,
+        userMetadata: user.user_metadata,
+        email: user.email,
+      }),
     },
   });
 }

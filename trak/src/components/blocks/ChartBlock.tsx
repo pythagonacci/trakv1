@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Lock,
   RefreshCw,
@@ -16,7 +16,7 @@ import type { Block } from "@/app/actions/block";
 import type { ChartBlockContent, SpecChartBlockContent } from "@/types/chart";
 import { isSpecChart, isRefreshableDataSource } from "@/types/chart";
 import { cn } from "@/lib/utils";
-import { updateChartBlock, refreshChartBlock, saveChartAsSnapshot, setChartDataScope } from "@/app/actions/chart-actions";
+import { loadChartBlockData, updateChartBlock, refreshChartBlock, saveChartAsSnapshot, setChartDataScope } from "@/app/actions/chart-actions";
 import { searchTasks } from "@/app/actions/ai-search";
 import { SariaChart } from "@/components/blocks/chart/SariaChart";
 import { ChartConfigPanel } from "@/components/blocks/chart/ChartConfigPanel";
@@ -266,20 +266,48 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
     setLocalSpec(applySpecFallbacks(rawContent.spec));
   }, [block.id]);
 
+  const showTrackingUi = rawContent.dataSource && isRefreshableDataSource(rawContent.dataSource);
+  const liveChartSignature = useMemo(
+    () =>
+      showTrackingUi && rawContent.dataSource
+        ? JSON.stringify({
+            dataSource: rawContent.dataSource,
+            normalizeTo: localSpec.normalizeTo ?? "focus",
+          })
+        : "",
+    [showTrackingUi, rawContent.dataSource, localSpec.normalizeTo]
+  );
+
+  const liveChartDataQuery = useQuery({
+    queryKey: queryKeys.chartLiveData(block.id, liveChartSignature),
+    queryFn: async () => {
+      const result = await loadChartBlockData(block.id);
+      if ("error" in result) throw new Error(result.error);
+      return result.data;
+    },
+    enabled: Boolean(showTrackingUi && rawContent.dataSource && liveChartSignature),
+    staleTime: 15 * 1000,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+  });
+
+  const baseRows = liveChartDataQuery.data?.rows ?? rawRows;
+  const effectiveUniverseTotal = liveChartDataQuery.data?.universeTotal ?? rawContent.universeTotal;
+
   const chartData = useMemo(() => {
     try {
       return buildChartData({
-        focusRows: rawContent.rows ?? [],
-        universeTotal: rawContent.universeTotal,
+        focusRows: enhancedRows ?? baseRows,
+        universeTotal: effectiveUniverseTotal,
         spec: localSpec,
       });
     } catch {
       return null;
     }
-  }, [rawContent.rows, rawContent.universeTotal, localSpec]);
+  }, [enhancedRows, baseRows, effectiveUniverseTotal, localSpec]);
 
   const availableFields = useMemo(() => {
-    const rows = rawRows;
+    const rows = baseRows;
     if (!rows.length) return ["status", "priority", "assignee", "tags"];
     const keys = new Set<string>();
     for (const row of rows)
@@ -287,14 +315,14 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
         if (k !== "id") keys.add(k);
       });
     return Array.from(keys);
-  }, [rawRows]);
+  }, [baseRows]);
 
   const numericFields = useMemo(
     () =>
       availableFields.filter((f) =>
-        (rawContent.rows ?? []).some((r) => typeof r[f] === "number")
+        baseRows.some((r) => typeof r[f] === "number")
       ),
-    [rawRows, availableFields]
+    [baseRows, availableFields]
   );
 
   const handleSpecChange = useCallback(
@@ -322,6 +350,10 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
     queryClient.invalidateQueries({ queryKey: queryKeys.tabBlocks(block.tab_id) });
   }, [block.tab_id, queryClient]);
 
+  const invalidateLiveChartData = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.chartLiveData() });
+  }, [queryClient]);
+
   const handleRefresh = useCallback(async () => {
     setActionError(null);
     setIsRefreshing(true);
@@ -330,9 +362,10 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
     if ("error" in result) {
       setActionError(result.error);
     } else {
+      invalidateLiveChartData();
       invalidateBlock();
     }
-  }, [block.id, invalidateBlock]);
+  }, [block.id, invalidateBlock, invalidateLiveChartData]);
 
   const handleSaveAsSnapshot = useCallback(async () => {
     setActionError(null);
@@ -342,9 +375,10 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
     if ("error" in result) {
       setActionError(result.error);
     } else {
+      invalidateLiveChartData();
       invalidateBlock();
     }
-  }, [block.id, invalidateBlock]);
+  }, [block.id, invalidateBlock, invalidateLiveChartData]);
 
   const handleSetScope = useCallback(
     async (scope: "fixed" | "query") => {
@@ -356,10 +390,11 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
       if ("error" in result) {
         setActionError(result.error);
       } else {
+        invalidateLiveChartData();
         invalidateBlock();
       }
     },
-    [block.id, rawContent.dataSource, invalidateBlock]
+    [block.id, rawContent.dataSource, invalidateBlock, invalidateLiveChartData]
   );
   const isSimulation = Boolean(rawContent.metadata?.isSimulation);
   const title = localSpec.title ?? rawContent.title ?? "Chart";
@@ -382,9 +417,10 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
   }, [titleInput, title, handleSpecChange, localSpec]);
 
   const normWarn = chartData?.meta.normalizationWarning;
-  const showTrackingUi = rawContent.dataSource && isRefreshableDataSource(rawContent.dataSource);
   const scope = showTrackingUi && rawContent.dataSource && "scope" in rawContent.dataSource ? rawContent.dataSource.scope : null;
-  const rows = enhancedRows ?? rawRows;
+  const rows = enhancedRows ?? baseRows;
+  const liveDataError =
+    liveChartDataQuery.error instanceof Error ? liveChartDataQuery.error.message : null;
 
   // When the chart rows come from a tasks query and don't already have any readable
   // title-like strings, fetch task titles by ID and enrich rows with "Task Title"
@@ -394,7 +430,7 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
 
     const ds = rawContent.dataSource;
     if (!ds) return;
-    if (!rawRows.length) return;
+    if (!baseRows.length) return;
 
     let isTasksSource = false;
     if (ds.mode === "refreshable") {
@@ -406,12 +442,12 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
     }
     if (!isTasksSource) return;
 
-    const hasRowsMissingReadableTitle = rawRows.some((row) => !hasReadableTitle(row));
+    const hasRowsMissingReadableTitle = baseRows.some((row) => !hasReadableTitle(row));
     if (!hasRowsMissingReadableTitle) return;
 
     const ids = Array.from(
       new Set(
-        rawRows
+        baseRows
           .map((r) => {
             const id = (r as { id?: unknown }).id;
             return id != null ? String(id) : "";
@@ -436,7 +472,7 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
         }
         if (!titleById.size) return;
 
-        const nextRows = rawRows.map((row) => {
+        const nextRows = baseRows.map((row) => {
           const id = (row as { id?: unknown }).id;
           const idStr = id != null ? String(id) : "";
           const existingTitle = (row as any)["Task Title"];
@@ -461,7 +497,7 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
     return () => {
       cancelled = true;
     };
-  }, [rawContent.dataSource, rawRows, block.id]);
+  }, [rawContent.dataSource, baseRows, block.id]);
 
   const breakdownLabel = chartData?.meta?.labelLabel ?? localSpec.breakdown?.fieldLabel ?? localSpec.breakdown?.field ?? "Distribution";
   const categoryLabels = useMemo(() => {
@@ -646,6 +682,11 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
         )}
         {actionError && (
           <p className="mb-2 text-xs text-[var(--error)]">{actionError}</p>
+        )}
+        {!actionError && liveDataError && (
+          <p className="mb-2 text-xs text-[var(--error)]">
+            Live chart data is unavailable right now. Showing the saved snapshot.
+          </p>
         )}
         {saveError && (
           <p className="mb-2 text-xs text-[var(--error)]">{saveError}</p>

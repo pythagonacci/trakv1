@@ -205,7 +205,9 @@ function parseBlock(label: string, layout: ParsedTemplateBlockLayout, lines: str
   }
 
   if (type === "gallery" || type === "image" || type === "video" || type === "file") {
-    const placeholder = parseLabelLine(lines.find((line) => line.startsWith("**Placeholder:**")) ?? "", "Placeholder");
+    const placeholder =
+      parseLabelLine(lines.find((line) => line.startsWith("**Placeholder state:**")) ?? "", "Placeholder state") ??
+      parseLabelLine(lines.find((line) => line.startsWith("**Placeholder:**")) ?? "", "Placeholder");
     return { kind: type, label, layout, placeholder };
   }
 

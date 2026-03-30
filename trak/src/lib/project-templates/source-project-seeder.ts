@@ -152,6 +152,8 @@ function normalizeCheckboxSeed(value: string | undefined | null) {
   const cleaned = cleanSeedString(value);
   if (!cleaned || isBracketPlaceholder(cleaned)) return null;
   const normalized = cleaned.toLowerCase();
+  if (["☑", "☒", "✓"].includes(cleaned)) return true;
+  if (["☐"].includes(cleaned)) return false;
   if (["true", "yes", "1", "checked", "x"].includes(normalized)) return true;
   if (["false", "no", "0", "unchecked"].includes(normalized)) return false;
   return null;

@@ -65,11 +65,11 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
   }
 }
 
-async function getSignupVerifyPath() {
+async function getSignupBasePath() {
   const cookieStore = await cookies()
   return cookieStore.get('signup_flow')?.value === 'free_trial'
-    ? '/start-free-trial/verify'
-    : '/signup/verify'
+    ? '/start-free-trial'
+    : '/signup'
 }
 
 export async function login(formData: FormData) {
@@ -128,9 +128,9 @@ export async function login(formData: FormData) {
             maxAge: 3600,
             path: '/',
           })
-          const verifyPath = await getSignupVerifyPath()
+          const signupBasePath = await getSignupBasePath()
           redirect(
-            verifyPath + '?message=' +
+            signupBasePath + '/verify?message=' +
               encodeURIComponent('Please complete your signup. A new verification code has been sent.'),
           )
         }
@@ -149,14 +149,15 @@ export async function login(formData: FormData) {
     if (user?.id) {
       await claimSharedClientPagesForUser({ userId: user.id, email: user.email })
     }
+    const signupBasePath = await getSignupBasePath()
     const stage = user?.user_metadata?.signup_stage
     if (stage && stage !== 'complete') {
       if (stage === 'password_set') {
-        redirect('/signup/account-setup')
+        redirect(signupBasePath + '/account-setup')
       }
       // otp_sent/email_verified with a working password is unusual,
       // but route them to password step just in case
-      redirect('/signup/password')
+      redirect(signupBasePath + '/password')
     }
   } catch (e) {
     if (isNextRedirectControlFlow(e)) throw e

@@ -51,6 +51,7 @@ export interface EverythingItem {
     status: Status | null;
     priority: Priority | null;
     assignee_ids: string[];
+    assignee_names?: string[];
     due_date: DueDateRange | null;
     tags: string[];
   };

@@ -7,6 +7,7 @@ import { getSupabaseEnv } from "@/lib/supabase/env";
 const PUBLIC_PATHS = new Set([
   "/login",
   "/signup",
+  "/start-free-trial",
   "/auth/callback",
   "/favicon.ico",
   "/client",
@@ -16,16 +17,20 @@ const PUBLIC_PATHS = new Set([
  * Given an incomplete signup_stage value, return the path the user should be on.
  * Returns null for complete / legacy / invite users (no redirect needed).
  */
-function signupStageRedirect(stage: string | undefined | null): string | null {
+function signupStageRedirect(
+  stage: string | undefined | null,
+  flow: string | undefined | null,
+): string | null {
   if (!stage || stage === "complete") return null;
+  const basePath = flow === "free_trial" ? "/start-free-trial" : "/signup";
   switch (stage) {
     case "otp_sent":
     case "email_verified":
-      return "/signup/password";
+      return `${basePath}/password`;
     case "password_set":
-      return "/signup/account-setup";
+      return `${basePath}/account-setup`;
     default:
-      return "/signup";
+      return basePath;
   }
 }
 
@@ -119,7 +124,10 @@ export async function middleware(req: NextRequest) {
   // If user has an incomplete standard signup, redirect them to the correct step
   // instead of allowing access to protected routes like /dashboard.
   // Invite-created and legacy users have no signup_stage → passes through normally.
-  const targetPath = signupStageRedirect(session.user?.user_metadata?.signup_stage);
+  const targetPath = signupStageRedirect(
+    session.user?.user_metadata?.signup_stage,
+    req.cookies.get("signup_flow")?.value,
+  );
   if (targetPath && !pathname.startsWith(targetPath)) {
     const redirectUrl = req.nextUrl.clone();
     redirectUrl.pathname = targetPath;

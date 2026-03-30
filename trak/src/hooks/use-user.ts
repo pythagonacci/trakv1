@@ -2,11 +2,13 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
+import { resolveUserDisplayName, resolveUserFirstName } from '@/lib/user-display';
 
 interface User {
   id: string;
   email: string;
   name: string;
+  firstName: string;
 }
 
 /**
@@ -25,10 +27,25 @@ export function useUser() {
         return null;
       }
 
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("name")
+        .eq("id", user.id)
+        .maybeSingle();
+
       return {
         id: user.id,
         email: user.email || "",
-        name: user.user_metadata?.name || user.email?.split("@")[0] || "User"
+        name: resolveUserDisplayName({
+          profileName: profile?.name,
+          userMetadata: user.user_metadata,
+          email: user.email,
+        }),
+        firstName: resolveUserFirstName({
+          profileName: profile?.name,
+          userMetadata: user.user_metadata,
+          email: user.email,
+        }),
       };
     },
     staleTime: 5 * 60 * 1000, // 5 minutes

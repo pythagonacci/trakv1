@@ -17,6 +17,7 @@ import {
   listSubtaskReferenceSummaries,
 } from "@/app/actions/tasks/subtask-reference-actions";
 import type { TaskItemView, TaskBlockBundle } from "@/app/actions/tasks/query-actions";
+import { queryKeys } from "@/lib/react-query/query-client";
 import type { TaskItem, TaskSubtask } from "@/types/task";
 
 const taskKeys = {
@@ -243,6 +244,9 @@ export function useCreateTaskItem(blockId: string) {
         };
       });
     },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.chartLiveData() });
+    },
   });
 }
 
@@ -307,6 +311,7 @@ export function useUpdateTaskItem(blockId: string) {
     },
     onSettled: () => {
       // Source-linked table rows: when task is updated, derived rows are synced server-side; refetch tables so UI updates
+      qc.invalidateQueries({ queryKey: queryKeys.chartLiveData() });
       qc.invalidateQueries({ queryKey: ["tableRows"] });
       qc.invalidateQueries({ queryKey: ["tableBootstrap"] });
     },
@@ -334,7 +339,10 @@ export function useDeleteTaskItem(blockId: string) {
         qc.setQueryData(taskKeys.items(blockId), ctx.previous);
       }
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: taskKeys.items(blockId) });
+      qc.invalidateQueries({ queryKey: queryKeys.chartLiveData() });
+    },
   });
 }
 

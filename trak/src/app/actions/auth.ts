@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { cache } from "react";
 import { getServerUser } from "@/lib/auth/get-server-user";
+import { resolveUserDisplayName, resolveUserFirstName } from "@/lib/user-display";
 
 export async function logout() {
   const authResult = await getServerUser();
@@ -30,13 +31,27 @@ export const getCurrentUser = cache(async () => {
   if (!authResult) {
     return { error: "Not authenticated" };
   }
-  const { user } = authResult;
+  const { user, supabase } = authResult;
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("name")
+    .eq("id", user.id)
+    .maybeSingle();
   
   return { 
     data: {
       id: user.id,
       email: user.email || "",
-      name: user.user_metadata?.name || user.email?.split("@")[0] || "User"
+      name: resolveUserDisplayName({
+        profileName: profile?.name,
+        userMetadata: user.user_metadata,
+        email: user.email,
+      }),
+      firstName: resolveUserFirstName({
+        profileName: profile?.name,
+        userMetadata: user.user_metadata,
+        email: user.email,
+      }),
     }
   };
 });

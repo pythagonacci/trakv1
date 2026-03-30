@@ -6,6 +6,9 @@ export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
   const next = searchParams.get('next') ?? '/'
+  const signupBasePath = request.cookies.get('signup_flow')?.value === 'free_trial'
+    ? '/start-free-trial'
+    : '/signup'
 
   if (code) {
     const supabase = await createClient()
@@ -30,10 +33,10 @@ export async function GET(request: NextRequest) {
         // Route to the correct signup step
         const updatedStage = stage === 'otp_sent' ? 'email_verified' : stage
         if (updatedStage === 'email_verified') {
-          return NextResponse.redirect(`${origin}/signup/password`)
+          return NextResponse.redirect(`${origin}${signupBasePath}/password`)
         }
         if (updatedStage === 'password_set') {
-          return NextResponse.redirect(`${origin}/signup/account-setup`)
+          return NextResponse.redirect(`${origin}${signupBasePath}/account-setup`)
         }
       }
 
