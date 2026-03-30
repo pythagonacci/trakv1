@@ -9,6 +9,7 @@ import type { EntityType, EntityProperties, Status, Priority } from "@/types/pro
 import { assertCanAccessEverythingPage } from "@/lib/billing/entitlements";
 
 type ActionResult<T> = { data: T } | { error: string };
+const EVERYTHING_IN_CHUNK_SIZE = 200;
 
 /** Returns the first priority value when a single value is needed. Does not prefer any field name. */
 function firstPriorityFromNamed(priorities: unknown): Priority | null {
@@ -26,6 +27,45 @@ function firstStatusFromNamed(statuses: unknown): Status | null {
   return value === "todo" || value === "in_progress" || value === "blocked" || value === "done"
     ? (value as Status)
     : null;
+}
+
+function isUuidLike(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+async function selectByIdsInChunks<T>(
+  supabase: any,
+  table: string,
+  columns: string,
+  ids: string[]
+): Promise<{ data: T[]; error: unknown | null }> {
+  const rows: T[] = [];
+
+  for (let index = 0; index < ids.length; index += EVERYTHING_IN_CHUNK_SIZE) {
+    const idChunk = ids.slice(index, index + EVERYTHING_IN_CHUNK_SIZE);
+    const { data, error } = await supabase
+      .from(table)
+      .select(columns)
+      .in("id", idChunk);
+
+    if (error) {
+      return {
+        data: rows,
+        error: {
+          error,
+          table,
+          chunkSize: idChunk.length,
+          firstId: idChunk[0] ?? null,
+        },
+      };
+    }
+
+    if (data?.length) {
+      rows.push(...data);
+    }
+  }
+
+  return { data: rows, error: null };
 }
 
 /**
@@ -67,7 +107,7 @@ export async function getWorkspaceEverything(
     combinedItems,
     options?.includeWorkflowRepresentations
   );
-  const enrichedItems = await hydrateEverythingProperties(normalizedItems, workspaceId);
+  const enrichedItems = await hydrateEverythingProperties(normalizedItems, workspaceId, supabase);
 
   // Only keep items that have at least one universal property
   const withAtLeastOneProp = enrichedItems.filter((item) => {
@@ -266,6 +306,7 @@ async function getWorkspaceEverythingFallback(
           status: firstStatusFromNamed((task as any).statuses),
           priority: firstPriorityFromNamed((task as any).priorities),
           assignee_ids: [],
+          assignee_names: [],
           due_date: buildDueDateRange(task.start_date ?? null, task.due_date ?? null),
           tags: [],
         },
@@ -359,6 +400,7 @@ async function getWorkspaceEverythingFallback(
               status: props.status as Status | null,
               priority: props.priority as Priority | null,
               assignee_ids: props.assignee_ids || [],
+              assignee_names: [],
               due_date: normalizeDueDateRange(props.due_date ?? null),
               tags: props.tags || [],
             },
@@ -445,6 +487,7 @@ async function getWorkspaceEverythingFallback(
           status: props?.status as Status | null,
           priority: props?.priority as Priority | null,
           assignee_ids: props?.assignee_ids || (props?.assignee_id ? [props.assignee_id] : []),
+          assignee_names: [],
           due_date: normalizeDueDateRange(props?.due_date ?? null),
           tags: props?.tags || [],
         },
@@ -525,6 +568,7 @@ async function getWorkspaceEverythingFallback(
             status: (props?.status as Status | null) ?? null,
             priority: (props?.priority as Priority | null) ?? null,
             assignee_ids: props?.assignee_ids ?? (props?.assignee_id ? [props.assignee_id] : []),
+            assignee_names: [],
             due_date: normalizeDueDateRange(props?.due_date ?? null),
             tags: props?.tags ?? [],
           },
@@ -540,7 +584,7 @@ async function getWorkspaceEverythingFallback(
     items,
     options?.includeWorkflowRepresentations
   );
-  const enrichedItems = await hydrateEverythingProperties(normalizedItems, workspaceId);
+  const enrichedItems = await hydrateEverythingProperties(normalizedItems, workspaceId, supabase);
 
   // Only keep items that have at least one universal property (canonical: entity_properties)
   const withAtLeastOneProp = enrichedItems.filter((item) => {
@@ -578,25 +622,43 @@ async function maybeFilterWorkflowTaskCopies(
 
   const taskIds = items
     .filter((item) => item.type === "task")
-    .map((item) => item.id);
+    .map((item) => item.id)
+    .filter((id): id is string => typeof id === "string" && isUuidLike(id));
   const tableRowIds = items
     .filter((item) => item.type === "table_row")
-    .map((item) => item.id);
+    .map((item) => item.id)
+    .filter((id): id is string => typeof id === "string" && isUuidLike(id));
   const timelineEventIds = items
     .filter((item) => item.type === "timeline_event")
-    .map((item) => item.id);
+    .map((item) => item.id)
+    .filter((id): id is string => typeof id === "string" && isUuidLike(id));
 
   if (taskIds.length === 0 && tableRowIds.length === 0 && timelineEventIds.length === 0) return items;
 
   const [taskResult, rowResult, timelineResult] = await Promise.all([
     taskIds.length > 0
-      ? supabase.from("task_items").select("id, source_task_id, source_entity_id").in("id", taskIds)
+      ? selectByIdsInChunks<{ id: string; source_task_id: string | null; source_entity_id: string | null }>(
+          supabase,
+          "task_items",
+          "id, source_task_id, source_entity_id",
+          taskIds
+        )
       : Promise.resolve({ data: [], error: null }),
     tableRowIds.length > 0
-      ? supabase.from("table_rows").select("id, source_entity_id").in("id", tableRowIds)
+      ? selectByIdsInChunks<{ id: string; source_entity_id: string | null }>(
+          supabase,
+          "table_rows",
+          "id, source_entity_id",
+          tableRowIds
+        )
       : Promise.resolve({ data: [], error: null }),
     timelineEventIds.length > 0
-      ? supabase.from("timeline_events").select("id, source_entity_id").in("id", timelineEventIds)
+      ? selectByIdsInChunks<{ id: string; source_entity_id: string | null }>(
+          supabase,
+          "timeline_events",
+          "id, source_entity_id",
+          timelineEventIds
+        )
       : Promise.resolve({ data: [], error: null }),
   ]);
 
@@ -651,6 +713,7 @@ function mapRawItemToEverythingItem(raw: any): EverythingItem {
       status: raw.status as Status | null,
       priority: firstPriorityFromNamed(raw.priorities) ?? (raw.priority as Priority | null),
       assignee_ids: raw.assignee_ids || [],
+      assignee_names: [],
       due_date: normalizeDueDateRange(raw.due_date),
       tags: raw.tags || [],
     },
@@ -716,6 +779,7 @@ async function fetchCardEverythingItems(
         status: firstStatusFromNamed((card as any).statuses),
         priority: firstPriorityFromNamed((card as any).priorities),
         assignee_ids: card.assignee_id ? [card.assignee_id] : [],
+        assignee_names: [],
         due_date: buildDueDateRange(card.start_date ?? null, card.due_date ?? null),
         tags: Array.isArray(card.tags) ? card.tags : [],
       },
@@ -729,12 +793,14 @@ async function fetchCardEverythingItems(
 
 async function hydrateEverythingProperties(
   items: EverythingItem[],
-  workspaceId: string
+  workspaceId: string,
+  _supabase: any
 ): Promise<EverythingItem[]> {
   if (items.length === 0) return items;
 
   const idsByType = new Map<EntityType, string[]>();
   for (const item of items) {
+    if (!isUuidLike(item.id)) continue;
     const list = idsByType.get(item.type) ?? [];
     list.push(item.id);
     idsByType.set(item.type, list);
@@ -766,6 +832,7 @@ async function hydrateEverythingProperties(
           Array.isArray(props.assignee_ids) && props.assignee_ids.length > 0
             ? props.assignee_ids
             : item.properties.assignee_ids ?? [],
+        assignee_names: item.properties.assignee_names ?? [],
         due_date: props.due_date ?? item.properties.due_date ?? null,
         tags:
           Array.isArray(props.tags) && props.tags.length > 0

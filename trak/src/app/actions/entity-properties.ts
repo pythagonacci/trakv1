@@ -32,6 +32,7 @@ import type {
 } from "@/types/properties";
 
 type ActionResult<T> = { data: T } | { error: string };
+const ENTITY_PROPERTIES_IN_CHUNK_SIZE = 200;
 
 // ============================================================================
 // Subtask date range validation (must fall within parent task's date range)
@@ -792,16 +793,39 @@ export async function getEntitiesProperties(
   const membership = await checkWorkspaceMembership(workspaceId, user.id);
   if (!membership) return { error: "Not a member of this workspace" };
 
-  const { data, error } = await supabase
-    .from("entity_properties")
-    .select("id, entity_id, field_name, field_type, value, created_at, updated_at")
-    .eq("workspace_id", workspaceId)
-    .eq("entity_type", entityType)
-    .in("entity_id", entityIds);
+  const data: Array<{
+    id: string;
+    entity_id: string;
+    field_name: string;
+    field_type: string;
+    value: unknown;
+    created_at: string;
+    updated_at: string;
+  }> = [];
 
-  if (error) {
-    console.error("getEntitiesProperties error:", error);
-    return { error: "Failed to fetch entity properties" };
+  for (let index = 0; index < entityIds.length; index += ENTITY_PROPERTIES_IN_CHUNK_SIZE) {
+    const idChunk = entityIds.slice(index, index + ENTITY_PROPERTIES_IN_CHUNK_SIZE);
+    const { data: chunkData, error } = await supabase
+      .from("entity_properties")
+      .select("id, entity_id, field_name, field_type, value, created_at, updated_at")
+      .eq("workspace_id", workspaceId)
+      .eq("entity_type", entityType)
+      .in("entity_id", idChunk);
+
+    if (error) {
+      console.error("getEntitiesProperties error:", {
+        error,
+        entityType,
+        workspaceId,
+        chunkSize: idChunk.length,
+        firstId: idChunk[0] ?? null,
+      });
+      return { error: "Failed to fetch entity properties" };
+    }
+
+    if (chunkData?.length) {
+      data.push(...chunkData);
+    }
   }
 
   const result: Record<string, EntityProperties> = {};
