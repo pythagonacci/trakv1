@@ -200,6 +200,7 @@ export default function BlockWrapper({
 
   const isDragging = externalIsDragging || isDraggingInternal;
   const borderless = Boolean((block.content as Record<string, unknown> | undefined)?.borderless) || block.type === "section_header";
+  const isSectionHeaderBlock = block.type === "section_header";
   const isTempBlock = block.id.startsWith("temp-");
   const initialEmbedHeight =
     block.type === "embed" &&
@@ -349,6 +350,30 @@ export default function BlockWrapper({
       setIsTogglingLock(false);
     }
   };
+
+  const renderLockButton = () => (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        void handleToggleLock();
+      }}
+      onMouseDown={(e) => e.stopPropagation()}
+      disabled={isTogglingLock}
+      className={cn(
+        "inline-flex h-7 w-7 items-center justify-center rounded-md border text-[var(--tertiary-foreground)] transition-colors",
+        isLocked
+          ? "border-amber-300 bg-amber-50 text-amber-800"
+          : "border-[var(--border)] bg-[var(--surface)] hover:text-[var(--foreground)]"
+      )}
+      title={isLocked ? "Unlock block for editing" : "Lock block to prevent edits"}
+    >
+      {isLocked ? (
+        <Lock className="h-3 w-3" />
+      ) : (
+        <Unlock className="h-3 w-3" />
+      )}
+    </button>
+  );
 
   if (block.type === "divider") {
     return <div ref={setNodeRef} style={style}>{children}</div>;
@@ -933,7 +958,7 @@ export default function BlockWrapper({
                 <Unlock className="h-3 w-3" />
               )}
             </button>
-            {!readOnly && (
+            {!readOnly && !isSectionHeaderBlock && (
               <>
                 <button
                   onClick={(e) => {
@@ -1007,7 +1032,8 @@ export default function BlockWrapper({
 
         {borderless && !readOnly && !isPlanLocked && (
           <div className="absolute top-2 -right-4 z-[70] flex flex-col items-center gap-1.5">
-            {block.type === "table" && (
+            {!isPlanLocked && isSectionHeaderBlock && renderLockButton()}
+            {(block.type === "table" || isSectionHeaderBlock) && (
               <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
                 <DropdownMenuTrigger asChild>
                   <button
@@ -1265,29 +1291,9 @@ export default function BlockWrapper({
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
-            {!isPlanLocked && (
+            {!isPlanLocked && !isSectionHeaderBlock && (
               <>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void handleToggleLock();
-                  }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  disabled={isTogglingLock}
-                  className={cn(
-                    "inline-flex h-7 w-7 items-center justify-center rounded-md border text-[var(--tertiary-foreground)] transition-colors",
-                    isLocked
-                      ? "border-amber-300 bg-amber-50 text-amber-800"
-                      : "border-[var(--border)] bg-[var(--surface)] hover:text-[var(--foreground)]"
-                  )}
-                  title={isLocked ? "Unlock block for editing" : "Lock block to prevent edits"}
-                >
-                  {isLocked ? (
-                    <Lock className="h-3 w-3" />
-                  ) : (
-                    <Unlock className="h-3 w-3" />
-                  )}
-                </button>
+                {renderLockButton()}
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
