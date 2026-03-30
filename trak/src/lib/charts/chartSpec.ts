@@ -154,6 +154,20 @@ export type SeriesChartData = {
 
 export type ChartData = CategoricalChartData | SeriesChartData;
 
+const DEFAULT_CHART_SPEC_INPUT = {
+  version: 1,
+  chartType: "pie",
+  orientation: "horizontal",
+  breakdown: { field: "status" },
+  measure: { type: "count" },
+  normalizeTo: "focus",
+  pieComposition: "breakdownOnly",
+  restLabel: "Rest",
+  includeOtherBucket: false,
+  otherLabel: "Other",
+  sort: "value_desc",
+} as const;
+
 // ─── Validation helpers ──────────────────────────────────────────────────────
 
 /** Safe parse with Zod — returns parsed spec or null + error message */
@@ -172,8 +186,39 @@ export function parseChartSpec(
 }
 
 /** Apply safe fallbacks so ChartBlock never crashes */
-export function applySpecFallbacks(spec: ChartSpec): ChartSpec {
-  let safe = { ...spec };
+export function applySpecFallbacks(spec: unknown): ChartSpec {
+  const raw =
+    spec && typeof spec === "object" ? (spec as Record<string, unknown>) : {};
+
+  const normalizedCandidate = {
+    ...DEFAULT_CHART_SPEC_INPUT,
+    ...raw,
+    breakdown:
+      raw.breakdown && typeof raw.breakdown === "object"
+        ? {
+            ...DEFAULT_CHART_SPEC_INPUT.breakdown,
+            ...(raw.breakdown as Record<string, unknown>),
+          }
+        : DEFAULT_CHART_SPEC_INPUT.breakdown,
+    ...(raw.series && typeof raw.series === "object"
+      ? {
+          series: {
+            field: "status",
+            ...(raw.series as Record<string, unknown>),
+          },
+        }
+      : {}),
+  };
+
+  const parsed = ChartSpecV1Schema.safeParse(normalizedCandidate);
+  let safe = parsed.success
+    ? parsed.data
+    : ChartSpecV1Schema.parse({
+        ...DEFAULT_CHART_SPEC_INPUT,
+        ...(typeof raw.title === "string" ? { title: raw.title } : {}),
+        ...(typeof raw.valueLabel === "string" ? { valueLabel: raw.valueLabel } : {}),
+        ...(typeof raw.labelLabel === "string" ? { labelLabel: raw.labelLabel } : {}),
+      });
 
   // Vertical bar without series → switch to horizontal single-series
   if (safe.chartType === "bar" && safe.orientation === "vertical" && !safe.series) {

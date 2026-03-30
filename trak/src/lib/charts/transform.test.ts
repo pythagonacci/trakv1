@@ -208,6 +208,26 @@ describe("null and empty field bucketing", () => {
   });
 });
 
+describe("sparse persisted specs", () => {
+  it("applies defaults for older specs missing measure and other defaulted fields", () => {
+    const result = buildChartData({
+      focusRows: TASK_ROWS,
+      spec: applySpecFallbacks({
+        version: 1,
+        chartType: "doughnut",
+        breakdown: { field: "status", fieldLabel: "Task Status" },
+        normalizeTo: "focus",
+        title: "Phase Overview",
+      }),
+    });
+
+    expect(result.type).toBe("categorical");
+    if (result.type !== "categorical") return;
+    expect(result.meta.valueLabel).toBe("Count");
+    expect(result.data.find((d) => d.label === "todo")?.value).toBe(2);
+  });
+});
+
 // ─── 6. Multi-series bar correctness ────────────────────────────────────────
 
 describe("multi-series bar", () => {
