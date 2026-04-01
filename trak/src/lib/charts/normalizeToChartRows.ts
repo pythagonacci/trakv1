@@ -198,6 +198,43 @@ function cardLikeToChartRow(card: CardLikeRow): ChartRow {
   return row;
 }
 
+// ─── Subtask-like (SubtaskResult from searchSubtasks) ───────────────────────
+
+export interface SubtaskLikeRow {
+  id: string;
+  title?: string | null;
+  completed?: boolean;
+  status?: string | null;
+  priority?: string | null;
+  due_date?: string | null;
+  task_id?: string | null;
+  task_title?: string | null;
+  [key: string]: unknown;
+}
+
+function subtaskLikeToChartRow(subtask: SubtaskLikeRow): ChartRow {
+  const rawStatus = normalizeStatus(subtask.status);
+  const status = rawStatus ?? (typeof subtask.completed === "boolean" ? (subtask.completed ? "done" : "todo") : null);
+  const priority = normalizePriority(subtask.priority) ?? null;
+  const title = typeof subtask.title === "string" && subtask.title.trim().length > 0
+    ? subtask.title.trim()
+    : typeof subtask.task_title === "string" && subtask.task_title.trim().length > 0
+      ? subtask.task_title.trim()
+      : "";
+
+  const row: ChartRow = {
+    id: subtask.id,
+    "Task Title": title,
+    type: "subtask",
+    status: status ?? undefined,
+    priority: priority ?? undefined,
+    "Due Date": toDateOnly(subtask.due_date) ?? undefined,
+  };
+  if (subtask.task_id != null) row.parentTaskId = String(subtask.task_id);
+  if (subtask.task_title != null) row.parentTaskTitle = String(subtask.task_title);
+  return row;
+}
+
 // ─── Table row-like (TableRowResult: id, data, plus optional entity_properties) ───
 
 export interface TableRowLikeRow {
@@ -256,7 +293,7 @@ function tableRowLikeToChartRow(rowLike: TableRowLikeRow): ChartRow {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-export type ChartDataSourceType = "tasks" | "timeline_events" | "table_rows" | "cards";
+export type ChartDataSourceType = "tasks" | "subtasks" | "timeline_events" | "table_rows" | "cards";
 
 /**
  * Normalize API results to ChartRow[] for buildChartData.
@@ -271,6 +308,8 @@ export function normalizeToChartRows(
   switch (sourceType) {
     case "tasks":
       return rawResults.map((r) => taskLikeToChartRow(r as TaskLikeRow));
+    case "subtasks":
+      return rawResults.map((r) => subtaskLikeToChartRow(r as SubtaskLikeRow));
     case "timeline_events":
       return rawResults.map((r) => timelineEventLikeToChartRow(r as TimelineEventLikeRow));
     case "table_rows":

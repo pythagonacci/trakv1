@@ -222,6 +222,9 @@ interface SubtaskResult {
   description: string | null;
   completed: boolean;
   display_order: number;
+  status: string | null;
+  priority: string | null;
+  due_date: string | null;
   task_id: string;
   task_title: string | null;
   project_id: string | null;
@@ -1109,6 +1112,7 @@ export async function searchTasks(params: {
   assigneeName?: string; // Search by assignee name via entity_properties
   projectId?: string | string[];
   tabId?: string | string[];
+  taskBlockId?: string | string[];
   tagId?: string | string[];
   tagName?: string; // Search by tag name via entity_properties
   dueDate?: DateFilter;
@@ -1339,6 +1343,11 @@ export async function searchTasks(params: {
       query = query.in("tab_id", tabFilter);
     }
 
+    const taskBlockFilter = normalizeArrayFilter(params.taskBlockId);
+    if (taskBlockFilter) {
+      query = query.in("task_block_id", taskBlockFilter);
+    }
+
     // Execute the query (column-based due date filter)
     const baseFetchLimit = dueDatePropertyIds && dueDatePropertyIds.length > 0 ? limit * 2 : limit;
     const { data, error } = await query.order("updated_at", { ascending: false }).limit(baseFetchLimit);
@@ -1388,6 +1397,11 @@ export async function searchTasks(params: {
         const tabFilter = normalizeArrayFilter(params.tabId);
         if (tabFilter) {
           dueDateQuery = dueDateQuery.in("tab_id", tabFilter);
+        }
+
+        const taskBlockFilter = normalizeArrayFilter(params.taskBlockId);
+        if (taskBlockFilter) {
+          dueDateQuery = dueDateQuery.in("task_block_id", taskBlockFilter);
         }
 
         dueDateQuery = applyDateFilter(dueDateQuery, "start_date", params.startDate);
@@ -1570,12 +1584,14 @@ export async function searchTasks(params: {
  * @param params.limit - Maximum results (default 50)
  */
 export async function searchSubtasks(params: {
+  subtaskId?: string | string[];
   searchText?: string;
   completed?: boolean;
   taskId?: string | string[];
   taskTitle?: string;
   projectId?: string | string[];
   tabId?: string | string[];
+  taskBlockId?: string | string[];
   limit?: number;
   authContext?: AuthContext;
 }): Promise<SearchResponse<SubtaskResult>> {
@@ -1604,6 +1620,7 @@ export async function searchSubtasks(params: {
           workspace_id,
           project_id,
           tab_id,
+          task_block_id,
           projects(name),
           tabs(name)
         )
@@ -1617,6 +1634,11 @@ export async function searchSubtasks(params: {
 
     if (params.completed !== undefined) {
       query = query.eq("completed", params.completed);
+    }
+
+    const requestedSubtaskIds = normalizeArrayFilter(params.subtaskId);
+    if (requestedSubtaskIds && requestedSubtaskIds.length > 0) {
+      query = query.in("id", requestedSubtaskIds);
     }
 
     const taskIds = normalizeArrayFilter(params.taskId);
@@ -1634,6 +1656,11 @@ export async function searchSubtasks(params: {
       query = query.in("task_items.tab_id", tabIds);
     }
 
+    const taskBlockIds = normalizeArrayFilter(params.taskBlockId);
+    if (taskBlockIds && taskBlockIds.length > 0) {
+      query = query.in("task_items.task_block_id", taskBlockIds);
+    }
+
     if (params.taskTitle) {
       query = query.ilike("task_items.title", `%${params.taskTitle}%`);
     }
@@ -1643,6 +1670,11 @@ export async function searchSubtasks(params: {
       .limit(limit);
 
     if (error) return { data: null, error: error.message ?? "Failed to search subtasks" };
+
+    const fetchedSubtaskIds = (data ?? []).map((row: any) => String(row.id)).filter(Boolean);
+    const subtaskPropertiesMap = fetchedSubtaskIds.length > 0
+      ? await enrichEntitiesWithProperties(supabase, workspaceId, "subtask", fetchedSubtaskIds)
+      : new Map<string, EnrichedProperty[]>();
 
     const results: SubtaskResult[] = (data ?? []).map((row: any) => {
       const task = coerceRelation<{
@@ -1654,6 +1686,10 @@ export async function searchSubtasks(params: {
       }>(row.task_items);
       const project = coerceRelation<{ name?: string }>(task?.projects);
       const tab = coerceRelation<{ name?: string }>(task?.tabs);
+      const props = subtaskPropertiesMap.get(String(row.id)) ?? [];
+      const statusProp = props.find((p) => p.name === "Status");
+      const priorityProp = props.find((p) => p.name === "Priority");
+      const dueDateProp = props.find((p) => p.name === "Due Date");
 
       return {
         id: row.id,
@@ -1661,6 +1697,9 @@ export async function searchSubtasks(params: {
         description: row.description ?? null,
         completed: Boolean(row.completed),
         display_order: row.display_order ?? 0,
+        status: normalizeStatusValue(normalizeSelectValue(statusProp?.value)),
+        priority: normalizePriorityValue(normalizeSelectValue(priorityProp?.value)),
+        due_date: normalizeDateValue(dueDateProp?.value),
         task_id: row.task_id,
         task_title: task?.title ?? null,
         project_id: task?.project_id ?? null,
@@ -1802,6 +1841,11 @@ export async function getSubtaskDetails(params: {
     }>(subtaskData.task_items);
     const project = coerceRelation<{ name?: string }>(task?.projects);
     const tab = coerceRelation<{ name?: string }>(task?.tabs);
+    const propertiesMap = await enrichEntitiesWithProperties(supabase, workspaceId, "subtask", [subtaskData.id]);
+    const props = propertiesMap.get(subtaskData.id) ?? [];
+    const statusProp = props.find((p) => p.name === "Status");
+    const priorityProp = props.find((p) => p.name === "Priority");
+    const dueDateProp = props.find((p) => p.name === "Due Date");
 
     const result: SubtaskDetailsResult = {
       id: subtaskData.id,
@@ -1809,6 +1853,9 @@ export async function getSubtaskDetails(params: {
       description: subtaskData.description ?? null,
       completed: Boolean(subtaskData.completed),
       display_order: subtaskData.display_order ?? 0,
+      status: normalizeStatusValue(normalizeSelectValue(statusProp?.value)),
+      priority: normalizePriorityValue(normalizeSelectValue(priorityProp?.value)),
+      due_date: normalizeDateValue(dueDateProp?.value),
       task_id: subtaskData.task_id,
       task_title: task?.title ?? null,
       project_id: task?.project_id ?? null,
@@ -1820,8 +1867,7 @@ export async function getSubtaskDetails(params: {
     };
 
     if (includeProperties) {
-      const propertiesMap = await enrichEntitiesWithProperties(supabase, workspaceId, "subtask", [subtaskData.id]);
-      result.properties = propertiesMap.get(subtaskData.id) ?? [];
+      result.properties = props;
     }
 
     return { data: result, error: null };

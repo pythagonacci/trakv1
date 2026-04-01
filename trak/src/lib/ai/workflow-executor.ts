@@ -963,11 +963,11 @@ function buildFallbackChartSpec(
 function inferChartDataSourceFromFallbackDataset(
   dataset: ChartFallbackDataset
 ): Record<string, unknown> | undefined {
-  if (dataset.sourceTool === "searchSubtasks") return undefined;
-
   const type =
     dataset.sourceTool === "searchTasks"
       ? "tasks"
+      : dataset.sourceTool === "searchSubtasks"
+        ? "subtasks"
       : dataset.sourceTool === "searchTimelineEvents"
         ? "timeline_events"
         : dataset.sourceTool === "searchTableRows"
@@ -1401,6 +1401,7 @@ IMPORTANT SAFETY:
 - If a field like Priority/Status is missing in source data, fill with "Unspecified" rather than leaving blanks.
 ${tableContext.tableId ? `CURRENT TABLE CONTEXT: tableId=${tableContext.tableId}, blockId=${tableContext.blockId}` : ""}
 ${blockContext.blockId ? `CURRENT BLOCK CONTEXT: blockId=${blockContext.blockId}, type=${blockContext.blockType}` : ""}
+${blockContext.blockId && blockContext.blockType === "task" ? "TASK BLOCK CONTEXT: When the user refers to tasks or subtasks in this block, scope searches to tasks inside this task block first. Do not treat the block ID as a task ID." : ""}
 ${blockContext.chartContent ? `
 CHART CONVERSION: The latest block is a chart. To convert it to a different type (e.g. "render as doughnut chart", "make it a pie chart"), you MUST call createSpecChartBlock with the SAME rows and a spec with the new type.
 Current chart data (use these rows and modify spec.type as needed):

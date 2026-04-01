@@ -17,7 +17,7 @@ import type { ChartBlockContent, ChartType, ChartDataSource, ChartDataQuery, Spe
 import { isSpecChart, isRefreshableDataSource } from "@/types/chart";
 import { normalizeToChartRows } from "@/lib/charts/normalizeToChartRows";
 import type { ChartRow, ChartSpec } from "@/lib/charts/chartSpec";
-import { searchTasks, searchTimelineEvents, searchTableRows, searchCards } from "@/app/actions/ai-search";
+import { searchTasks, searchSubtasks, searchTimelineEvents, searchTableRows, searchCards } from "@/app/actions/ai-search";
 import type { TableField } from "@/types/table";
 import type { DashboardChartQuery } from "@/app/dashboard/dashboard-config-types";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
@@ -112,6 +112,55 @@ const PROMPT_STOP_WORDS = new Set([
   "percent",
   "percentage",
 ]);
+
+function isSubtaskChartRow(row: ChartRow): boolean {
+  return row.type === "subtask" || (typeof row.parentTaskId === "string" && row.parentTaskId.length > 0);
+}
+
+function rewriteTaskQueryAsSubtaskQuery(query: ChartDataQuery, rows: ChartRow[]): ChartDataQuery {
+  if (query.type !== "tasks") return query;
+
+  const params = (query.params ?? {}) as Record<string, unknown>;
+  if (params.includeSubtasks !== true) return query;
+  if (rows.length === 0 || rows.some((row) => !isSubtaskChartRow(row))) return query;
+
+  const parentTaskIds = Array.from(
+    new Set(
+      rows
+        .map((row) => (typeof row.parentTaskId === "string" && row.parentTaskId.length > 0 ? row.parentTaskId : null))
+        .filter((value): value is string => Boolean(value))
+    )
+  );
+  if (parentTaskIds.length === 0) return query;
+
+  const nextParams: Record<string, unknown> = {};
+  if (params.projectId !== undefined) nextParams.projectId = params.projectId;
+  if (params.tabId !== undefined) nextParams.tabId = params.tabId;
+  if (params.limit !== undefined) nextParams.limit = params.limit;
+  nextParams.taskId = parentTaskIds.length === 1 ? parentTaskIds[0] : parentTaskIds;
+
+  return {
+    type: "subtasks",
+    params: nextParams,
+  };
+}
+
+function normalizeChartDataSourceForRows(
+  dataSource: ChartDataSource | undefined,
+  rows: ChartRow[]
+): ChartDataSource | undefined {
+  if (!dataSource || !isRefreshableDataSource(dataSource) || dataSource.scope !== "query") {
+    return dataSource;
+  }
+
+  return {
+    ...dataSource,
+    query: rewriteTaskQueryAsSubtaskQuery(dataSource.query, rows),
+    previousQuery: dataSource.previousQuery
+      ? rewriteTaskQueryAsSubtaskQuery(dataSource.previousQuery, rows)
+      : dataSource.previousQuery,
+  };
+}
 
 function sanitizeSearchText(text: string) {
   return text
@@ -831,6 +880,8 @@ export async function createSpecChartBlock(params: {
 
     const safeSpec = applySpecFallbacks(parsedSpec);
 
+    const normalizedDataSource = normalizeChartDataSourceForRows(params.dataSource, params.rows as ChartRow[]);
+
     const chartContent: SpecChartBlockContent = {
       spec: safeSpec,
       rows: params.rows as ChartRow[],
@@ -844,8 +895,8 @@ export async function createSpecChartBlock(params: {
         description: params.simulationDescription ?? undefined,
       },
     };
-    if (params.dataSource && isRefreshableDataSource(params.dataSource)) {
-      chartContent.dataSource = params.dataSource;
+    if (normalizedDataSource && isRefreshableDataSource(normalizedDataSource)) {
+      chartContent.dataSource = normalizedDataSource;
     }
 
     const blockResult = await createBlock({
@@ -899,8 +950,9 @@ async function getSpecChartBlockWithAuth(blockId: string, authContext: AuthConte
 
 function queryTypeToEntityType(
   type: ChartDataQuery["type"]
-): "task" | "timeline_event" | "table_row" | "card" {
+): "task" | "subtask" | "timeline_event" | "table_row" | "card" {
   if (type === "tasks") return "task";
+  if (type === "subtasks") return "subtask";
   if (type === "timeline_events") return "timeline_event";
   if (type === "cards") return "card";
   return "table_row";
@@ -933,6 +985,19 @@ async function loadRefreshableChartRows(
           limit: 5000,
           authContext,
         } as Parameters<typeof searchTasks>[0]);
+        if (countRes.error) return { error: countRes.error };
+        universeTotal = countRes.data?.length ?? newRows.length;
+      }
+    } else if (q.type === "subtasks") {
+      const res = await searchSubtasks(params as Parameters<typeof searchSubtasks>[0]);
+      if (res.error) return { error: res.error };
+      newRows = normalizeToChartRows("subtasks", res.data ?? []);
+      if (needsUniverseTotal) {
+        const countRes = await searchSubtasks({
+          ...(q.params as Record<string, unknown>),
+          limit: 5000,
+          authContext,
+        } as Parameters<typeof searchSubtasks>[0]);
         if (countRes.error) return { error: countRes.error };
         universeTotal = countRes.data?.length ?? newRows.length;
       }
@@ -984,6 +1049,10 @@ async function loadRefreshableChartRows(
       const res = await searchTasks({ taskIds: entityIds, limit: idLimit, authContext });
       if (res.error) return { error: res.error };
       newRows = normalizeToChartRows("tasks", res.data ?? []);
+    } else if (entityType === "subtask") {
+      const res = await searchSubtasks({ subtaskId: entityIds, limit: idLimit, authContext });
+      if (res.error) return { error: res.error };
+      newRows = normalizeToChartRows("subtasks", res.data ?? []);
     } else if (entityType === "timeline_event") {
       const res = await searchTimelineEvents({ eventIds: entityIds, limit: idLimit, authContext });
       if (res.error) return { error: res.error };

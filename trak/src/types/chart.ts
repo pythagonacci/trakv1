@@ -10,6 +10,7 @@ export type ChartType = "bar" | "line" | "pie" | "doughnut";
  */
 export type ChartDataQuery =
   | { type: "tasks"; params: Record<string, unknown> }
+  | { type: "subtasks"; params: Record<string, unknown> }
   | { type: "timeline_events"; params: Record<string, unknown> }
   | { type: "table_rows"; params: Record<string, unknown> }
   | { type: "cards"; params: Record<string, unknown> };
@@ -30,7 +31,7 @@ export interface ChartDataSourceRefreshableQuery {
 export interface ChartDataSourceRefreshableFixed {
   mode: "refreshable";
   scope: "fixed";
-  entityType: "task" | "timeline_event" | "table_row" | "card";
+  entityType: "task" | "subtask" | "timeline_event" | "table_row" | "card";
   entityIds: string[];
   previousQuery?: ChartDataQuery;
 }

@@ -522,6 +522,62 @@ function autoHydrateRowsFromSearch(
   return hydrated;
 }
 
+async function resolveTaskBlockIdFromContext(
+  context?: ToolExecutionContext
+): Promise<string | undefined> {
+  const rawContextBlockId = typeof context?.contextBlockId === "string" ? context.contextBlockId.trim() : "";
+  if (!rawContextBlockId) return undefined;
+
+  const blockResult = await getEntityById({
+    entityType: "block",
+    id: rawContextBlockId,
+    authContext: context?.authContext,
+  });
+  if (blockResult.error || !blockResult.data) return undefined;
+
+  const block = blockResult.data as { id?: string; type?: string };
+  if (block.type !== "task" || typeof block.id !== "string" || block.id.length === 0) return undefined;
+  return block.id;
+}
+
+function isExactContextTaskBlockIdValue(value: unknown, contextTaskBlockId: string): boolean {
+  if (typeof value === "string") return value.trim() === contextTaskBlockId;
+  if (Array.isArray(value)) {
+    const normalized = value.filter((entry): entry is string => typeof entry === "string").map((entry) => entry.trim()).filter(Boolean);
+    return normalized.length > 0 && normalized.every((entry) => entry === contextTaskBlockId);
+  }
+  return false;
+}
+
+async function normalizeTaskSearchArgsForContext(
+  toolName: string,
+  args: Record<string, unknown>,
+  context?: ToolExecutionContext
+): Promise<Record<string, unknown>> {
+  if (toolName !== "searchTasks" && toolName !== "searchSubtasks") return args;
+
+  const contextTaskBlockId = await resolveTaskBlockIdFromContext(context);
+  if (!contextTaskBlockId) return args;
+
+  const nextArgs: Record<string, unknown> = { ...args };
+  const hasExplicitTaskBlockScope =
+    typeof nextArgs.taskBlockId === "string"
+      ? nextArgs.taskBlockId.trim().length > 0
+      : Array.isArray(nextArgs.taskBlockId)
+        ? nextArgs.taskBlockId.some((value) => typeof value === "string" && value.trim().length > 0)
+        : false;
+
+  if (toolName === "searchSubtasks" && isExactContextTaskBlockIdValue(nextArgs.taskId, contextTaskBlockId)) {
+    delete nextArgs.taskId;
+  }
+
+  if (!hasExplicitTaskBlockScope) {
+    nextArgs.taskBlockId = contextTaskBlockId;
+  }
+
+  return nextArgs;
+}
+
 async function insertRowsAdaptive(
   tableId: string,
   rows: Array<{ data: Record<string, unknown>; order?: number | string | null }>,
@@ -1448,10 +1504,20 @@ export async function executeTool(
         // SEARCH TOOLS
         // ==================================================================
         case "searchTasks":
-          return await wrapResult(searchTasks({ ...args as any, authContext }));
+          return await wrapResult(
+            searchTasks({
+              ...(await normalizeTaskSearchArgsForContext("searchTasks", args as Record<string, unknown>, context)) as any,
+              authContext,
+            })
+          );
 
         case "searchSubtasks":
-          return await wrapResult(searchSubtasks({ ...args as any, authContext }));
+          return await wrapResult(
+            searchSubtasks({
+              ...(await normalizeTaskSearchArgsForContext("searchSubtasks", args as Record<string, unknown>, context)) as any,
+              authContext,
+            })
+          );
 
         case "getSubtaskDetails":
           return await wrapResult(

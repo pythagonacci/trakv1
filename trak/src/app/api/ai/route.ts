@@ -137,6 +137,9 @@ export async function POST(request: NextRequest) {
           `- Tab: ${tabName}`,
           `- Project: ${projectName}`,
         ];
+        if (blockType === "task") {
+          contextLines.push("- This is a task block. When searching for tasks or subtasks in this context, scope to tasks inside this block. Do not use the block ID as a task ID.");
+        }
         if (tableId) {
           contextLines.push(`- Table ID: ${tableId}`);
           contextTableId = tableId;

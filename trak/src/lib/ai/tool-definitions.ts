@@ -119,6 +119,7 @@ const searchTools: ToolDefinition[] = [
       tagName: { type: "string", description: "Filter by tag name (partial match)" },
       projectId: { type: "string", description: "Filter by project ID" },
       tabId: { type: "string", description: "Filter by tab ID" },
+      taskBlockId: { type: "string", description: "Filter by task block ID" },
       dueDate: {
         type: "object",
         description: "Filter by due date. Use eq for exact, gte for on or after, lte for on or before, isNull for no due date",
@@ -146,6 +147,7 @@ const searchTools: ToolDefinition[] = [
       taskTitle: { type: "string", description: "Filter by parent task title (partial match)" },
       projectId: { type: "string", description: "Filter by project ID (via parent task)" },
       tabId: { type: "string", description: "Filter by tab ID (via parent task)" },
+      taskBlockId: { type: "string", description: "Filter by task block ID (via parent task)" },
       limit: { type: "number", description: "Maximum number of results (default 50)" },
     },
     requiredParams: [],
@@ -1074,9 +1076,9 @@ const blockActionTools: ToolDefinition[] = [
       "The server expands compressed rows before rendering. You may also send rowBatches (array of row arrays) as a batched alternative.\n\n" +
       "UNIVERSE: to show 'Figma files by status out of all files', set normalizeTo='universe', pass only Figma rows as rows[], " +
       "and set universeTotal to the count of ALL files. To add a 'Non-Figma' slice, set pieComposition='focusPlusRest'.\n\n" +
-      "DATA SOURCE (refresh + scope): When the chart data comes from searchTasks, searchCards, searchTimelineEvents, or searchTableRows, " +
+      "DATA SOURCE (refresh + scope): When the chart data comes from searchTasks, searchSubtasks, searchCards, searchTimelineEvents, or searchTableRows, " +
       "pass dataSource so the chart can be refreshed and can track future matching items. Use dataSource: { mode: 'refreshable', scope: 'query', query: { type, params } } " +
-      "where type is 'tasks' | 'cards' | 'timeline_events' | 'table_rows' and params are the same serializable arguments you used for that search (e.g. searchText, status, projectId, limit). " +
+      "where type is 'tasks' | 'subtasks' | 'cards' | 'timeline_events' | 'table_rows' and params are the same serializable arguments you used for that search (e.g. searchText, status, projectId, taskId, limit). " +
       "The user can later choose \"Track only these items\" in the UI to lock the chart to the current set. Omit dataSource for inline/mixed data (snapshot-only chart).",
     category: "block",
     parameters: {
@@ -1089,7 +1091,7 @@ const blockActionTools: ToolDefinition[] = [
       universeTotal: { type: "number", description: "Total count of the full universe (denominator scope). Required when spec.normalizeTo='universe'." },
       title:    { type: "string", description: "Chart title override (also settable in spec.title)." },
       prompt:   { type: "string", description: "Original user request (stored for traceability)." },
-      dataSource: { type: "object", description: "Optional. When chart is from a single search: { mode: 'refreshable', scope: 'query', query: { type: 'tasks'|'cards'|'timeline_events'|'table_rows', params: { ...same as search } } }. Enables Refresh and scope switching." },
+      dataSource: { type: "object", description: "Optional. When chart is from a single search: { mode: 'refreshable', scope: 'query', query: { type: 'tasks'|'subtasks'|'cards'|'timeline_events'|'table_rows', params: { ...same as search } } }. Enables Refresh and scope switching." },
       isSimulation: { type: "boolean", description: "True for what-if simulations." },
       originalChartId: { type: "string", description: "Source chart block ID for simulations." },
       simulationDescription: { type: "string", description: "Brief description of the what-if change." },
