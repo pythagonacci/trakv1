@@ -75,6 +75,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { addDays, endOfWeek, isBefore, isSameDay, startOfWeek } from "date-fns";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
@@ -572,6 +573,19 @@ interface WorkspaceMember {
   role: string;
 }
 
+const TABLE_COLUMN_DEFINITIONS = [
+  { key: "status", label: "Status", width: "56px", hideable: true },
+  { key: "task", label: "Task", width: "minmax(240px, 2fr)", hideable: false },
+  { key: "priority", label: "Priority", width: "minmax(140px, 1fr)", hideable: true },
+  { key: "assignee", label: "Assignee", width: "minmax(180px, 1fr)", hideable: true },
+  { key: "dueDate", label: "Due Date", width: "minmax(140px, 1fr)", hideable: true },
+  { key: "tags", label: "Tags", width: "minmax(200px, 1fr)", hideable: true },
+  { key: "actions", label: "Actions", width: "36px", hideable: false },
+] as const;
+
+type TableColumnKey = typeof TABLE_COLUMN_DEFINITIONS[number]["key"];
+type HideableTableColumnKey = Extract<TableColumnKey, "status" | "priority" | "assignee" | "dueDate" | "tags">;
+
 function BoardColumnContainer({
   columnId,
   children,
@@ -820,6 +834,7 @@ export default function TaskBlock({
   const initialViewMode = content.viewMode || "list";
   const initialBoardGroupBy = content.boardGroupBy || "status";
   const initialShowRollup = content.showRollup || false;
+  const initialTableHiddenColumns = (content.tableHiddenColumns || []) as HideableTableColumnKey[];
 
   const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
   const workspaceMemberLookup = useMemo(() => {
@@ -845,6 +860,7 @@ export default function TaskBlock({
   const [showRollup, setShowRollup] = useState(initialShowRollup);
   const [viewMode, setViewMode] = useState<TaskViewMode>(initialViewMode);
   const [boardGroupBy, setBoardGroupBy] = useState<BoardGroupBy>(initialBoardGroupBy);
+  const [tableHiddenColumns, setTableHiddenColumns] = useState<HideableTableColumnKey[]>(initialTableHiddenColumns);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingTaskText, setEditingTaskText] = useState("");
   const [pendingTaskTitleByClientKey, setPendingTaskTitleByClientKey] = useState<Record<string, string>>({});
@@ -1446,6 +1462,11 @@ export default function TaskBlock({
     setBoardGroupBy(content.boardGroupBy || "status");
   }, [content.boardGroupBy]);
 
+  // Stay in sync if table hidden columns change externally
+  useEffect(() => {
+    setTableHiddenColumns((content.tableHiddenColumns || []) as HideableTableColumnKey[]);
+  }, [content.tableHiddenColumns]);
+
   // Keep a stable task order for drag + drop
   useEffect(() => {
     const ids = dedupeTasksByClientKey(tasks).map((task) => String(task.id));
@@ -1840,11 +1861,17 @@ export default function TaskBlock({
     });
   };
 
-  const commitSubtaskDraft = async (taskId: string | number, subtaskId: string | number, draftValue: string | undefined, originalText: string) => {
+  const commitSubtaskDraft = async (
+    taskId: string | number,
+    subtaskId: string | number,
+    subtaskClientKey: string,
+    draftValue: string | undefined,
+    originalText: string
+  ) => {
     if (draftValue === undefined) return;
     setSubtaskDrafts((prev) => {
       const next = { ...prev };
-      delete next[String(subtaskId)];
+      delete next[subtaskClientKey];
       return next;
     });
     const finalText = (draftValue || "").trim() || "New subtask";
@@ -2023,6 +2050,18 @@ export default function TaskBlock({
     await persistBlockContent(updatedContent);
     if (!isTempBlock) {
       setBoardGroupBy(updatedContent.boardGroupBy || "status");
+    }
+  };
+
+  const handleTableColumnVisibilityChange = async (column: HideableTableColumnKey, checked: boolean) => {
+    const nextHiddenColumns = checked
+      ? tableHiddenColumns.filter((key) => key !== column)
+      : [...tableHiddenColumns, column].filter((key, index, array) => array.indexOf(key) === index);
+    setTableHiddenColumns(nextHiddenColumns);
+    const updatedContent = { ...content, tableHiddenColumns: nextHiddenColumns } as TaskBlockContent & { tasks?: Task[] };
+    await persistBlockContent(updatedContent);
+    if (!isTempBlock) {
+      setTableHiddenColumns((updatedContent.tableHiddenColumns || []) as HideableTableColumnKey[]);
     }
   };
 
@@ -3002,8 +3041,25 @@ export default function TaskBlock({
     return !globalHideIcons && !task.hideIcons;
   };
 
-  const tableColumnTemplate =
-    "56px minmax(240px, 2fr) minmax(140px, 1fr) minmax(180px, 1fr) minmax(140px, 1fr) minmax(200px, 1fr) 36px";
+  const hiddenTableColumnSet = useMemo(
+    () => new Set<HideableTableColumnKey>(tableHiddenColumns),
+    [tableHiddenColumns]
+  );
+  const isTableColumnVisible = useCallback(
+    (key: HideableTableColumnKey) => !hiddenTableColumnSet.has(key),
+    [hiddenTableColumnSet]
+  );
+  const tableVisibleColumns = useMemo(
+    () =>
+      TABLE_COLUMN_DEFINITIONS.filter((column) =>
+        !column.hideable || !hiddenTableColumnSet.has(column.key as HideableTableColumnKey)
+      ),
+    [hiddenTableColumnSet]
+  );
+  const tableColumnTemplate = useMemo(
+    () => tableVisibleColumns.map((column) => column.width).join(" "),
+    [tableVisibleColumns]
+  );
 
   const handleToggleTaskSourceSync = async (checked: boolean) => {
     if (isTempBlock || !hasLiveSyncEligibleCopies || setTaskSyncModeMutation.isPending) return;
@@ -3248,6 +3304,29 @@ export default function TaskBlock({
                   >
                     {option.label}
                   </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          {viewMode === "table" && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex items-center gap-1 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[10px] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
+                  Columns
+                  <ChevronDown className="h-3 w-3" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                {TABLE_COLUMN_DEFINITIONS.filter((column) => column.hideable).map((column) => (
+                  <DropdownMenuCheckboxItem
+                    key={column.key}
+                    checked={isTableColumnVisible(column.key as HideableTableColumnKey)}
+                    onCheckedChange={(checked) => {
+                      void handleTableColumnVisibilityChange(column.key as HideableTableColumnKey, checked === true);
+                    }}
+                  >
+                    {column.label}
+                  </DropdownMenuCheckboxItem>
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
@@ -3569,6 +3648,7 @@ export default function TaskBlock({
                                 <div className="mt-1.5 space-y-1.5">
                             {(task.subtasks || []).map((subtask) => {
                               const subtaskId = String(subtask.id);
+                              const subtaskClientKey = getSubtaskClientKey(subtask);
                               const subtaskEntityId = getPersistedEntityId(subtask.id);
                               const canUseSubtaskProperties = Boolean(subtaskEntityId) && !isTempBlock && Boolean(workspaceId);
                               const subtaskProps = getSubtaskEffectiveProperties(subtaskId);
@@ -3584,14 +3664,15 @@ export default function TaskBlock({
                               const subtaskAssigneeLabel = subtaskAssigneeNames.length ? subtaskAssigneeNames.join(", ") : null;
                               const subtaskStatusLabel =
                                 STATUS_OPTIONS.find((o) => o.value === subtaskStatus)?.label ?? subtaskStatus;
-                              const subtaskSections = expandedSubtasks[subtaskId] || {};
+                              const subtaskStatusFieldId = subtaskProps?.statuses?.[0]?.id;
+                              const subtaskSections = expandedSubtasks[subtaskClientKey] || {};
                               const showSubtaskDescription =
                                 subtask.description !== undefined || subtaskSections.description;
                               const subtaskCommentCount = subtaskCommentCountsById.get(subtaskId) || 0;
 
                               return (
                                 <div
-                                  key={subtask.id}
+                                  key={subtaskClientKey}
                                   role="button"
                                   tabIndex={0}
                                   onClick={(e) => {
@@ -3644,15 +3725,16 @@ export default function TaskBlock({
                                       <div className="flex items-center gap-1.5">
                                         <input
                                           type="text"
-                                          value={subtaskDrafts[subtaskId] ?? subtask.text}
+                                          value={subtaskDrafts[subtaskClientKey] ?? subtask.text}
                                           onChange={(e) =>
-                                            setSubtaskDrafts((prev) => ({ ...prev, [subtaskId]: e.target.value }))
+                                            setSubtaskDrafts((prev) => ({ ...prev, [subtaskClientKey]: e.target.value }))
                                           }
                                           onBlur={() =>
                                             commitSubtaskDraft(
                                               task.id,
                                               subtask.id,
-                                              subtaskDrafts[subtaskId],
+                                              subtaskClientKey,
+                                              subtaskDrafts[subtaskClientKey],
                                               subtask.text
                                             )
                                           }
@@ -3665,7 +3747,7 @@ export default function TaskBlock({
                                               e.preventDefault();
                                               setSubtaskDrafts((prev) => {
                                                 const next = { ...prev };
-                                                delete next[subtaskId];
+                                                delete next[subtaskClientKey];
                                                 return next;
                                               });
                                               e.currentTarget.blur();
@@ -3689,8 +3771,8 @@ export default function TaskBlock({
                                             onToggle={() =>
                                               setExpandedSubtasks((prev) => ({
                                                 ...prev,
-                                                [subtaskId]: {
-                                                  ...(prev[subtaskId] || {}),
+                                                [subtaskClientKey]: {
+                                                  ...(prev[subtaskClientKey] || {}),
                                                   references: !subtaskSections.references,
                                                 },
                                               }))
@@ -3700,6 +3782,38 @@ export default function TaskBlock({
                                       </div>
                                       {(canUseSubtaskProperties && subtaskEntityId) || subtaskProps ? (
                                         <div className="pt-1 flex flex-wrap items-center gap-1.5">
+                                          {canUseSubtaskProperties && subtaskEntityId ? (
+                                            <PropertyFieldDropdown
+                                              entityType="subtask"
+                                              entityId={subtaskEntityId}
+                                              workspaceId={workspaceId}
+                                              group="status"
+                                              fieldId={subtaskStatusFieldId}
+                                              disabled={locked}
+                                            >
+                                              <button
+                                                type="button"
+                                                onClick={(e) => e.stopPropagation()}
+                                                className={cn(
+                                                  "inline-flex items-center rounded-[4px] px-2 py-0.5 text-[10px] font-medium transition-opacity hover:opacity-90",
+                                                  STATUS_COLORS[subtaskStatus]
+                                                )}
+                                                title={subtaskStatusLabel}
+                                              >
+                                                {subtaskStatusLabel}
+                                              </button>
+                                            </PropertyFieldDropdown>
+                                          ) : subtaskStatusLabel ? (
+                                            <span
+                                              className={cn(
+                                                "inline-flex items-center rounded-[4px] px-2 py-0.5 text-[10px] font-medium",
+                                                STATUS_COLORS[subtaskStatus]
+                                              )}
+                                              title={subtaskStatusLabel}
+                                            >
+                                              {subtaskStatusLabel}
+                                            </span>
+                                          ) : null}
                                           {canUseSubtaskProperties && subtaskEntityId && (
                                             <DropdownMenu>
                                               <DropdownMenuTrigger asChild>
@@ -3757,6 +3871,8 @@ export default function TaskBlock({
                                             <PropertyBadges
                                               properties={{
                                                 ...subtaskProps,
+                                                status: null,
+                                                statuses: [],
                                                 assignees: [],
                                                 assignee_ids: [],
                                                 assignee_id: null,
@@ -3824,7 +3940,7 @@ export default function TaskBlock({
                                           onClick={() => {
                                             setExpandedSubtasks((prev) => ({
                                               ...prev,
-                                              [subtaskId]: { ...(prev[subtaskId] || {}), description: true },
+                                              [subtaskClientKey]: { ...(prev[subtaskClientKey] || {}), description: true },
                                             }));
                                             if (subtask.description === undefined) {
                                               updateSubtask(task.id, subtask.id, { description: "" });
@@ -5020,7 +5136,7 @@ export default function TaskBlock({
 
                           return (
                             <BoardTaskCard
-                              key={itemId}
+                              key={subtaskClientKey}
                               itemType="subtask"
                               itemId={itemId as BoardItemId}
                               subtaskId={subtaskId}
@@ -5115,24 +5231,34 @@ export default function TaskBlock({
                 className="grid border-b border-l border-[var(--border)] bg-[#d8d8d8]/20 w-full"
                 style={{ gridTemplateColumns: tableColumnTemplate }}
               >
-              <div className="flex items-center justify-center border-r border-black/10 px-2 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-                Status
-              </div>
+              {isTableColumnVisible("status") && (
+                <div className="flex items-center justify-center border-r border-black/10 px-2 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                  Status
+                </div>
+              )}
               <div className="border-r border-black/10 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
                 Task
               </div>
-              <div className="border-r border-black/10 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-                Priority
-              </div>
-              <div className="border-r border-black/10 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-                Assignee
-              </div>
-              <div className="border-r border-black/10 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-                Due Date
-              </div>
-              <div className="border-r border-black/10 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-                Tags
-              </div>
+              {isTableColumnVisible("priority") && (
+                <div className="border-r border-black/10 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                  Priority
+                </div>
+              )}
+              {isTableColumnVisible("assignee") && (
+                <div className="border-r border-black/10 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                  Assignee
+                </div>
+              )}
+              {isTableColumnVisible("dueDate") && (
+                <div className="border-r border-black/10 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                  Due Date
+                </div>
+              )}
+              {isTableColumnVisible("tags") && (
+                <div className="border-r border-black/10 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                  Tags
+                </div>
+              )}
               <div className="w-9 flex-shrink-0" aria-hidden />
             </div>
             <div className="[&>div:last-child>div.grid:last-child]:border-b-0">
@@ -5159,6 +5285,11 @@ export default function TaskBlock({
               const extraTags = effectiveTags.length - visibleTags.length;
               const hasSubtasks = Boolean(task.subtasks && task.subtasks.length > 0);
               const isCollapsed = collapsedTaskIds[String(task.id)];
+              const showTableStatusColumn = isTableColumnVisible("status");
+              const showTablePriorityColumn = isTableColumnVisible("priority");
+              const showTableAssigneeColumn = isTableColumnVisible("assignee");
+              const showTableDueDateColumn = isTableColumnVisible("dueDate");
+              const showTableTagsColumn = isTableColumnVisible("tags");
 
               return (
                 <div key={taskClientKey} className="group/task-row">
@@ -5187,81 +5318,83 @@ export default function TaskBlock({
                       void openTaskCommentComposer(task.id);
                     }}
                   >
-                    <div className="flex items-center justify-center border-r border-[var(--border-strong)] px-2 py-2">
-                      <div className="flex flex-wrap items-center justify-center gap-1">
-                        {effectiveStatusFields.map((statusField, sIdx) => {
-                          const statusLabel = getStatusDisplayLabel(statusField);
-                          const statusValue = normalizeStatusValue(statusField.value ?? null);
-                          if (!statusLabel || !statusValue) return null;
+                    {showTableStatusColumn && (
+                      <div className="flex items-center justify-center border-r border-[var(--border-strong)] px-2 py-2">
+                        <div className="flex flex-wrap items-center justify-center gap-1">
+                          {effectiveStatusFields.map((statusField, sIdx) => {
+                            const statusLabel = getStatusDisplayLabel(statusField);
+                            const statusValue = normalizeStatusValue(statusField.value ?? null);
+                            if (!statusLabel || !statusValue) return null;
 
-                          const tableStatusIcon =
-                            statusValue === "done" ? (
-                              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                            ) : statusValue === "blocked" ? (
-                              <XCircle className="h-4 w-4 text-red-500" />
-                            ) : statusValue === "in_progress" ? (
-                              <Clock className="h-4 w-4 text-[var(--tram-yellow)]" />
-                            ) : (
-                              <Circle className="h-4 w-4 text-neutral-300 dark:text-neutral-600" />
-                            );
+                            const tableStatusIcon =
+                              statusValue === "done" ? (
+                                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                              ) : statusValue === "blocked" ? (
+                                <XCircle className="h-4 w-4 text-red-500" />
+                              ) : statusValue === "in_progress" ? (
+                                <Clock className="h-4 w-4 text-[var(--tram-yellow)]" />
+                              ) : (
+                                <Circle className="h-4 w-4 text-neutral-300 dark:text-neutral-600" />
+                              );
 
-                          if (canUseProperties && taskEntityId && !statusIsDerived) {
-                            const entityProps = entityPropertiesByTaskId[task.id];
-                            const fieldId = entityProps?.statuses?.[sIdx]?.id;
-                            return (
-                              <PropertyFieldDropdown
-                                key={`${task.id}-table-status-${statusField.field_name.toLowerCase()}`}
-                                entityType="task"
-                                entityId={taskEntityId}
-                                workspaceId={workspaceId}
-                                group="status"
-                                fieldId={fieldId}
-                                disabled={locked}
-                              >
-                                <button
-                                  type="button"
-                                  onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
-                                  className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--foreground)] flex-shrink-0 cursor-pointer"
+                            if (canUseProperties && taskEntityId && !statusIsDerived) {
+                              const entityProps = entityPropertiesByTaskId[task.id];
+                              const fieldId = entityProps?.statuses?.[sIdx]?.id;
+                              return (
+                                <PropertyFieldDropdown
+                                  key={`${task.id}-table-status-${statusField.field_name.toLowerCase()}`}
+                                  entityType="task"
+                                  entityId={taskEntityId}
+                                  workspaceId={workspaceId}
+                                  group="status"
+                                  fieldId={fieldId}
+                                  disabled={locked}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                                    className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--foreground)] flex-shrink-0 cursor-pointer"
+                                    title={statusLabel}
+                                    aria-label={statusLabel}
+                                  >
+                                    {tableStatusIcon}
+                                  </button>
+                                </PropertyFieldDropdown>
+                              );
+                            }
+
+                            if (statusIsDerived) {
+                              return (
+                                <span
+                                  key={`${task.id}-table-status-${statusField.field_name.toLowerCase()}`}
+                                  className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] flex-shrink-0 cursor-not-allowed opacity-70"
                                   title={statusLabel}
-                                  aria-label={statusLabel}
                                 >
                                   {tableStatusIcon}
-                                </button>
-                              </PropertyFieldDropdown>
-                            );
-                          }
+                                </span>
+                              );
+                            }
 
-                          if (statusIsDerived) {
                             return (
-                              <span
+                              <button
                                 key={`${task.id}-table-status-${statusField.field_name.toLowerCase()}`}
-                                className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] flex-shrink-0 cursor-not-allowed opacity-70"
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  toggleTask(task.id);
+                                }}
+                                className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--foreground)] flex-shrink-0 cursor-pointer"
                                 title={statusLabel}
+                                aria-label="Toggle task"
                               >
                                 {tableStatusIcon}
-                              </span>
+                              </button>
                             );
-                          }
-
-                          return (
-                            <button
-                              key={`${task.id}-table-status-${statusField.field_name.toLowerCase()}`}
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                toggleTask(task.id);
-                              }}
-                              className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--foreground)] flex-shrink-0 cursor-pointer"
-                              title={statusLabel}
-                              aria-label="Toggle task"
-                            >
-                              {tableStatusIcon}
-                            </button>
-                          );
-                        })}
+                          })}
+                        </div>
                       </div>
-                    </div>
+                    )}
                     <div className="border-r border-[var(--border-strong)] px-3 py-2">
                       <div className="flex items-start gap-2">
                         {hasSubtasks && (
@@ -5369,6 +5502,7 @@ export default function TaskBlock({
                         </div>
                       </div>
                     </div>
+                    {showTablePriorityColumn && (
                     <div className="border-r border-[var(--border-strong)] px-3 py-2">
                       <div className="flex flex-wrap items-center gap-1">
                         {getRenderablePriorityFields(String(task.id), task).map((priorityField, pIdx) => {
@@ -5422,6 +5556,8 @@ export default function TaskBlock({
                           })}
                       </div>
                     </div>
+                    )}
+                    {showTableAssigneeColumn && (
                     <div className="border-r border-[var(--border-strong)] px-3 py-2">
                       {canUseProperties && taskEntityId ? (
                         <DropdownMenu>
@@ -5485,6 +5621,8 @@ export default function TaskBlock({
                         <span className="text-xs text-[var(--muted-foreground)]">{assigneeLabel ?? "—"}</span>
                       )}
                     </div>
+                    )}
+                    {showTableDueDateColumn && (
                     <div className="border-r border-[var(--border-strong)] px-3 py-2">
                       {canUseProperties && taskEntityId ? (
                         <DateRangeCalendarDropdown
@@ -5519,6 +5657,8 @@ export default function TaskBlock({
                         <span className="text-xs text-[var(--muted-foreground)]">{dueDateLabel ?? "—"}</span>
                       )}
                     </div>
+                    )}
+                    {showTableTagsColumn && (
                     <div className="border-r border-[var(--border-strong)] px-3 py-2">
                       <button
                         type="button"
@@ -5550,6 +5690,7 @@ export default function TaskBlock({
                         )}
                       </button>
                     </div>
+                    )}
                     <div className="px-2 py-2">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -5641,6 +5782,7 @@ export default function TaskBlock({
                   {hasSubtasks && !isCollapsed &&
                     (task.subtasks || []).map((subtask) => {
                       const subtaskId = String(subtask.id);
+                      const subtaskClientKey = getSubtaskClientKey(subtask);
                       const subtaskEntityId = getPersistedEntityId(subtask.id);
                       const canUseSubtaskProperties = Boolean(subtaskEntityId) && !isTempBlock && Boolean(workspaceId);
                       const subtaskProps = getSubtaskEffectiveProperties(subtaskId);
@@ -5662,7 +5804,7 @@ export default function TaskBlock({
                       const extraSubtaskTags = subtaskTags.length - visibleSubtaskTags.length;
                       return (
                         <div
-                          key={`subtask-${subtask.id}`}
+                          key={`subtask-${subtaskClientKey}`}
                           role="button"
                           tabIndex={0}
                           onClick={(e) => {
@@ -5695,6 +5837,7 @@ export default function TaskBlock({
                             });
                           }}
                         >
+                          {showTableStatusColumn && (
                           <div className="flex items-center justify-center border-r border-[var(--border-strong)] px-2 py-1.5">
                             <button
                               onClick={(e) => {
@@ -5717,6 +5860,7 @@ export default function TaskBlock({
                               )}
                             </button>
                           </div>
+                          )}
                           <div className="border-r border-[var(--border-strong)] px-3 py-1.5">
                             <div className="relative min-h-[1.5rem]">
                               {/* Subtle hierarchy guide: vertical + elbow, depth > 0 only, 1px, ~10% opacity, task cell only */}
@@ -5732,15 +5876,16 @@ export default function TaskBlock({
                                 <span className="shrink-0 text-[10px] text-[var(--muted-foreground)] opacity-70" aria-hidden>└─</span>
                                 <input
                                   type="text"
-                                  value={subtaskDrafts[subtaskId] ?? subtask.text}
+                                  value={subtaskDrafts[subtaskClientKey] ?? subtask.text}
                                   onChange={(e) =>
-                                    setSubtaskDrafts((prev) => ({ ...prev, [subtaskId]: e.target.value }))
+                                    setSubtaskDrafts((prev) => ({ ...prev, [subtaskClientKey]: e.target.value }))
                                   }
                                   onBlur={() =>
                                     commitSubtaskDraft(
                                       task.id,
                                       subtask.id,
-                                      subtaskDrafts[subtaskId],
+                                      subtaskClientKey,
+                                      subtaskDrafts[subtaskClientKey],
                                       subtask.text
                                     )
                                   }
@@ -5751,7 +5896,7 @@ export default function TaskBlock({
                                     if (e.key === "Escape") {
                                       setSubtaskDrafts((prev) => {
                                         const next = { ...prev };
-                                        delete next[subtaskId];
+                                        delete next[subtaskClientKey];
                                         return next;
                                       });
                                       (e.currentTarget as HTMLInputElement).blur();
@@ -5771,6 +5916,7 @@ export default function TaskBlock({
                               />
                             )}
                           </div>
+                          {showTablePriorityColumn && (
                           <div className="border-r border-[var(--border-strong)] px-3 py-1.5">
                             {canUseSubtaskProperties && subtaskEntityId ? (
                               <DropdownMenu>
@@ -5809,6 +5955,8 @@ export default function TaskBlock({
                               <span className="text-xs text-[var(--muted-foreground)]">{subtaskPriorityLabel ?? "—"}</span>
                             )}
                           </div>
+                          )}
+                          {showTableAssigneeColumn && (
                           <div className="border-r border-[var(--border-strong)] px-3 py-1.5">
                             {canUseSubtaskProperties && subtaskEntityId ? (
                               <DropdownMenu>
@@ -5857,6 +6005,8 @@ export default function TaskBlock({
                               <span className="text-xs text-[var(--muted-foreground)]">{subtaskAssigneeLabel ?? "—"}</span>
                             )}
                           </div>
+                          )}
+                          {showTableDueDateColumn && (
                           <div className="border-r border-[var(--border-strong)] px-3 py-1.5">
                             {canUseSubtaskProperties && subtaskEntityId ? (
                               <DateRangeCalendarDropdown
@@ -5891,6 +6041,8 @@ export default function TaskBlock({
                               <span className="text-xs text-[var(--muted-foreground)]">{subtaskDueDateLabel ?? "—"}</span>
                             )}
                           </div>
+                          )}
+                          {showTableTagsColumn && (
                           <div className="border-r border-[var(--border-strong)] px-3 py-1.5">
                             <button
                               type="button"
@@ -5925,6 +6077,7 @@ export default function TaskBlock({
                               )}
                             </button>
                           </div>
+                          )}
                           <div className="px-2 py-1.5">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>

@@ -18,6 +18,7 @@ import {
   syncTagsFieldConfigsForProject,
   type TagFieldOption,
 } from "@/lib/tables/tag-field-config";
+import { fanOutSourceTaskUpdate } from "@/app/actions/tasks/item-actions";
 import type {
   EntityType,
   EntityProperties,
@@ -1229,7 +1230,7 @@ export async function setEntityProperties(
       await setTaskAssignees(input.entity_id, assigneePayloadForTask, { replaceExisting: true });
     }
 
-    const shouldSyncDerivedTaskRows =
+    const shouldFanOutSourceTaskUpdate =
       updates.status !== undefined ||
       updates.statuses !== undefined ||
       updates.priority !== undefined ||
@@ -1240,103 +1241,31 @@ export async function setEntityProperties(
       updates.assignees !== undefined ||
       updates.assignee_ids !== undefined ||
       updates.assignee_id !== undefined;
-    if (shouldSyncDerivedTaskRows) {
-      const sourceTags = Array.isArray((data as any).tags)
-        ? ((data as any).tags as unknown[]).filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0)
-        : [];
-      const { data: derivedRows } = await supabase
-        .from("table_rows")
-        .select("id, table_id, data")
-        .eq("source_entity_type", "task")
-        .eq("source_entity_id", input.entity_id)
-        .eq("source_sync_mode", "live");
-      if (derivedRows && derivedRows.length > 0) {
-        const tableIds = Array.from(new Set((derivedRows as any[]).map((row) => row.table_id)));
-        const { data: fields } = await supabase
-          .from("table_fields")
-          .select("id, table_id, type, config, name")
-          .in("table_id", tableIds);
-        const fieldsByTable = new Map<string, any[]>();
-        for (const field of fields ?? []) {
-          const list = fieldsByTable.get((field as any).table_id) ?? [];
-          list.push(field);
-          fieldsByTable.set((field as any).table_id, list);
-        }
-        const normalizeName = (value: unknown) => String(value || "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "_");
+    if (shouldFanOutSourceTaskUpdate) {
+      const { data: taskSyncTarget } = await supabase
+        .from("task_items")
+        .select("source_entity_type, source_entity_id, source_sync_mode")
+        .eq("id", input.entity_id)
+        .maybeSingle();
+      const fanoutSourceTaskId =
+        taskSyncTarget?.source_entity_type === "task" &&
+        taskSyncTarget?.source_entity_id &&
+        taskSyncTarget?.source_sync_mode === "live"
+          ? taskSyncTarget.source_entity_id
+          : input.entity_id;
 
-        for (const row of derivedRows as any[]) {
-          const rowFields = fieldsByTable.get(row.table_id) ?? [];
-          const nextData = { ...((row.data ?? {}) as Record<string, unknown>) };
-          const statusFields = rowFields.filter((f: any) => f.type === "status");
-          const priorityFields = rowFields.filter((f: any) => f.type === "priority");
-          const tagFields = rowFields.filter((f: any) => f.type === "tags");
-          const startField = rowFields.find((f: any) => f.type === "date" && normalizeName(f.name).includes("start"))
-            ?? rowFields.find((f: any) => normalizeName(f.name).includes("start"));
-          const endField = rowFields.find((f: any) => f.type === "date" && normalizeName(f.name).includes("end"))
-            ?? rowFields.find((f: any) => normalizeName(f.name).includes("due") || normalizeName(f.name).includes("end"));
-          const singleDateField = rowFields.find((f: any) => f.type === "date");
-
-          if (updates.status !== undefined || updates.statuses !== undefined) {
-            if (taskStatuses.length > 0) {
-              for (const sourceStatus of taskStatuses) {
-                const match = statusFields.find((f: any) => normalizeName(f.name) === normalizeName(sourceStatus.field_name));
-                if (match) nextData[match.id] = sourceStatus.value;
-              }
-            } else {
-              for (const statusField of statusFields) nextData[statusField.id] = null;
-            }
-          }
-
-          if (updates.priority !== undefined || updates.priorities !== undefined) {
-            if (taskPriorities.length > 0) {
-              for (const sourcePriority of taskPriorities) {
-                const match = priorityFields.find((f: any) => normalizeName(f.name) === normalizeName(sourcePriority.field_name));
-                if (match) nextData[match.id] = sourcePriority.value;
-              }
-            } else {
-              for (const priorityField of priorityFields) nextData[priorityField.id] = null;
-            }
-          }
-
-          if (updates.due_date !== undefined || updates.due_dates !== undefined) {
-            if (dueDateRange) {
-              if (startField && startDate) nextData[startField.id] = startDate;
-              if (endField && dueDate) nextData[endField.id] = dueDate;
-              if (!startField && !endField && singleDateField) {
-                if (startDate && dueDate && startDate !== dueDate) {
-                  nextData[singleDateField.id] = { start: startDate, end: dueDate };
-                } else {
-                  nextData[singleDateField.id] = dueDate ?? startDate ?? null;
-                }
-              }
-            } else {
-              if (startField) nextData[startField.id] = null;
-              if (endField) nextData[endField.id] = null;
-              if (!startField && !endField && singleDateField) nextData[singleDateField.id] = null;
-            }
-          }
-
-          if (updates.tags !== undefined) {
-            for (const tagField of tagFields) {
-              const options = ((((tagField as any).config ?? {}) as Record<string, unknown>).options ?? []) as TagFieldOption[];
-              const tagIds = mapTagNamesToOptionIds(sourceTags, options);
-              nextData[tagField.id] = tagIds;
-            }
-          }
-
-          if (updates.assignees !== undefined || updates.assignee_ids !== undefined || updates.assignee_id !== undefined) {
-            const personFields = rowFields.filter((f: any) => f.type === "person");
-            const primaryId = (assigneePayloadForTask ?? []).map((p: any) => p.id)[0] ?? null;
-            for (const pf of personFields) {
-              nextData[pf.id] = primaryId;
-            }
-          }
-
-          await supabase
-            .from("table_rows")
-            .update({ data: nextData })
-            .eq("id", row.id);
-        }
+      try {
+        await fanOutSourceTaskUpdate({
+          supabase,
+          sourceTaskId: fanoutSourceTaskId,
+          userId,
+        });
+      } catch (fanoutError) {
+        console.error("Failed to fan out task property update to derived entities", {
+          entityId: input.entity_id,
+          sourceTaskId: fanoutSourceTaskId,
+          error: fanoutError,
+        });
       }
     }
 

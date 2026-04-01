@@ -6,6 +6,7 @@ export interface TaskRollupConfig {
   [key: string]: unknown;
 }
 
+export type TaskTableHiddenColumn = "status" | "priority" | "assignee" | "dueDate" | "tags";
 export type TaskStatus = "todo" | "in-progress" | "done";
 export type TaskPriority = "urgent" | "high" | "medium" | "low" | "none";
 export type TaskReferenceType = "doc" | "table_row" | "task" | "block" | "tab" | "file";
@@ -143,4 +144,5 @@ export interface TaskBlockContent {
   showDone?: boolean;
   rollups?: TaskRollupConfig[];
   showRollup?: boolean;
+  tableHiddenColumns?: TaskTableHiddenColumn[];
 }

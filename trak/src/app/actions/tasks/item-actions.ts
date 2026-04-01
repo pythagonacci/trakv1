@@ -486,6 +486,45 @@ async function syncTaskUpdateToDerivedTasks(params: {
   }
 }
 
+export async function fanOutSourceTaskUpdate(params: {
+  supabase: any;
+  sourceTaskId: string;
+  userId: string;
+  task?: TaskItem | null;
+}): Promise<void> {
+  const { supabase, sourceTaskId, userId } = params;
+
+  let canonicalTask = params.task ?? null;
+  if (!canonicalTask) {
+    const { data: sourceTask } = await supabase
+      .from("task_items")
+      .select("*")
+      .eq("id", sourceTaskId)
+      .maybeSingle();
+    if (!sourceTask) return;
+    canonicalTask = normalizeTaskRow(sourceTask);
+  }
+
+  await syncTaskUpdateToDerivedTasks({
+    supabase,
+    sourceTaskId,
+    userId,
+    task: canonicalTask,
+  });
+  await syncTaskUpdateToDerivedTimelineEvents({
+    supabase,
+    sourceTaskId,
+    userId,
+    task: canonicalTask,
+  });
+  await syncTaskUpdateToDerivedRows({
+    supabase,
+    sourceTaskId,
+    userId,
+    task: canonicalTask,
+  });
+}
+
 export async function createTaskItem(
   input: {
     taskBlockId: string;
@@ -853,28 +892,20 @@ export async function updateTaskItem(
   }
 
   if (!opts?.skipDerivedFanout) {
+    const fanoutSourceTaskId =
+      sourceType === "task" && sourceId && sourceMode === "live"
+        ? sourceId
+        : taskId;
     try {
-      await syncTaskUpdateToDerivedTasks({
+      await fanOutSourceTaskUpdate({
         supabase,
-        sourceTaskId: taskId,
+        sourceTaskId: fanoutSourceTaskId,
         userId,
-        task: normalizedTask,
-      });
-      await syncTaskUpdateToDerivedTimelineEvents({
-        supabase,
-        sourceTaskId: taskId,
-        userId,
-        task: normalizedTask,
-      });
-      await syncTaskUpdateToDerivedRows({
-        supabase,
-        sourceTaskId: taskId,
-        userId,
-        task: normalizedTask,
+        task: fanoutSourceTaskId === taskId ? normalizedTask : undefined,
       });
     } catch (fanoutError) {
       console.error("Failed to sync source task updates to derived entities", {
-        taskId,
+        taskId: fanoutSourceTaskId,
         error: fanoutError,
       });
     }

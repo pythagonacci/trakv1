@@ -311,6 +311,8 @@ export function useUpdateTaskItem(blockId: string) {
     },
     onSettled: () => {
       // Source-linked table rows: when task is updated, derived rows are synced server-side; refetch tables so UI updates
+      qc.invalidateQueries({ queryKey: ["taskItems"] });
+      qc.invalidateQueries({ queryKey: ["timelineItems"] });
       qc.invalidateQueries({ queryKey: queryKeys.chartLiveData() });
       qc.invalidateQueries({ queryKey: ["tableRows"] });
       qc.invalidateQueries({ queryKey: ["tableBootstrap"] });
@@ -441,12 +443,17 @@ export function useTaskSubtasks(blockId: string) {
       onMutate: async (input) => {
         await qc.cancelQueries({ queryKey: taskKeys.items(blockId) });
         const previous = qc.getQueryData<TaskBlockBundle>(taskKeys.items(blockId));
+        const optimisticSubtaskUpdates: Partial<NonNullable<TaskItemView["subtasks"]>[number]> = {
+          ...(input.updates.title !== undefined ? { text: input.updates.title } : {}),
+          ...(input.updates.description !== undefined ? { description: input.updates.description ?? undefined } : {}),
+          ...(input.updates.completed !== undefined ? { completed: Boolean(input.updates.completed) } : {}),
+        };
         if (previous) {
           qc.setQueryData<TaskBlockBundle>(taskKeys.items(blockId), {
             ...previous,
             tasks: previous.tasks.map((t) => ({
               ...t,
-              subtasks: t.subtasks?.map((s) => s.id === input.subtaskId ? { ...s, ...input.updates } : s),
+              subtasks: t.subtasks?.map((s) => s.id === input.subtaskId ? { ...s, ...optimisticSubtaskUpdates } : s),
             })),
           });
         }

@@ -84,6 +84,7 @@ export function useEntitiesProperties(
       }
       return json.data ?? {};
     },
+    placeholderData: (previousData) => previousData ?? ({} as Record<string, EntityProperties>),
     enabled: Boolean(workspaceId) && normalizedIds.length > 0,
     staleTime: 30_000,
   });
@@ -214,6 +215,7 @@ export function useSetEntityProperties(
       }
       // Task/timeline blocks showing this entity should refetch so they render the new property values
       if (entityType === "task") qc.invalidateQueries({ queryKey: ["taskItems"] });
+      if (entityType === "task") qc.invalidateQueries({ queryKey: ["timelineItems"] });
       if (entityType === "card") qc.invalidateQueries({ queryKey: ["cardItems"] });
       if (entityType === "timeline_event") qc.invalidateQueries({ queryKey: ["timelineItems"] });
     },

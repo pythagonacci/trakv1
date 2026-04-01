@@ -157,6 +157,7 @@ export function PropertyFieldDropdown({
   const setOption = (v: Priority | Status | null) => {
     setValue(v);
     persist(nameRef.current, v);
+    setOpen(false);
   };
 
   if (!editingDraft && !isLoading) return <>{children}</>;
