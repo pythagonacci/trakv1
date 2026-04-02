@@ -409,7 +409,11 @@ function searchToolToSourceType(tool: string): ChartDataSourceType | null {
 /**
  * Build a subtask chart row from raw subtask data (mirrors workflow-executor logic).
  */
-function subtaskToChartRow(subtask: Record<string, unknown>, parentTitle?: string): ChartRowRecord {
+function subtaskToChartRow(
+  subtask: Record<string, unknown>,
+  parentTitle?: string,
+  parentTask?: Record<string, unknown>
+): ChartRowRecord {
   const id = typeof subtask.id === "string" && subtask.id.length > 0 ? subtask.id : "subtask";
   const title = typeof subtask.title === "string" && subtask.title.trim().length > 0
     ? subtask.title
@@ -428,6 +432,16 @@ function subtaskToChartRow(subtask: Record<string, unknown>, parentTitle?: strin
   if (typeof subtask.task_id === "string") row.parentTaskId = subtask.task_id;
   if (parentTitle) row.parentTaskTitle = parentTitle;
   else if (typeof subtask.task_title === "string") row.parentTaskTitle = subtask.task_title;
+
+  // Navigation metadata: prefer parent task fields, fall back to subtask's own fields
+  const tabId = typeof parentTask?.tab_id === "string" ? parentTask.tab_id : typeof subtask.tab_id === "string" ? subtask.tab_id : null;
+  const projectId = typeof parentTask?.project_id === "string" ? parentTask.project_id : typeof subtask.project_id === "string" ? subtask.project_id : null;
+  const projectName = typeof parentTask?.project_name === "string" ? parentTask.project_name : typeof subtask.project_name === "string" ? subtask.project_name : null;
+  const tabName = typeof parentTask?.tab_name === "string" ? parentTask.tab_name : typeof subtask.tab_name === "string" ? subtask.tab_name : null;
+  if (tabId) row.tabId = tabId;
+  if (projectId) row.projectId = projectId;
+  if (projectName) row.projectName = projectName;
+  if (tabName) row.tabName = tabName;
 
   return row;
 }
@@ -477,7 +491,7 @@ function hydrateChartRowsFromSearch(
         for (const subtask of subtasks) {
           if (subtask && typeof subtask === "object" && typeof subtask.id === "string") {
             if (!rowById.has(subtask.id)) {
-              rowById.set(subtask.id, subtaskToChartRow(subtask as Record<string, unknown>, parentTitle));
+              rowById.set(subtask.id, subtaskToChartRow(subtask as Record<string, unknown>, parentTitle, task as Record<string, unknown>));
             }
           }
         }
@@ -496,6 +510,28 @@ function hydrateChartRowsFromSearch(
   }
 
   return hydratedAny ? result : null;
+}
+
+/**
+ * Collect every entity ID visible in recent search results (tasks, subtasks, etc.).
+ * Used to compute excludeIds when the LLM passes a filtered subset via rowIds.
+ */
+function extractAllIdsFromSearchResults(searchResults: SearchResultEntry[]): string[] {
+  const ids: string[] = [];
+  for (const entry of searchResults) {
+    for (const item of entry.data) {
+      if (typeof item.id === "string" && item.id.length > 0) ids.push(item.id);
+      // Also collect nested subtasks from searchTasks results
+      if (entry.tool === "searchTasks" && Array.isArray(item.subtasks)) {
+        for (const st of item.subtasks) {
+          if (st && typeof st === "object" && typeof (st as Record<string, unknown>).id === "string") {
+            ids.push((st as Record<string, unknown>).id as string);
+          }
+        }
+      }
+    }
+  }
+  return ids;
 }
 
 /**
@@ -2944,6 +2980,7 @@ export async function executeTool(
 
           // Row resolution: rowIds (hydrated) → rows (auto-hydrated if from search) → rowBatches
           let resolvedRows: ChartRowRecord[];
+          let resolvedDataSource = args.dataSource as import("@/types/chart").ChartDataSource | undefined;
           const rawRowIds = Array.isArray(args.rowIds) ? (args.rowIds as string[]).filter((id) => typeof id === "string" && id.length > 0) : [];
           const searchData = context?.recentSearchResults ?? [];
 
@@ -2957,6 +2994,28 @@ export async function executeTool(
                 requestedIds: rawRowIds.length,
                 hydratedRows: hydrated.length,
               });
+
+              // If the LLM scoped the chart to a subset of the search results, record
+              // which IDs were excluded so that live refresh replays the same exclusion.
+              const rawDataSource = args.dataSource as import("@/types/chart").ChartDataSource | undefined;
+              if (rawDataSource && "scope" in rawDataSource && rawDataSource.scope === "query" && "query" in rawDataSource) {
+                const allSearchIds = extractAllIdsFromSearchResults(searchData);
+                const rowIdSet = new Set(rawRowIds);
+                const excludeIds = allSearchIds.filter((id) => !rowIdSet.has(id));
+                if (excludeIds.length > 0) {
+                  resolvedDataSource = {
+                    ...rawDataSource,
+                    query: {
+                      ...rawDataSource.query,
+                      params: {
+                        ...(rawDataSource.query.params as Record<string, unknown>),
+                        excludeIds,
+                      },
+                    },
+                  };
+                  aiDebug("executeTool:chartExcludeIds", { excludedCount: excludeIds.length });
+                }
+              }
             } else {
               return { success: false, error: "createSpecChartBlock: rowIds provided but could not hydrate rows from search results. Pass rows directly instead." };
             }
@@ -2994,7 +3053,7 @@ export async function executeTool(
               universeTotal:     args.universeTotal as number | undefined,
               title:             args.title as string | undefined,
               prompt:            args.prompt as string | undefined,
-              dataSource:        args.dataSource as import("@/types/chart").ChartDataSource | undefined,
+              dataSource:        resolvedDataSource,
               isSimulation:      args.isSimulation as boolean | undefined,
               originalChartId:   args.originalChartId as string | undefined,
               simulationDescription: args.simulationDescription as string | undefined,

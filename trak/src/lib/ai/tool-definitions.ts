@@ -1079,6 +1079,9 @@ const blockActionTools: ToolDefinition[] = [
       "DATA SOURCE (refresh + scope): When the chart data comes from searchTasks, searchSubtasks, searchCards, searchTimelineEvents, or searchTableRows, " +
       "pass dataSource so the chart can be refreshed and can track future matching items. Use dataSource: { mode: 'refreshable', scope: 'query', query: { type, params } } " +
       "where type is 'tasks' | 'subtasks' | 'cards' | 'timeline_events' | 'table_rows' and params are the same serializable arguments you used for that search (e.g. searchText, status, projectId, taskId, limit). " +
+      "IMPORTANT: If you are charting a SUBSET of the search results (e.g. excluding certain blocks or items), add excludeIds: [<excluded-id>, ...] to the query params. " +
+      "This ensures live refresh always replays the same exclusion — without it the excluded items reappear on every refresh. " +
+      "The server strips excludeIds before forwarding to the search function, so it is safe to include. " +
       "The user can later choose \"Track only these items\" in the UI to lock the chart to the current set. Omit dataSource for inline/mixed data (snapshot-only chart).",
     category: "block",
     parameters: {

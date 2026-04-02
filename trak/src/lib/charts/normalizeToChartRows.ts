@@ -209,6 +209,10 @@ export interface SubtaskLikeRow {
   due_date?: string | null;
   task_id?: string | null;
   task_title?: string | null;
+  tab_id?: string | null;
+  project_id?: string | null;
+  project_name?: string | null;
+  tab_name?: string | null;
   [key: string]: unknown;
 }
 
@@ -232,6 +236,10 @@ function subtaskLikeToChartRow(subtask: SubtaskLikeRow): ChartRow {
   };
   if (subtask.task_id != null) row.parentTaskId = String(subtask.task_id);
   if (subtask.task_title != null) row.parentTaskTitle = String(subtask.task_title);
+  if (subtask.tab_id != null) row.tabId = String(subtask.tab_id);
+  if (subtask.project_id != null) row.projectId = String(subtask.project_id);
+  if (subtask.project_name != null) row.projectName = String(subtask.project_name);
+  if (subtask.tab_name != null) row.tabName = String(subtask.tab_name);
   return row;
 }
 

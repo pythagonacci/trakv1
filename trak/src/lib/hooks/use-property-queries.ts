@@ -218,6 +218,8 @@ export function useSetEntityProperties(
       if (entityType === "task") qc.invalidateQueries({ queryKey: ["timelineItems"] });
       if (entityType === "card") qc.invalidateQueries({ queryKey: ["cardItems"] });
       if (entityType === "timeline_event") qc.invalidateQueries({ queryKey: ["timelineItems"] });
+      // Live charts tracking this entity type need to re-run their query to reflect the updated property value
+      qc.invalidateQueries({ queryKey: queryKeys.chartLiveData() });
     },
   });
 }
@@ -288,6 +290,8 @@ export function useSetEntityPropertiesForType(entityType: EntityType, workspaceI
       if (entityType === "task") qc.invalidateQueries({ queryKey: ["taskItems"] });
       if (entityType === "card") qc.invalidateQueries({ queryKey: ["cardItems"] });
       if (entityType === "timeline_event") qc.invalidateQueries({ queryKey: ["timelineItems"] });
+      // Live charts tracking this entity type need to re-run their query to reflect the updated property value
+      qc.invalidateQueries({ queryKey: queryKeys.chartLiveData() });
     },
   });
 }

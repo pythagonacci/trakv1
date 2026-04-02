@@ -973,19 +973,35 @@ async function loadRefreshableChartRows(
 
   if (dataSource.scope === "query" && "query" in dataSource) {
     const q = dataSource.query;
-    const params = { ...(q.params as Record<string, unknown>), limit, authContext };
+    const rawParams = q.params as Record<string, unknown>;
+    const excludeIdSet = new Set<string>(
+      Array.isArray(rawParams.excludeIds)
+        ? (rawParams.excludeIds as unknown[]).filter((id): id is string => typeof id === "string")
+        : []
+    );
+    // Strip excludeIds from the params forwarded to the search function
+    const { excludeIds: _excludeIds, ...searchParams } = rawParams;
+    const params = { ...searchParams, limit, authContext };
 
     if (q.type === "tasks") {
       const res = await searchTasks(params as Parameters<typeof searchTasks>[0]);
       if (res.error) return { error: res.error };
       const taskRows = normalizeToChartRows("tasks", res.data ?? []);
       const subtaskRows: ChartRow[] = [];
-      if ((q.params as Record<string, unknown>)?.includeSubtasks === true) {
+      if (searchParams.includeSubtasks === true) {
         for (const task of res.data ?? []) {
           for (const st of (task as { subtasks?: unknown[] }).subtasks ?? []) {
             subtaskRows.push(
               ...normalizeToChartRows("subtasks", [
-                { ...(st as object), task_id: task.id, task_title: task.title },
+                {
+                  ...(st as object),
+                  task_id: task.id,
+                  task_title: task.title,
+                  tab_id: task.tab_id,
+                  project_id: task.project_id,
+                  project_name: task.project_name,
+                  tab_name: task.tab_name,
+                },
               ])
             );
           }
@@ -994,7 +1010,7 @@ async function loadRefreshableChartRows(
       newRows = [...taskRows, ...subtaskRows];
       if (needsUniverseTotal) {
         const countRes = await searchTasks({
-          ...(q.params as Record<string, unknown>),
+          ...searchParams,
           limit: 5000,
           authContext,
         } as Parameters<typeof searchTasks>[0]);
@@ -1007,7 +1023,7 @@ async function loadRefreshableChartRows(
       newRows = normalizeToChartRows("subtasks", res.data ?? []);
       if (needsUniverseTotal) {
         const countRes = await searchSubtasks({
-          ...(q.params as Record<string, unknown>),
+          ...searchParams,
           limit: 5000,
           authContext,
         } as Parameters<typeof searchSubtasks>[0]);
@@ -1020,7 +1036,7 @@ async function loadRefreshableChartRows(
       newRows = normalizeToChartRows("timeline_events", res.data ?? []);
       if (needsUniverseTotal) {
         const countRes = await searchTimelineEvents({
-          ...(q.params as Record<string, unknown>),
+          ...searchParams,
           limit: 5000,
           authContext,
         } as Parameters<typeof searchTimelineEvents>[0]);
@@ -1033,7 +1049,7 @@ async function loadRefreshableChartRows(
       newRows = normalizeToChartRows("cards", res.data ?? []);
       if (needsUniverseTotal) {
         const countRes = await searchCards({
-          ...(q.params as Record<string, unknown>),
+          ...searchParams,
           limit: 5000,
           authContext,
         } as Parameters<typeof searchCards>[0]);
@@ -1046,13 +1062,17 @@ async function loadRefreshableChartRows(
       newRows = normalizeToChartRows("table_rows", res.data ?? []);
       if (needsUniverseTotal) {
         const countRes = await searchTableRows({
-          ...(q.params as Record<string, unknown>),
+          ...searchParams,
           limit: 5000,
           authContext,
         } as Parameters<typeof searchTableRows>[0]);
         if (countRes.error) return { error: countRes.error };
         universeTotal = countRes.data?.length ?? newRows.length;
       }
+    }
+    // Apply exclusion filter (set at chart-creation time when user requested a subset)
+    if (excludeIdSet.size > 0) {
+      newRows = newRows.filter((row) => !excludeIdSet.has(row.id as string));
     }
   } else if (dataSource.scope === "fixed" && "entityIds" in dataSource) {
     const { entityType, entityIds } = dataSource;

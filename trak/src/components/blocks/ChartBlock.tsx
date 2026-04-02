@@ -103,6 +103,14 @@ function hasReadableTitle(row: ChartRow): boolean {
 
 /** Short meta line for a row (e.g. project name) */
 function rowMeta(row: ChartRow): string {
+  if (row.type === "subtask") {
+    const parent = typeof row.parentTaskTitle === "string" ? row.parentTaskTitle.trim() : null;
+    const tab = typeof row.tabName === "string" ? row.tabName.trim() : typeof row.Tab === "string" ? row.Tab.trim() : null;
+    if (parent && tab) return `${parent} · ${tab}`;
+    if (parent) return parent;
+    if (tab) return tab;
+    return "";
+  }
   const metaCandidates = ["Project", "project", "meta", "assignee", "Assignee"] as const;
   for (const key of metaCandidates) {
     const v = row[key];
@@ -553,11 +561,17 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
 
   const getTaskHrefForRow = useCallback(
     (row: ChartRow): string | null => {
+      const isSubtask = row.type === "subtask";
+      // For subtasks, navigate to the parent task (no subtask-specific route exists)
+      const taskId = isSubtask
+        ? (typeof row.parentTaskId === "string" ? row.parentTaskId : null)
+        : String(row.id);
+      if (!taskId) return `#task-${row.id}`;
       const projectId = typeof row.projectId === "string" ? row.projectId : undefined;
       const tabId = typeof row.tabId === "string" ? row.tabId : undefined;
       const href = getLinkableItemHref({
         referenceType: "task",
-        id: String(row.id),
+        id: taskId,
         tabId: tabId ?? block.tab_id,
         tabName:
           (typeof row.tabName === "string" ? row.tabName : undefined) ??
@@ -568,7 +582,7 @@ function SpecChartBlock({ block, className, readOnly }: ChartBlockProps) {
           (typeof row.Project === "string" ? row.Project : undefined),
         isWorkflow: false,
       });
-      return href ?? `#task-${row.id}`;
+      return href ?? `#task-${taskId}`;
     },
     [block.tab_id]
   );
