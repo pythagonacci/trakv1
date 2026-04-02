@@ -978,7 +978,20 @@ async function loadRefreshableChartRows(
     if (q.type === "tasks") {
       const res = await searchTasks(params as Parameters<typeof searchTasks>[0]);
       if (res.error) return { error: res.error };
-      newRows = normalizeToChartRows("tasks", res.data ?? []);
+      const taskRows = normalizeToChartRows("tasks", res.data ?? []);
+      const subtaskRows: ChartRow[] = [];
+      if ((q.params as Record<string, unknown>)?.includeSubtasks === true) {
+        for (const task of res.data ?? []) {
+          for (const st of (task as { subtasks?: unknown[] }).subtasks ?? []) {
+            subtaskRows.push(
+              ...normalizeToChartRows("subtasks", [
+                { ...(st as object), task_id: task.id, task_title: task.title },
+              ])
+            );
+          }
+        }
+      }
+      newRows = [...taskRows, ...subtaskRows];
       if (needsUniverseTotal) {
         const countRes = await searchTasks({
           ...(q.params as Record<string, unknown>),
