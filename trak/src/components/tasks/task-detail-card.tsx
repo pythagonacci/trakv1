@@ -73,6 +73,7 @@ interface TaskDetailCardProps {
   statusBadge: React.ReactNode;
   /** Optional priority badge (with colors). Shown next to status when present. */
   priorityBadge?: React.ReactNode;
+  tagsContent?: React.ReactNode;
   assigneeLabel: string | null;
   assigneeInitial?: string | null;
   onClose: () => void;
@@ -165,6 +166,7 @@ export function TaskDetailCard({
   task,
   statusBadge,
   priorityBadge,
+  tagsContent,
   assigneeLabel,
   assigneeInitial,
   onClose,
@@ -179,7 +181,6 @@ export function TaskDetailCard({
   onCommentMentionQueryChange,
   onCloseCommentMentionPicker,
   disabled = false,
-  parentTaskId,
   focusCommentId,
   className,
 }: TaskDetailCardProps) {
@@ -418,6 +419,7 @@ export function TaskDetailCard({
             {statusBadge}
             {priorityBadge}
           </div>
+          {tagsContent ? <div className="mt-1.5">{tagsContent}</div> : null}
         </div>
 
         {/* Scrollable content: Notes, Attachments, Description, Comments */}

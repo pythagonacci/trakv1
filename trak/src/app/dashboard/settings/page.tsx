@@ -5,6 +5,7 @@ import { getAllTeams } from "@/app/actions/workspace-teams";
 import { requireWorkspaceAccess } from "@/lib/auth-utils";
 import { createClient } from "@/lib/supabase/server";
 import { canManageManualBillingOverrides } from "@/lib/billing/access";
+import { getEffectiveWorkspaceRole } from "@/lib/workspace-role";
 import { SettingsClient } from "./settings-client";
 import { getWorkspaceBillingSummary } from "@/lib/billing/entitlements";
 
@@ -40,6 +41,13 @@ export default async function SettingsPage({
 
   if (!workspace) redirect("/dashboard");
 
+  const currentUserRole =
+    getEffectiveWorkspaceRole({
+      membershipRole: membership.role,
+      ownerId: workspace.owner_id,
+      userId: user.id,
+    }) ?? membership.role;
+
   // 4. Fetch members and teams
   const [membersResult, teamsResult] = await Promise.all([
     getWorkspaceMembers(workspaceId),
@@ -63,7 +71,7 @@ export default async function SettingsPage({
       members={members || []}
       teams={teams || []}
       billingSummary={billingSummary}
-      currentUserRole={membership.role}
+      currentUserRole={currentUserRole}
       currentUserId={user.id}
       canManageManualBillingOverrides={canManageManualBillingOverrides(user)}
       initialTab={initialTab}

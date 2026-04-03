@@ -507,61 +507,99 @@ function getTextareaCaretRect(textarea: HTMLTextAreaElement): DOMRect | null {
   return caretRect;
 }
 
-function TaskPropertyBadges({
-  entityId,
-  properties,
+function EntityTagPills({
+  tags,
   onOpen,
-  onOpenField,
-  workspaceId,
+  className,
+  maxVisible = 3,
+  showAddPill = Boolean(onOpen),
 }: {
-  entityId: string;
-  properties?: EntityProperties;
-  onOpen: () => void;
-  onOpenField?: (info: {
-    group: "status" | "priority" | "assignees" | "due_date" | "tags";
-    fieldId?: string;
-  }) => void;
-  workspaceId: string;
+  tags: string[];
+  onOpen?: (anchorRect: DOMRect, element: HTMLElement) => void;
+  className?: string;
+  maxVisible?: number;
+  showAddPill?: boolean;
 }) {
-  const { data: members = [] } = useWorkspaceMembers(workspaceId);
+  const visibleTags = tags.slice(0, maxVisible);
+  const extraTagCount = Math.max(0, tags.length - visibleTags.length);
+  const hasAnyContent = visibleTags.length > 0 || extraTagCount > 0 || showAddPill;
 
-  // Avoid duplicating core fields (status, priority, assignee, due date)
-  // that are already shown via the main task icons/UI.
-  const direct: EntityProperties | undefined = properties
-    ? {
-        ...properties,
-        status: null,
-        statuses: [],
-        priority: null,
-        priorities: [],
-        assignee_id: null,
-        assignee_ids: [],
-        assignees: [],
-        due_date: null,
-        due_dates: [],
-      }
-    : undefined;
+  if (!hasAnyContent) return null;
 
-  const getMemberName = (assigneeId: string | null) => {
-    if (!assigneeId) return undefined;
-    const member = members.find((m) => m.id === assigneeId || m.user_id === assigneeId);
-    return member?.name || member?.email;
-  };
-  const getMemberNames = (props: { assignee_id?: string | null; assignee_ids?: string[] }) => {
-    const ids = props.assignee_ids?.length ? props.assignee_ids : props.assignee_id ? [props.assignee_id] : [];
-    return ids.map((id) => getMemberName(id)).filter((n): n is string => Boolean(n));
+  const basePillClassName =
+    "inline-flex items-center rounded-[999px] border px-2 py-0.5 text-[10px] font-medium transition-colors";
+
+  const handleOpen = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    onOpen?.(event.currentTarget.getBoundingClientRect(), event.currentTarget);
   };
 
   return (
-    <div className="flex flex-wrap gap-1.5 pt-1">
-      {direct && (
-        <PropertyBadges
-          properties={direct}
-          onClick={onOpen}
-          onFieldClick={onOpenField}
-          memberNames={getMemberNames(direct)}
-        />
+    <div className={cn("flex flex-wrap items-center gap-1", className)}>
+      {visibleTags.map((tag) =>
+        onOpen ? (
+          <button
+            key={tag}
+            type="button"
+            onClick={handleOpen}
+            className={cn(
+              basePillClassName,
+              "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+            )}
+            title={`Edit tags (${tag})`}
+          >
+            <Tag className="h-3 w-3" />
+            {tag}
+          </button>
+        ) : (
+          <span
+            key={tag}
+            className={cn(
+              basePillClassName,
+              "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]"
+            )}
+          >
+            <Tag className="h-3 w-3" />
+            {tag}
+          </span>
+        )
       )}
+      {extraTagCount > 0 &&
+        (onOpen ? (
+          <button
+            type="button"
+            onClick={handleOpen}
+            className={cn(
+              basePillClassName,
+              "border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)]"
+            )}
+            title="Edit tags"
+          >
+            +{extraTagCount}
+          </button>
+        ) : (
+          <span
+            className={cn(
+              basePillClassName,
+              "border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)]"
+            )}
+          >
+            +{extraTagCount}
+          </span>
+        ))}
+      {showAddPill && onOpen ? (
+        <button
+          type="button"
+          onClick={handleOpen}
+          className={cn(
+            basePillClassName,
+            "border-dashed border-[var(--border)] bg-transparent text-[var(--muted-foreground)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
+          )}
+          title="Add or edit tags"
+        >
+          <Tag className="h-3 w-3" />
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -3376,7 +3414,6 @@ export default function TaskBlock({
               const statusIsDerived = hasSubtasks;
               const taskEntityId = getPersistedEntityId(task.id);
               const canUseProperties = Boolean(taskEntityId) && !isTempBlock && Boolean(workspaceId);
-              const showReadOnlyProperties = Boolean(taskEntityId) && !isTempBlock;
               const effectiveStatus = getEffectiveStatus(String(task.id), task);
               const effectiveStatusFields = getEffectiveStatusFields(String(task.id), task);
               const effectivePriorityFields = getEffectivePriorityFields(String(task.id), task);
@@ -3868,32 +3905,54 @@ export default function TaskBlock({
                                             </DropdownMenu>
                                           )}
                                           {subtaskProps && (
-                                            <PropertyBadges
-                                              properties={{
-                                                ...subtaskProps,
-                                                status: null,
-                                                statuses: [],
-                                                assignees: [],
-                                                assignee_ids: [],
-                                                assignee_id: null,
-                                              } as any}
-                                              memberNames={subtaskAssigneeNames}
-                                              onClick={() => {
-                                                const anchor =
-                                                  typeof document !== "undefined" && document.activeElement instanceof HTMLElement
-                                                    ? document.activeElement
-                                                    : null;
-                                                openPropertiesFromElement(
-                                                  anchor,
-                                                  {
-                                                    type: "subtask",
-                                                    id: subtaskId,
-                                                    title: subtask.text || "Subtask",
-                                                  },
-                                                  null
-                                                );
-                                              }}
-                                            />
+                                            <>
+                                              <PropertyBadges
+                                                properties={{
+                                                  ...subtaskProps,
+                                                  status: null,
+                                                  statuses: [],
+                                                  assignees: [],
+                                                  assignee_ids: [],
+                                                  assignee_id: null,
+                                                  tags: [],
+                                                } as EntityProperties}
+                                                memberNames={subtaskAssigneeNames}
+                                                onClick={() => {
+                                                  const anchor =
+                                                    typeof document !== "undefined" && document.activeElement instanceof HTMLElement
+                                                      ? document.activeElement
+                                                      : null;
+                                                  openPropertiesFromElement(
+                                                    anchor,
+                                                    {
+                                                      type: "subtask",
+                                                      id: subtaskId,
+                                                      title: subtask.text || "Subtask",
+                                                    },
+                                                    null
+                                                  );
+                                                }}
+                                              />
+                                              <EntityTagPills
+                                                tags={subtaskProps.tags ?? []}
+                                                onOpen={
+                                                  canUseSubtaskProperties
+                                                    ? (anchorRect, element) =>
+                                                        openPropertiesFromElement(
+                                                          element,
+                                                          {
+                                                            type: "subtask",
+                                                            id: subtaskId,
+                                                            title: subtask.text || "Subtask",
+                                                          },
+                                                          { group: "tags" },
+                                                          anchorRect
+                                                        )
+                                                    : undefined
+                                                }
+                                                showAddPill={canUseSubtaskProperties && !locked}
+                                              />
+                                            </>
                                           )}
                                         </div>
                                       ) : null}
@@ -4194,46 +4253,25 @@ export default function TaskBlock({
                                 {dueDateLabel && <span className="whitespace-nowrap">{dueDateLabel}</span>}
                               </button>
                             </DateRangeCalendarDropdown>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Client pages (publicToken) should always show read-only property pills.
-                          Internal dashboard falls back to pills when icons are hidden. */}
-                      {showReadOnlyProperties && taskEntityId && (publicToken || !shouldShowIcons(task)) && (
-                        <TaskPropertyBadges
-                          entityId={taskEntityId}
-                          properties={entityPropertiesByTaskId[task.id]}
-                          workspaceId={workspaceId}
+                            <EntityTagPills
+                              tags={getEffectiveTags(String(task.id), task)}
                           onOpen={
                             canUseProperties
-                              ? () => {
-                                  const anchor =
-                                    typeof document !== "undefined" && document.activeElement instanceof HTMLElement
-                                      ? document.activeElement
-                                      : null;
+                              ? (anchorRect, element) =>
                                   openPropertiesFromElement(
-                                    anchor,
+                                    element,
                                     { type: "task", id: taskEntityId, title: task.text || "Task" },
-                                    null
-                                  );
-                                }
-                              : () => {}
-                          }
-                          onOpenField={
-                            canUseProperties
-                              ? (info) =>
-                                  openPropertiesFromElement(
-                                    typeof document !== "undefined" && document.activeElement instanceof HTMLElement
-                                      ? document.activeElement
-                                      : null,
-                                    { type: "task", id: taskEntityId, title: task.text || "Task" },
-                                    info
+                                    { group: "tags" },
+                                    anchorRect
                                   )
                               : undefined
                           }
-                        />
-                      )}
+                              showAddPill={canUseProperties && !locked}
+                              maxVisible={4}
+                            />
+                          </div>
+                        )}
+                      </div>
 
                       {/* Three-dot menu */}
                       <DropdownMenu>
@@ -4636,7 +4674,7 @@ export default function TaskBlock({
                           const hasDueDateValue = hasDueDate(effectiveDueDate);
                           const dueDateLabel = formatDueDateRange(effectiveDueDate, formatDueDateForDisplay, " → ") || null;
                           const showDueDate = hasDueDateValue && boardGroupBy !== "dueDate";
-                          const showTags = effectiveTags.length > 0 && boardGroupBy !== "tags";
+                          const showTags = effectiveTags.length > 0 || (canUseProperties && !locked);
 
                           const title =
                             editingTaskId === taskClientKey ? (
@@ -4801,24 +4839,25 @@ export default function TaskBlock({
                             </span>
                           ) : null;
 
-                          const tagsBadges =
-                            effectiveTags.length > 0 ? (
-                              <div className="flex flex-wrap gap-1">
-                                {effectiveTags.slice(0, 3).map((tag) => (
-                                  <span
-                                    key={`${taskId}-tag-${tag}`}
-                                    className="inline-flex items-center rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-1.5 py-0.5 text-[10px] text-[var(--muted-foreground)]"
-                                  >
-                                    {tag}
-                                  </span>
-                                ))}
-                                {effectiveTags.length > 3 && (
-                                  <span className="text-[10px] text-[var(--tertiary-foreground)]">
-                                    +{effectiveTags.length - 3}
-                                  </span>
-                                )}
-                              </div>
-                            ) : null;
+                          const tagsBadges = (
+                            <EntityTagPills
+                              tags={effectiveTags}
+                              onOpen={
+                                canUseProperties && taskEntityId
+                                  ? (anchorRect, element) =>
+                                      openPropertiesFromElement(
+                                        element,
+                                        { type: "task", id: taskEntityId, title: task.text || "Task" },
+                                        { group: "tags" },
+                                        anchorRect
+                                      )
+                                  : undefined
+                              }
+                              showAddPill={canUseProperties && !locked}
+                              maxVisible={3}
+                              addLabel="Tag"
+                            />
+                          );
 
                           const menu = (
                             <DropdownMenu>
@@ -4981,7 +5020,7 @@ export default function TaskBlock({
                           const hasSubtaskDueDateValue = hasDueDate(subtaskDueDate);
                           const subtaskDueDateLabel = formatDueDateRange(subtaskDueDate, formatDueDateForDisplay, " → ") || null;
                           const showSubtaskDueDate = hasSubtaskDueDateValue && boardGroupBy !== "dueDate";
-                          const showSubtaskTags = subtaskTags.length > 0 && boardGroupBy !== "tags";
+                          const showSubtaskTags = subtaskTags.length > 0 || (canUseSubtaskProperties && !locked);
                           const subtaskCommentCount = subtaskCommentCountsById.get(subtaskId) || 0;
                           const subtaskClientKey = getSubtaskClientKey(subtask);
 
@@ -5067,24 +5106,25 @@ export default function TaskBlock({
                             </span>
                           ) : null;
 
-                          const subtaskTagsBadges =
-                            subtaskTags.length > 0 ? (
-                              <div className="flex flex-wrap gap-1">
-                                {subtaskTags.slice(0, 3).map((tag) => (
-                                  <span
-                                    key={`${subtaskId}-tag-${tag}`}
-                                    className="inline-flex items-center rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-1.5 py-0.5 text-[10px] text-[var(--muted-foreground)]"
-                                  >
-                                    {tag}
-                                  </span>
-                                ))}
-                                {subtaskTags.length > 3 && (
-                                  <span className="text-[10px] text-[var(--tertiary-foreground)]">
-                                    +{subtaskTags.length - 3}
-                                  </span>
-                                )}
-                              </div>
-                            ) : null;
+                          const subtaskTagsBadges = (
+                            <EntityTagPills
+                              tags={subtaskTags}
+                              onOpen={
+                                canUseSubtaskProperties && subtaskEntityId
+                                  ? (anchorRect, element) =>
+                                      openPropertiesFromElement(
+                                        element,
+                                        { type: "subtask", id: subtaskEntityId, title: subtask.text || "Subtask" },
+                                        { group: "tags" },
+                                        anchorRect
+                                      )
+                                  : undefined
+                              }
+                              showAddPill={canUseSubtaskProperties && !locked}
+                              maxVisible={3}
+                              addLabel="Tag"
+                            />
+                          );
 
                           const subtaskMenu = (
                             <DropdownMenu>
@@ -5281,8 +5321,6 @@ export default function TaskBlock({
                 : (task.assignees?.length ? task.assignees.join(", ") : null);
               const dueDateLabel = formatDueDateRange(effectiveDueDate, formatDueDateForDisplay, " → ") || null;
               const hasDueDateValue = hasDueDate(effectiveDueDate);
-              const visibleTags = effectiveTags.slice(0, 2);
-              const extraTags = effectiveTags.length - visibleTags.length;
               const hasSubtasks = Boolean(task.subtasks && task.subtasks.length > 0);
               const isCollapsed = collapsedTaskIds[String(task.id)];
               const showTableStatusColumn = isTableColumnVisible("status");
@@ -5482,21 +5520,23 @@ export default function TaskBlock({
                           {task.description !== undefined && (
                             <TaskDescription task={task} updateTask={updateTask} />
                           )}
-                          {canUseProperties && taskEntityId && !shouldShowIcons(task) && (
-                            <TaskPropertyBadges
-                              entityId={taskEntityId}
-                              properties={entityPropertiesByTaskId[task.id]}
-                              workspaceId={workspaceId}
-                              onOpen={() => {
-                                setPropertiesFocus(null);
-                                setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
-                                setPropertiesOpen(true);
-                              }}
-                              onOpenField={(info) => {
-                                setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
-                                setPropertiesFocus(info);
-                                setPropertiesOpen(true);
-                              }}
+                          {taskEntityId && (
+                            <EntityTagPills
+                              tags={getEffectiveTags(String(task.id), task)}
+                              onOpen={
+                                canUseProperties
+                                  ? (anchorRect, element) =>
+                                      openPropertiesFromElement(
+                                        element,
+                                        { type: "task", id: taskEntityId, title: task.text || "Task" },
+                                        { group: "tags" },
+                                        anchorRect
+                                      )
+                                  : undefined
+                              }
+                              showAddPill={canUseProperties && !locked}
+                              className="pt-1"
+                              maxVisible={4}
                             />
                           )}
                         </div>
@@ -5660,35 +5700,22 @@ export default function TaskBlock({
                     )}
                     {showTableTagsColumn && (
                     <div className="border-r border-[var(--border-strong)] px-3 py-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (canUseProperties && taskEntityId) {
-                            setPropertiesTarget({ type: "task", id: taskEntityId, title: task.text || "Task" });
-                            setPropertiesFocus({ group: "tags" });
-                            setPropertiesOpen(true);
-                          }
-                        }}
-                        className="flex flex-wrap items-center gap-1.5 text-left"
-                      >
-                        {visibleTags.length > 0 ? (
-                          <>
-                            {visibleTags.map((tag) => (
-                              <span
-                                key={tag}
-                                className="rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[10px] text-[var(--muted-foreground)]"
-                              >
-                                {tag}
-                              </span>
-                            ))}
-                            {extraTags > 0 && (
-                              <span className="text-[10px] text-[var(--muted-foreground)]">+{extraTags}</span>
-                            )}
-                          </>
-                        ) : (
-                          <span className="text-xs text-[var(--muted-foreground)]">No tags</span>
-                        )}
-                      </button>
+                      <EntityTagPills
+                        tags={effectiveTags}
+                        onOpen={
+                          canUseProperties && taskEntityId
+                            ? (anchorRect, element) =>
+                                openPropertiesFromElement(
+                                  element,
+                                  { type: "task", id: taskEntityId, title: task.text || "Task" },
+                                  { group: "tags" },
+                                  anchorRect
+                                )
+                            : undefined
+                        }
+                        showAddPill={canUseProperties && !locked}
+                        maxVisible={2}
+                      />
                     </div>
                     )}
                     <div className="px-2 py-2">
@@ -5800,8 +5827,6 @@ export default function TaskBlock({
                       const subtaskDueDateLabel = formatDueDateRange(subtaskDueDate, formatDueDateForDisplay, " → ") || null;
                       const hasSubtaskDueDate = hasDueDate(subtaskDueDate);
                       const subtaskTags = subtaskProps?.tags ?? [];
-                      const visibleSubtaskTags = subtaskTags.slice(0, 2);
-                      const extraSubtaskTags = subtaskTags.length - visibleSubtaskTags.length;
                       return (
                         <div
                           key={`subtask-${subtaskClientKey}`}
@@ -6044,38 +6069,26 @@ export default function TaskBlock({
                           )}
                           {showTableTagsColumn && (
                           <div className="border-r border-[var(--border-strong)] px-3 py-1.5">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (canUseSubtaskProperties && subtaskEntityId) {
-                                  setPropertiesTarget({
-                                    type: "subtask",
-                                    id: subtaskEntityId,
-                                    title: subtask.text || "Subtask",
-                                  });
-                                  setPropertiesOpen(true);
-                                }
-                              }}
-                              className="flex flex-wrap items-center gap-1.5 text-left"
-                            >
-                              {visibleSubtaskTags.length > 0 ? (
-                                <>
-                                  {visibleSubtaskTags.map((tag) => (
-                                    <span
-                                      key={`${subtaskId}-${tag}`}
-                                      className="rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[10px] text-[var(--muted-foreground)]"
-                                    >
-                                      {tag}
-                                    </span>
-                                  ))}
-                                  {extraSubtaskTags > 0 && (
-                                    <span className="text-[10px] text-[var(--muted-foreground)]">+{extraSubtaskTags}</span>
-                                  )}
-                                </>
-                              ) : (
-                                <span className="text-xs text-[var(--muted-foreground)]">No tags</span>
-                              )}
-                            </button>
+                            <EntityTagPills
+                              tags={subtaskTags}
+                              onOpen={
+                                canUseSubtaskProperties && subtaskEntityId
+                                  ? (anchorRect, element) =>
+                                      openPropertiesFromElement(
+                                        element,
+                                        {
+                                          type: "subtask",
+                                          id: subtaskEntityId,
+                                          title: subtask.text || "Subtask",
+                                        },
+                                        { group: "tags" },
+                                        anchorRect
+                                      )
+                                  : undefined
+                              }
+                              showAddPill={canUseSubtaskProperties && !locked}
+                              maxVisible={2}
+                            />
                           </div>
                           )}
                           <div className="px-2 py-1.5">
@@ -6356,6 +6369,28 @@ export default function TaskBlock({
             }}
             statusBadge={buildDetailCardStatusBadge(selectedTask)}
             priorityBadge={buildDetailCardPriorityBadge(selectedTask)}
+            tagsContent={
+              <EntityTagPills
+                tags={getEffectiveTags(String(selectedTask.id), selectedTask)}
+                onOpen={
+                  getPersistedEntityId(selectedTask.id)
+                    ? (anchorRect, element) =>
+                        openPropertiesFromElement(
+                          element,
+                          {
+                            type: "task",
+                            id: getPersistedEntityId(selectedTask.id)!,
+                            title: selectedTask.text || "Task",
+                          },
+                          { group: "tags" },
+                          anchorRect
+                        )
+                    : undefined
+                }
+                showAddPill={Boolean(getPersistedEntityId(selectedTask.id)) && !locked && !isTempBlock}
+                maxVisible={4}
+              />
+            }
             assigneeLabel={
               (() => {
                 const ids = getEffectiveAssigneeIds(String(selectedTask.id), selectedTask);
@@ -6436,6 +6471,28 @@ export default function TaskBlock({
             }}
             statusBadge={buildSubtaskDetailCardStatusBadge(selectedSubtask, selectedSubtaskParentTaskId!)}
             priorityBadge={buildSubtaskDetailCardPriorityBadge(selectedSubtask)}
+            tagsContent={
+              <EntityTagPills
+                tags={getSubtaskEffectiveProperties(String(selectedSubtask.id))?.tags ?? []}
+                onOpen={
+                  getPersistedEntityId(selectedSubtask.id)
+                    ? (anchorRect, element) =>
+                        openPropertiesFromElement(
+                          element,
+                          {
+                            type: "subtask",
+                            id: getPersistedEntityId(selectedSubtask.id)!,
+                            title: selectedSubtask.text || "Subtask",
+                          },
+                          { group: "tags" },
+                          anchorRect
+                        )
+                    : undefined
+                }
+                showAddPill={Boolean(getPersistedEntityId(selectedSubtask.id)) && !locked && !isTempBlock}
+                maxVisible={4}
+              />
+            }
             assigneeLabel={null}
             assigneeInitial={null}
             parentTaskId={selectedSubtaskParentTaskId!}

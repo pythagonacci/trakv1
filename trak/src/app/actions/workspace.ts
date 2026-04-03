@@ -10,6 +10,7 @@ import { setTestUserContext, clearTestUserContext } from '@/lib/auth-utils'
 import { enableTestMode, disableTestMode, setTestUserId } from '@/lib/supabase/server'
 import { assertCanCreateWorkspace } from '@/lib/billing/entitlements'
 import { assertCanAddWorkspaceMember, ensureWorkspaceBillingRow } from '@/lib/billing/data'
+import { canManageWorkspace, getEffectiveWorkspaceRole, type WorkspaceRole } from '@/lib/workspace-role'
 
 const CURRENT_WORKSPACE_COOKIE = "trak_current_workspace"
 
@@ -78,6 +79,32 @@ export const getCurrentWorkspaceId = cache(async (): Promise<string | null> => {
     return null;
   }
 });
+
+async function getEffectiveUserWorkspaceRole(
+  supabase: Awaited<ReturnType<typeof getServerUser>>['supabase'],
+  workspaceId: string,
+  userId: string
+): Promise<WorkspaceRole | null> {
+  const [{ data: membership }, { data: workspace }] = await Promise.all([
+    supabase
+      .from('workspace_members')
+      .select('role')
+      .eq('workspace_id', workspaceId)
+      .eq('user_id', userId)
+      .maybeSingle(),
+    supabase
+      .from('workspaces')
+      .select('owner_id')
+      .eq('id', workspaceId)
+      .maybeSingle(),
+  ])
+
+  return getEffectiveWorkspaceRole({
+    membershipRole: membership?.role as WorkspaceRole | null | undefined,
+    ownerId: workspace?.owner_id,
+    userId,
+  })
+}
 
 // Update current workspace cookie
 export async function updateCurrentWorkspace(workspaceId: string) {
@@ -208,10 +235,40 @@ export const getUserWorkspaces = cache(async () => {
     }
     
     // 3. Transform data to include role with workspace
-    const workspaces = memberships.map(membership => ({
-      ...membership.workspaces,
-      role: membership.role
-    }))
+    const workspaceMemberships = (memberships ?? []) as Array<{
+      role: WorkspaceRole
+      workspaces:
+        | {
+            id: string
+            name: string
+            owner_id: string
+            created_at: string
+            updated_at: string
+          }
+        | Array<{
+            id: string
+            name: string
+            owner_id: string
+            created_at: string
+            updated_at: string
+          }>
+        | null
+    }>
+
+    const workspaces = workspaceMemberships.map((membership) => {
+      const workspace = Array.isArray(membership.workspaces)
+        ? membership.workspaces[0]
+        : membership.workspaces
+
+      return {
+        ...workspace,
+        role: getEffectiveWorkspaceRole({
+          membershipRole: membership.role,
+          ownerId: workspace?.owner_id,
+          userId: user.id,
+        }) ?? membership.role
+      }
+    })
     
     return { data: workspaces }
 });
@@ -223,13 +280,8 @@ export async function inviteMember(workspaceId: string, email: string, role: 'ad
     if (!authResult) return { error: 'Unauthorized' }
     const { supabase, user } = authResult
 
-    const { data: inviterMembership } = await supabase
-      .from('workspace_members')
-      .select('role')
-      .eq('workspace_id', workspaceId)
-      .eq('user_id', user.id)
-      .single()
-    if (!inviterMembership || (inviterMembership.role !== 'owner' && inviterMembership.role !== 'admin')) {
+    const inviterRole = await getEffectiveUserWorkspaceRole(supabase, workspaceId, user.id)
+    if (!canManageWorkspace(inviterRole)) {
       return { error: 'Insufficient permissions. Only owners and admins can invite members.' }
     }
 
@@ -335,14 +387,9 @@ export async function updateMemberRole(workspaceId: string, memberId: string, ne
     const { supabase, user } = authResult
     
     // 2. Validate requester is owner/admin
-    const { data: requesterMembership } = await supabase
-      .from('workspace_members')
-      .select('role')
-      .eq('workspace_id', workspaceId)
-      .eq('user_id', user.id)
-      .single()
+    const requesterRole = await getEffectiveUserWorkspaceRole(supabase, workspaceId, user.id)
     
-    if (!requesterMembership || (requesterMembership.role !== 'owner' && requesterMembership.role !== 'admin')) {
+    if (!canManageWorkspace(requesterRole)) {
       return { error: 'Insufficient permissions. Only owners and admins can update member roles.' }
     }
     
@@ -427,14 +474,9 @@ export async function updateMemberDisplayName(
   if (!authResult) return { error: 'Unauthorized' }
   const { supabase, user } = authResult
 
-  const { data: requesterMembership } = await supabase
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', user.id)
-    .single()
+  const requesterRole = await getEffectiveUserWorkspaceRole(supabase, workspaceId, user.id)
 
-  if (!requesterMembership || (requesterMembership.role !== 'owner' && requesterMembership.role !== 'admin')) {
+  if (!canManageWorkspace(requesterRole)) {
     return { error: 'Insufficient permissions. Only owners and admins can edit member names.' }
   }
 
@@ -478,14 +520,9 @@ export async function removeMember(workspaceId: string, memberId: string) {
     const { supabase, user } = authResult
     
     // 2. Validate requester is owner/admin
-    const { data: requesterMembership } = await supabase
-      .from('workspace_members')
-      .select('role')
-      .eq('workspace_id', workspaceId)
-      .eq('user_id', user.id)
-      .single()
+    const requesterRole = await getEffectiveUserWorkspaceRole(supabase, workspaceId, user.id)
     
-    if (!requesterMembership || (requesterMembership.role !== 'owner' && requesterMembership.role !== 'admin')) {
+    if (!canManageWorkspace(requesterRole)) {
       return { error: 'Insufficient permissions. Only owners and admins can remove members.' }
     }
     
@@ -540,16 +577,17 @@ export async function getWorkspaceMembers(workspaceId: string) {
   const { supabase, user } = authResult
   
   // 2. Verify user is member of the workspace
-  const { data: membership } = await supabase
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', workspaceId)
-    .eq('user_id', user.id)
-    .single()
+  const effectiveRole = await getEffectiveUserWorkspaceRole(supabase, workspaceId, user.id)
   
-  if (!membership) {
+  if (!effectiveRole) {
     return { error: 'Not a member of this workspace' }
   }
+
+  const { data: workspace } = await supabase
+    .from('workspaces')
+    .select('owner_id')
+    .eq('id', workspaceId)
+    .maybeSingle()
   
   // 3. Get all workspace members (id = workspace_members row id for role/remove)
   const { data: members, error } = await supabase
@@ -581,7 +619,11 @@ export async function getWorkspaceMembers(workspaceId: string) {
       id: member.user_id,
       email: '',
       name: 'Unknown',
-      role: member.role,
+      role: getEffectiveWorkspaceRole({
+        membershipRole: member.role,
+        ownerId: workspace?.owner_id,
+        userId: member.user_id,
+      }) ?? member.role,
     }))
     return { data: transformedMembers }
   }
@@ -595,7 +637,11 @@ export async function getWorkspaceMembers(workspaceId: string) {
       id: member.user_id,
       email: profile?.email || '',
       name: profile?.name || profile?.email || 'Unknown',
-      role: member.role,
+      role: getEffectiveWorkspaceRole({
+        membershipRole: member.role,
+        ownerId: workspace?.owner_id,
+        userId: member.user_id,
+      }) ?? member.role,
     }
   })
   

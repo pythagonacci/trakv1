@@ -20,8 +20,6 @@ import type {
   EntityType,
   EntityProperties,
   SetEntityPropertiesInput,
-  AddTagInput,
-  RemoveTagInput,
   WorkspaceMember,
 } from "@/types/properties";
 
@@ -306,13 +304,16 @@ export function useAddTag(
 ) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (tag: string) =>
-      addTag({
+    mutationFn: async (tag: string) => {
+      const result = await addTag({
         entity_type: entityType,
         entity_id: entityId,
         workspace_id: workspaceId,
         tag,
-      }),
+      });
+      if ("error" in result) throw new Error(result.error);
+      return result.data;
+    },
     onSuccess: () => {
       qc.invalidateQueries({
         queryKey: queryKeys.entityProperties(entityType, entityId),
@@ -323,9 +324,16 @@ export function useAddTag(
       qc.invalidateQueries({
         queryKey: queryKeys.workspaceEverything(workspaceId),
       });
+      if (entityType === "task" || entityType === "timeline_event") {
+        qc.invalidateQueries({ queryKey: ["tableRows"] });
+        qc.invalidateQueries({ queryKey: ["tableBootstrap"] });
+      }
+      if (entityType === "task") qc.invalidateQueries({ queryKey: ["taskItems"] });
       if (entityType === "card") {
         qc.invalidateQueries({ queryKey: ["cardItems"] });
       }
+      if (entityType === "timeline_event") qc.invalidateQueries({ queryKey: ["timelineItems"] });
+      qc.invalidateQueries({ queryKey: queryKeys.chartLiveData() });
     },
   });
 }
@@ -357,7 +365,7 @@ export function useAddProjectTag(projectId?: string) {
       if (!projectId) return Promise.resolve({ data: null as null });
       return addProjectTag(projectId, name);
     },
-    onSuccess: (_result, _name, _variables) => {
+    onSuccess: () => {
       if (projectId) {
         qc.invalidateQueries({ queryKey: queryKeys.projectTags(projectId) });
       }
@@ -375,12 +383,15 @@ export function useRemoveTag(
 ) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (tag: string) =>
-      removeTag({
+    mutationFn: async (tag: string) => {
+      const result = await removeTag({
         entity_type: entityType,
         entity_id: entityId,
         tag,
-      }),
+      });
+      if ("error" in result) throw new Error(result.error);
+      return result.data;
+    },
     onSuccess: () => {
       qc.invalidateQueries({
         queryKey: queryKeys.entityProperties(entityType, entityId),
@@ -391,9 +402,16 @@ export function useRemoveTag(
       qc.invalidateQueries({
         queryKey: queryKeys.workspaceEverything(workspaceId),
       });
+      if (entityType === "task" || entityType === "timeline_event") {
+        qc.invalidateQueries({ queryKey: ["tableRows"] });
+        qc.invalidateQueries({ queryKey: ["tableBootstrap"] });
+      }
+      if (entityType === "task") qc.invalidateQueries({ queryKey: ["taskItems"] });
       if (entityType === "card") {
         qc.invalidateQueries({ queryKey: ["cardItems"] });
       }
+      if (entityType === "timeline_event") qc.invalidateQueries({ queryKey: ["timelineItems"] });
+      qc.invalidateQueries({ queryKey: queryKeys.chartLiveData() });
     },
   });
 }

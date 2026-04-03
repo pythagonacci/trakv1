@@ -14,6 +14,7 @@ import {
 } from "@/lib/timeline-assignee-utils";
 import {
   ensureProjectTags,
+  normalizeTagNames,
   mapTagNamesToOptionIds,
   syncTagsFieldConfigsForProject,
   type TagFieldOption,
@@ -304,6 +305,87 @@ async function upsertEntityPropertyValue(
       onConflict: "entity_type,entity_id,field_name",
     }
   );
+}
+
+async function syncTaskTagLinksForTask(
+  supabase: any,
+  workspaceId: string,
+  taskId: string,
+  tagNames: string[]
+) {
+  const normalized = normalizeTagNames(tagNames);
+
+  const [{ data: existingLinks, error: linksError }, { data: existingTags, error: tagsError }] = await Promise.all([
+    supabase.from("task_tag_links").select("tag_id").eq("task_id", taskId),
+    supabase.from("task_tags").select("id, name").eq("workspace_id", workspaceId),
+  ]);
+
+  if (linksError) {
+    throw new Error(`Failed to load task tag links: ${linksError.message}`);
+  }
+  if (tagsError) {
+    throw new Error(`Failed to load workspace task tags: ${tagsError.message}`);
+  }
+
+  const existingTagIds = new Set((existingLinks ?? []).map((link: any) => String(link.tag_id)));
+  const tagIdByName = new Map<string, string>();
+
+  for (const tag of existingTags ?? []) {
+    const name = typeof (tag as any)?.name === "string" ? (tag as any).name.trim() : "";
+    const id = typeof (tag as any)?.id === "string" ? (tag as any).id : "";
+    if (!name || !id) continue;
+    tagIdByName.set(name.toLowerCase(), id);
+  }
+
+  const missingNames = normalized.filter((name) => !tagIdByName.has(name.toLowerCase()));
+  if (missingNames.length > 0) {
+    const { data: insertedTags, error: insertError } = await supabase
+      .from("task_tags")
+      .insert(missingNames.map((name) => ({ workspace_id: workspaceId, name })))
+      .select("id, name");
+
+    if (insertError) {
+      throw new Error(`Failed to create task tags: ${insertError.message}`);
+    }
+
+    for (const tag of insertedTags ?? []) {
+      const name = typeof (tag as any)?.name === "string" ? (tag as any).name.trim() : "";
+      const id = typeof (tag as any)?.id === "string" ? (tag as any).id : "";
+      if (!name || !id) continue;
+      tagIdByName.set(name.toLowerCase(), id);
+    }
+  }
+
+  const desiredTagIds = new Set(
+    normalized
+      .map((name) => tagIdByName.get(name.toLowerCase()) ?? null)
+      .filter((id): id is string => Boolean(id))
+  );
+
+  const tagIdsToInsert = Array.from(desiredTagIds).filter((id) => !existingTagIds.has(id));
+  const tagIdsToDelete = Array.from(existingTagIds).filter((id) => !desiredTagIds.has(id));
+
+  if (tagIdsToInsert.length > 0) {
+    const { error: insertLinksError } = await supabase
+      .from("task_tag_links")
+      .insert(tagIdsToInsert.map((tagId) => ({ task_id: taskId, tag_id: tagId })));
+
+    if (insertLinksError) {
+      throw new Error(`Failed to attach task tags: ${insertLinksError.message}`);
+    }
+  }
+
+  if (tagIdsToDelete.length > 0) {
+    const { error: deleteLinksError } = await supabase
+      .from("task_tag_links")
+      .delete()
+      .eq("task_id", taskId)
+      .in("tag_id", tagIdsToDelete);
+
+    if (deleteLinksError) {
+      throw new Error(`Failed to detach task tags: ${deleteLinksError.message}`);
+    }
+  }
 }
 
 type AssigneePayload = Array<{ id: string; name: string }>;
@@ -1125,10 +1207,9 @@ export async function setEntityProperties(
     );
   }
   let projectIdForTags: string | null = null;
+  let normalizedTags: string[] | null = null;
   if (updates.tags !== undefined) {
-    const normalizedTags = updates.tags
-      .map((tag) => tag.trim())
-      .filter((tag) => tag.length > 0);
+    normalizedTags = normalizeTagNames(updates.tags);
     projectIdForTags = await getProjectIdForEntity(input.entity_type, input.entity_id);
     if (projectIdForTags) {
       const adminSupabase = await createServiceClient();
@@ -1152,6 +1233,15 @@ export async function setEntityProperties(
   if (firstError) {
     console.error("setEntityProperties error:", firstError);
     return { error: "Failed to set entity properties" };
+  }
+
+  if (input.entity_type === "task" && normalizedTags !== null) {
+    try {
+      await syncTaskTagLinksForTask(supabase, workspaceId, input.entity_id, normalizedTags);
+    } catch (error) {
+      console.error("setEntityProperties task tag sync error:", error);
+      return { error: "Failed to sync task tags" };
+    }
   }
 
   const refreshed = await getEntityProperties(input.entity_type, input.entity_id);
@@ -1610,16 +1700,12 @@ export async function recomputeTaskPropertiesFromSubtasks(
 export async function addTag(input: AddTagInput): Promise<ActionResult<EntityProperties>> {
   const access = await requireEntityAccess(input.entity_type, input.entity_id);
   if ("error" in access) return { error: access.error };
-  const { supabase, workspaceId } = access;
+  const { workspaceId } = access;
 
-  // Normalize tag (trim and lowercase for matching)
-  const normalizedTag = input.tag.trim().toLowerCase();
+  const normalizedTag = input.tag.trim();
   if (!normalizedTag) {
     return { error: "Tag cannot be empty" };
   }
-
-  const definitions = await loadFixedPropertyDefinitions(supabase, workspaceId);
-  if ("error" in definitions) return { error: definitions.error };
 
   const current = await getEntityProperties(input.entity_type, input.entity_id);
   if ("error" in current) return current;
@@ -1627,38 +1713,18 @@ export async function addTag(input: AddTagInput): Promise<ActionResult<EntityPro
   const currentTags = current.data?.tags || [];
 
   // Check for duplicate (case-insensitive)
-  if (currentTags.some((t: string) => t.toLowerCase() === normalizedTag)) {
+  if (currentTags.some((t: string) => t.toLowerCase() === normalizedTag.toLowerCase())) {
     return { error: "Tag already exists" };
   }
 
-  // Add new tag
   const newTags = [...currentTags, normalizedTag];
 
-  const { error } = await upsertEntityPropertyValue(
-    supabase,
-    workspaceId,
-    input.entity_type,
-    input.entity_id,
-    definitions.byKey.tags,
-    newTags
-  );
-
-  if (error) {
-    console.error("addTag error:", error);
-    return { error: "Failed to add tag" };
-  }
-
-  const refreshed = await getEntityProperties(input.entity_type, input.entity_id);
-  if ("error" in refreshed) return refreshed;
-  if (!refreshed.data) return { error: "Failed to add tag" };
-
-  if (input.entity_type === "card") {
-    await supabase
-      .from("cards")
-      .update({ tags: refreshed.data.tags ?? [] })
-      .eq("id", input.entity_id);
-  }
-  return { data: refreshed.data };
+  return setEntityProperties({
+    entity_type: input.entity_type,
+    entity_id: input.entity_id,
+    workspace_id: workspaceId,
+    updates: { tags: newTags },
+  });
 }
 
 /**
@@ -1667,12 +1733,9 @@ export async function addTag(input: AddTagInput): Promise<ActionResult<EntityPro
 export async function removeTag(input: RemoveTagInput): Promise<ActionResult<EntityProperties>> {
   const access = await requireEntityAccess(input.entity_type, input.entity_id);
   if ("error" in access) return { error: access.error };
-  const { supabase, workspaceId } = access;
+  const { workspaceId } = access;
 
   const normalizedTag = input.tag.trim().toLowerCase();
-
-  const definitions = await loadFixedPropertyDefinitions(supabase, workspaceId);
-  if ("error" in definitions) return { error: definitions.error };
 
   const existing = await getEntityProperties(input.entity_type, input.entity_id);
   if ("error" in existing) return existing;
@@ -1686,31 +1749,12 @@ export async function removeTag(input: RemoveTagInput): Promise<ActionResult<Ent
     (t: string) => t.toLowerCase() !== normalizedTag
   );
 
-  const { error } = await upsertEntityPropertyValue(
-    supabase,
-    workspaceId,
-    input.entity_type,
-    input.entity_id,
-    definitions.byKey.tags,
-    newTags
-  );
-
-  if (error) {
-    console.error("removeTag error:", error);
-    return { error: "Failed to remove tag" };
-  }
-
-  const refreshed = await getEntityProperties(input.entity_type, input.entity_id);
-  if ("error" in refreshed) return refreshed;
-  if (!refreshed.data) return { error: "Failed to remove tag" };
-
-  if (input.entity_type === "card") {
-    await supabase
-      .from("cards")
-      .update({ tags: refreshed.data.tags ?? [] })
-      .eq("id", input.entity_id);
-  }
-  return { data: refreshed.data };
+  return setEntityProperties({
+    entity_type: input.entity_type,
+    entity_id: input.entity_id,
+    workspace_id: workspaceId,
+    updates: { tags: newTags },
+  });
 }
 
 /**
