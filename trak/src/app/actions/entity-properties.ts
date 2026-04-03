@@ -327,7 +327,7 @@ async function syncTaskTagLinksForTask(
     throw new Error(`Failed to load workspace task tags: ${tagsError.message}`);
   }
 
-  const existingTagIds = new Set((existingLinks ?? []).map((link: any) => String(link.tag_id)));
+  const existingTagIds: Set<string> = new Set((existingLinks ?? []).map((link: any) => String(link.tag_id)));
   const tagIdByName = new Map<string, string>();
 
   for (const tag of existingTags ?? []) {
@@ -356,7 +356,7 @@ async function syncTaskTagLinksForTask(
     }
   }
 
-  const desiredTagIds = new Set(
+  const desiredTagIds: Set<string> = new Set(
     normalized
       .map((name) => tagIdByName.get(name.toLowerCase()) ?? null)
       .filter((id): id is string => Boolean(id))

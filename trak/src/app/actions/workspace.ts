@@ -81,7 +81,7 @@ export const getCurrentWorkspaceId = cache(async (): Promise<string | null> => {
 });
 
 async function getEffectiveUserWorkspaceRole(
-  supabase: Awaited<ReturnType<typeof getServerUser>>['supabase'],
+  supabase: NonNullable<Awaited<ReturnType<typeof getServerUser>>>['supabase'],
   workspaceId: string,
   userId: string
 ): Promise<WorkspaceRole | null> {

@@ -513,12 +513,14 @@ function EntityTagPills({
   className,
   maxVisible = 3,
   showAddPill = Boolean(onOpen),
+  addLabel,
 }: {
   tags: string[];
   onOpen?: (anchorRect: DOMRect, element: HTMLElement) => void;
   className?: string;
   maxVisible?: number;
   showAddPill?: boolean;
+  addLabel?: string;
 }) {
   const visibleTags = tags.slice(0, maxVisible);
   const extraTagCount = Math.max(0, tags.length - visibleTags.length);
@@ -595,9 +597,10 @@ function EntityTagPills({
             basePillClassName,
             "border-dashed border-[var(--border)] bg-transparent text-[var(--muted-foreground)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]"
           )}
-          title="Add or edit tags"
+          title={addLabel ? `Add or edit ${addLabel.toLowerCase()}s` : "Add or edit tags"}
         >
           <Tag className="h-3 w-3" />
+          {addLabel ? <span>{addLabel}</span> : null}
         </button>
       ) : null}
     </div>
