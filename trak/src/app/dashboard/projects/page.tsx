@@ -1,12 +1,14 @@
-import { getAllProjects } from "@/app/actions/project";
+import { getAllProjects, type ProjectFirstTabPreview } from "@/app/actions/project";
 import { getAllClients } from "@/app/actions/client";
 import { getAllFolders } from "@/app/actions/folder";
 import { getCurrentWorkspaceId } from "@/app/actions/workspace";
 import { getWorkspacePlanLockState } from "@/lib/billing/locks";
+import Link from "next/link";
 import ProjectsTable from "./projects-table";
 import ProjectsGrid from "./projects-grid";
 import FilterBar from "./filter-bar";
 import ProjectsViewToggle from "./projects-view-toggle";
+import { Button } from "@/components/ui/button";
 
 // Keep dynamic for real-time data, but allow short caching
 export const dynamic = "force-dynamic";
@@ -14,6 +16,26 @@ export const revalidate = 5; // Cache for 5 seconds - HUGE speed boost for concu
 
 interface PageProps {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}
+
+interface ProjectListRow {
+  id: string;
+  name: string;
+  status: "not_started" | "in_progress" | "complete";
+  due_date_date: string | null;
+  due_date_text: string | null;
+  client_id: string | null;
+  folder_id?: string | null;
+  created_at: string;
+  first_tab_preview?: ProjectFirstTabPreview | null;
+  client?:
+    | {
+        name?: string | null;
+      }
+    | Array<{
+        name?: string | null;
+      }>
+    | null;
 }
 
 export default async function ProjectsPage({ searchParams }: PageProps) {
@@ -66,7 +88,7 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
   const folders = "data" in foldersResult ? foldersResult.data ?? [] : [];
 
   // Map nested client object to the shape expected by the table
-  const mappedProjects = (projectsResult.data || []).map((project: any) => {
+  const mappedProjects = ((projectsResult.data ?? []) as ProjectListRow[]).map((project) => {
     // Handle Supabase foreign key returning array vs object
     const client = Array.isArray(project.client) ? project.client[0] : project.client;
     
@@ -89,7 +111,12 @@ export default async function ProjectsPage({ searchParams }: PageProps) {
     <div>
       <div className="flex items-center justify-between gap-4 mb-4">
         <FilterBar clients={clients} />
-        <ProjectsViewToggle currentView={view} />
+        <div className="flex items-center gap-2">
+          <Button asChild size="sm" variant="outline" className="rounded-[2px]">
+            <Link href="/dashboard/projects/templates">Templates</Link>
+          </Button>
+          <ProjectsViewToggle currentView={view} />
+        </div>
       </div>
       
       {view === "grid" ? (

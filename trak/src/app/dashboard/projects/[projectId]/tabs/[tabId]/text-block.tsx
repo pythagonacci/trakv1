@@ -200,10 +200,11 @@ export default function TextBlock({
   }, [block.content, isBorderless]);
 
   useEffect(() => {
+    const contentRecord = (block.content as Record<string, unknown> | undefined) ?? undefined;
+    const heightPx = contentRecord?.heightPx;
     const next =
-      typeof (block.content as Record<string, unknown> | undefined)?.heightPx === "number" &&
-      (block.content as Record<string, unknown>).heightPx > 0
-        ? ((block.content as Record<string, unknown>).heightPx as number)
+      typeof heightPx === "number" && heightPx > 0
+        ? heightPx
         : null;
     minHeightRef.current = next;
     setMinHeightPx((current) => (current === next ? current : next));

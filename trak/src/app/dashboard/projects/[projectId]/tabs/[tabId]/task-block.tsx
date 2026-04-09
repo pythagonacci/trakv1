@@ -3698,10 +3698,16 @@ export default function TaskBlock({
                                 .map((id) => getWorkspaceMember(id)?.name || getWorkspaceMember(id)?.email)
                                 .filter(Boolean) as string[];
                               const subtaskPriority = normalizePriority(subtaskProps?.priority ?? null);
-                              const subtaskPriorityFields = (() => {
+                              type SubtaskPriorityField = {
+                                id: string;
+                                field_name: string;
+                                value: Priority | null;
+                              };
+                              const subtaskPriorityFields: SubtaskPriorityField[] = (() => {
+
                                 const namedFields =
                                   subtaskProps?.priorities
-                                    ?.map((field, index) => {
+                                    ?.map((field, index): SubtaskPriorityField => {
                                       return {
                                         id: field?.id ?? `subtask-priority-${index}`,
                                         field_name: String(field?.field_name ?? "").trim() || "Priority",
@@ -3709,17 +3715,11 @@ export default function TaskBlock({
                                       };
                                     })
                                     .filter(
-                                      (
-                                        field
-                                      ): field is {
-                                        id: string;
-                                        field_name: string;
-                                        value: Priority | null;
-                                      } => Boolean(field)
+                                      (field): field is SubtaskPriorityField => Boolean(field)
                                     ) ?? [];
 
                                 const valueFields = namedFields.filter(
-                                  (field): field is { id: string; field_name: string; value: Priority } => Boolean(field.value)
+                                  (field): field is SubtaskPriorityField & { value: Priority } => Boolean(field.value)
                                 );
                                 if (valueFields.length > 0) return valueFields;
                                 if (namedFields.length > 0) return [namedFields[0]];

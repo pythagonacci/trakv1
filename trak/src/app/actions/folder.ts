@@ -1,6 +1,4 @@
 'use server'
-
-import { revalidatePath } from 'next/cache'
 import { getServerUser } from '@/lib/auth/get-server-user'
 import { safeRevalidatePath } from './workspace'
 import type { AuthContext } from '@/lib/auth-context'
@@ -296,4 +294,88 @@ export async function moveProjectToFolder(
 
   await safeRevalidatePath('/dashboard/projects')
   return { data: null }
+}
+
+export async function bulkMoveProjectsToFolder(
+  projectIds: string[],
+  folderId: string | null,
+  opts?: { authContext?: AuthContext }
+): Promise<ActionResult<{ movedCount: number }>> {
+  const uniqueProjectIds = [...new Set(projectIds.filter((id) => typeof id === 'string' && id.trim().length > 0))]
+
+  if (uniqueProjectIds.length === 0) {
+    return { error: 'No projects selected' }
+  }
+
+  let supabase: Awaited<ReturnType<typeof import('@/lib/supabase/server').createClient>>
+  let userId: string
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase
+    userId = opts.authContext.userId
+  } else {
+    const authResult = await getServerUser()
+    if (!authResult) return { error: 'Unauthorized' }
+    supabase = authResult.supabase
+    userId = authResult.user.id
+  }
+
+  const { data: projects, error: projectError } = await supabase
+    .from('projects')
+    .select('id, workspace_id')
+    .in('id', uniqueProjectIds)
+
+  if (projectError) {
+    return { error: projectError.message }
+  }
+
+  if (!projects || projects.length !== uniqueProjectIds.length) {
+    return { error: 'One or more projects were not found' }
+  }
+
+  const workspaceIds = [...new Set(projects.map((project) => project.workspace_id))]
+  if (workspaceIds.length !== 1) {
+    return { error: 'Projects must belong to the same workspace' }
+  }
+
+  const workspaceId = workspaceIds[0]
+
+  if (folderId) {
+    const { data: folder, error: folderError } = await supabase
+      .from('project_folders')
+      .select('workspace_id')
+      .eq('id', folderId)
+      .single()
+
+    if (folderError || !folder) {
+      return { error: 'Folder not found' }
+    }
+
+    if (folder.workspace_id !== workspaceId) {
+      return { error: 'Folder does not belong to the same workspace' }
+    }
+  }
+
+  const { data: membership } = await supabase
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (!membership) {
+    return { error: 'You must be a workspace member to move projects' }
+  }
+
+  const { error: updateError } = await supabase
+    .from('projects')
+    .update({ folder_id: folderId, updated_at: new Date().toISOString() })
+    .in('id', uniqueProjectIds)
+
+  if (updateError) {
+    return { error: updateError.message }
+  }
+
+  await safeRevalidatePath('/dashboard')
+  await safeRevalidatePath('/dashboard/projects')
+  return { data: { movedCount: uniqueProjectIds.length } }
 }

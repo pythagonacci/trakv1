@@ -2206,7 +2206,7 @@ export async function getAllProjects(
             if (taskBlockIds.length > 0) {
               const { data: taskItems, error: taskError } = await supabase
                 .from('task_items')
-                .select('id, title, status, task_block_id, display_order')
+                .select('id, title, statuses, task_block_id, display_order')
                 .in('task_block_id', taskBlockIds)
                 .order('display_order', { ascending: true })
 
@@ -2215,7 +2215,17 @@ export async function getAllProjects(
               } else {
                 taskItems?.forEach((task) => {
                   const list = taskItemsByBlock.get(task.task_block_id) || []
-                  list.push({ id: task.id, title: task.title, status: task.status })
+                  const primaryStatus = Array.isArray(task.statuses)
+                    ? task.statuses.find(
+                        (entry: { value?: unknown } | null) => typeof entry?.value === 'string'
+                      )?.value
+                    : null
+
+                  list.push({
+                    id: task.id,
+                    title: task.title,
+                    status: typeof primaryStatus === 'string' ? primaryStatus : 'todo',
+                  })
                   taskItemsByBlock.set(task.task_block_id, list)
                 })
               }
@@ -2447,4 +2457,78 @@ export async function deleteProject(projectId: string, opts?: { authContext?: Au
 
   await safeRevalidatePath('/dashboard')
   return { data: { success: true, message: 'Project deleted successfully' } }
+}
+
+export async function bulkDeleteProjects(projectIds: string[], opts?: { authContext?: AuthContext }) {
+  const uniqueProjectIds = [...new Set(projectIds.filter((id) => typeof id === 'string' && id.trim().length > 0))]
+
+  if (uniqueProjectIds.length === 0) {
+    return { error: 'No projects selected' }
+  }
+
+  let supabase: Awaited<ReturnType<typeof import('@/lib/supabase/server').createClient>>
+  let userId: string
+  if (opts?.authContext) {
+    supabase = opts.authContext.supabase
+    userId = opts.authContext.userId
+  } else {
+    const authResult = await getServerUser()
+    if (!authResult) return { error: 'Unauthorized' }
+    supabase = authResult.supabase
+    userId = authResult.user.id
+  }
+
+  const { data: projects, error: fetchError } = await supabase
+    .from('projects')
+    .select('id, workspace_id')
+    .in('id', uniqueProjectIds)
+
+  if (fetchError) {
+    return { error: fetchError.message }
+  }
+
+  if (!projects || projects.length !== uniqueProjectIds.length) {
+    return { error: 'One or more projects were not found' }
+  }
+
+  const workspaceIds = [...new Set(projects.map((project) => project.workspace_id))]
+  if (workspaceIds.length !== 1) {
+    return { error: 'Projects must belong to the same workspace' }
+  }
+
+  const workspaceId = workspaceIds[0]
+
+  const { data: membership, error: memberError } = await supabase
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (memberError || !membership) {
+    return { error: 'Unauthorized' }
+  }
+
+  if (membership.role !== 'admin' && membership.role !== 'owner') {
+    return { error: 'Only admins and owners can delete projects' }
+  }
+
+  const { error: deleteError } = await supabase
+    .from('projects')
+    .delete()
+    .in('id', uniqueProjectIds)
+
+  if (deleteError) {
+    return { error: deleteError.message }
+  }
+
+  await safeRevalidatePath('/dashboard')
+  await safeRevalidatePath('/dashboard/projects')
+  return {
+    data: {
+      success: true,
+      deletedCount: uniqueProjectIds.length,
+      message: `${uniqueProjectIds.length} project${uniqueProjectIds.length === 1 ? '' : 's'} deleted successfully`,
+    },
+  }
 }

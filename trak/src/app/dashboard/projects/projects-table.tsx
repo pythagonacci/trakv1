@@ -1,19 +1,36 @@
 "use client";
 
-import React, { useEffect, useState, useTransition, useMemo } from "react";
+import React, { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { MoreHorizontal, Edit, Trash2, ArrowUp, ArrowDown, Lock } from "lucide-react";
-import { createProject, createProjectFromTemplate, updateProject, deleteProject } from "@/app/actions/project";
+import {
+  MoreHorizontal,
+  Edit,
+  Trash2,
+  ArrowUp,
+  ArrowDown,
+  Lock,
+  Folder,
+  ChevronDown,
+  ChevronRight,
+  Trash2 as TrashIcon,
+} from "lucide-react";
+import {
+  createProject,
+  createProjectFromTemplate,
+  updateProject,
+  deleteProject,
+  bulkDeleteProjects,
+} from "@/app/actions/project";
 import { getAllClients } from "@/app/actions/client";
-import { moveProjectToFolder, deleteFolder } from "@/app/actions/folder";
+import { moveProjectToFolder, deleteFolder, bulkMoveProjectsToFolder } from "@/app/actions/folder";
 import ProjectDialog from "./project-dialog";
 import CreateFolderDialog from "./create-folder-dialog";
 import ConfirmDialog from "./confirm-dialog";
 import Toast from "./toast";
 import EmptyState from "./empty-state";
 import StatusBadge from "./status-badge";
-import { Folder, Plus, ChevronDown, ChevronRight, Trash2 as TrashIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -91,7 +108,7 @@ interface FormData {
 
 export default function ProjectsTable({ projects: initialProjects, workspaceId, folders: initialFolders, currentSort }: ProjectsTableProps) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   const searchParams = useSearchParams();
 
   const [projects, setProjects] = useState(initialProjects);
@@ -110,12 +127,37 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
   const [dialogMode, setDialogMode] = useState<"create" | "edit" | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
   const [deletingProject, setDeletingProject] = useState<Project | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [isBulkMoving, setIsBulkMoving] = useState(false);
   const [createFolderDialogOpen, setCreateFolderDialogOpen] = useState(false);
-  const [moveProjectDialogOpen, setMoveProjectDialogOpen] = useState(false);
-  const [projectToMove, setProjectToMove] = useState<Project | null>(null);
+  const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(new Set());
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  const selectableProjectIds = useMemo(
+    () => projects.filter((project) => !project.id.startsWith("temp-")).map((project) => project.id),
+    [projects]
+  );
+
+  const selectedProjects = useMemo(
+    () => projects.filter((project) => selectedProjectIds.has(project.id)),
+    [projects, selectedProjectIds]
+  );
+
+  const allProjectsSelected =
+    selectableProjectIds.length > 0 && selectableProjectIds.every((projectId) => selectedProjectIds.has(projectId));
+  const someProjectsSelected =
+    !allProjectsSelected && selectableProjectIds.some((projectId) => selectedProjectIds.has(projectId));
+
+  useEffect(() => {
+    const validProjectIds = new Set(projects.map((project) => project.id));
+    setSelectedProjectIds((prev) => {
+      const next = new Set([...prev].filter((projectId) => validProjectIds.has(projectId)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [projects]);
 
   const handleSort = (column: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -198,6 +240,97 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
 
     setIsDeleting(false);
     handleCloseDeleteConfirm();
+  };
+
+  const clearSelection = () => {
+    setSelectedProjectIds(new Set());
+  };
+
+  const toggleProjectSelection = (projectId: string) => {
+    setSelectedProjectIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(projectId)) {
+        next.delete(projectId);
+      } else {
+        next.add(projectId);
+      }
+      return next;
+    });
+  };
+
+  const handleToggleSelectAll = (checked: boolean | "indeterminate") => {
+    if (checked) {
+      setSelectedProjectIds(new Set(selectableProjectIds));
+      return;
+    }
+
+    clearSelection();
+  };
+
+  const handleCloseBulkDeleteConfirm = () => {
+    if (!isBulkDeleting) {
+      setBulkDeleteConfirmOpen(false);
+    }
+  };
+
+  const handleConfirmBulkDelete = async () => {
+    const projectIds = [...selectedProjectIds];
+    if (projectIds.length === 0) return;
+
+    setIsBulkDeleting(true);
+    const previousProjects = [...projects];
+    setProjects((prev) => prev.filter((project) => !selectedProjectIds.has(project.id)));
+
+    const result = await bulkDeleteProjects(projectIds);
+
+    if ("error" in result) {
+      setProjects(previousProjects);
+      setToast({ message: result.error!, type: "error" });
+    } else {
+      clearSelection();
+      setToast({
+        message: `${projectIds.length} project${projectIds.length === 1 ? "" : "s"} deleted successfully`,
+        type: "success",
+      });
+      startTransition(() => {
+        router.refresh();
+      });
+    }
+
+    setIsBulkDeleting(false);
+    setBulkDeleteConfirmOpen(false);
+  };
+
+  const handleBulkMoveToFolder = async (folderId: string | null) => {
+    const projectIds = [...selectedProjectIds];
+    if (projectIds.length === 0) return;
+
+    setIsBulkMoving(true);
+    const previousProjects = [...projects];
+    setProjects((prev) =>
+      prev.map((project) => (selectedProjectIds.has(project.id) ? { ...project, folder_id: folderId } : project))
+    );
+
+    const result = await bulkMoveProjectsToFolder(projectIds, folderId);
+
+    if ("error" in result) {
+      setProjects(previousProjects);
+      setToast({ message: result.error!, type: "error" });
+    } else {
+      clearSelection();
+      const targetFolder = folders.find((folder) => folder.id === folderId);
+      setToast({
+        message: folderId
+          ? `${projectIds.length} project${projectIds.length === 1 ? "" : "s"} moved to ${targetFolder?.name ?? "folder"}`
+          : `${projectIds.length} project${projectIds.length === 1 ? "" : "s"} removed from folder`,
+        type: "success",
+      });
+      startTransition(() => {
+        router.refresh();
+      });
+    }
+
+    setIsBulkMoving(false);
   };
 
   const handleCreateSubmit = async (formData: FormData) => {
@@ -399,7 +532,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
   };
 
   // Organize projects by folders
-  const projectsByFolder = React.useMemo(() => {
+  const projectsByFolder = useMemo(() => {
     const organized: { [key: string]: Project[] } = { ungrouped: [] };
     
     projects.forEach((project) => {
@@ -482,6 +615,17 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
           isLoading={isDeleting}
         />
 
+        <ConfirmDialog
+          isOpen={bulkDeleteConfirmOpen}
+          onClose={handleCloseBulkDeleteConfirm}
+          onConfirm={handleConfirmBulkDelete}
+          title="Delete Projects"
+          message={`Are you sure you want to delete ${selectedProjects.length} project${selectedProjects.length === 1 ? "" : "s"}? This action cannot be undone.`}
+          confirmText={`Delete ${selectedProjects.length} Project${selectedProjects.length === 1 ? "" : "s"}`}
+          confirmButtonVariant="danger"
+          isLoading={isBulkDeleting}
+        />
+
         <CreateFolderDialog
           isOpen={createFolderDialogOpen}
           onClose={() => setCreateFolderDialogOpen(false)}
@@ -524,9 +668,69 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
         </div>
       </div>
 
+      {selectedProjectIds.size > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
+          <span className="text-sm font-medium text-[var(--foreground)]">
+            {selectedProjectIds.size} selected
+          </span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-[2px]"
+                disabled={isBulkDeleting || isBulkMoving}
+              >
+                Move to folder
+                <ChevronDown className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-48">
+              <DropdownMenuItem onClick={() => void handleBulkMoveToFolder(null)}>
+                No Folder
+              </DropdownMenuItem>
+              {folders.map((folder) => (
+                <DropdownMenuItem key={folder.id} onClick={() => void handleBulkMoveToFolder(folder.id)}>
+                  {folder.name}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button
+            variant="outline"
+            size="sm"
+            className="rounded-[2px] border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+            onClick={() => setBulkDeleteConfirmOpen(true)}
+            disabled={isBulkDeleting || isBulkMoving}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="rounded-[2px]"
+            onClick={clearSelection}
+            disabled={isBulkDeleting || isBulkMoving}
+          >
+            Clear
+          </Button>
+        </div>
+      )}
+
       <Table className="[&_th]:px-3 [&_th]:py-2.5 [&_th]:h-10 [&_td]:px-3 [&_td]:py-2.5">
           <TableHeader className="bg-[var(--primary)]/10 border-b border-[var(--primary)]/30">
             <TableRow className="border-0 hover:bg-transparent">
+              <TableHead className="h-10 w-10 px-3 py-2.5">
+                <div onClick={(event) => event.stopPropagation()}>
+                  <Checkbox
+                    checked={allProjectsSelected ? true : someProjectsSelected ? "indeterminate" : false}
+                    onCheckedChange={handleToggleSelectAll}
+                    aria-label={allProjectsSelected ? "Deselect all projects" : "Select all projects"}
+                    disabled={selectableProjectIds.length === 0}
+                  />
+                </div>
+              </TableHead>
               <TableHead className="h-10 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--tertiary-foreground)]">
                 <button
                   className="flex items-center gap-2 hover:text-[var(--foreground)]"
@@ -574,7 +778,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
                 <React.Fragment key={folder.id}>
                   {/* Folder Header Row */}
                   <TableRow className="bg-[var(--secondary)]/5 hover:bg-[var(--secondary)]/5">
-                    <TableCell colSpan={5} className="py-2">
+                    <TableCell colSpan={6} className="py-2">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <button
@@ -632,10 +836,19 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
                         className={cn(
                           "cursor-pointer transition-colors duration-150 hover:bg-[var(--primary)]/10",
                           isTemp && "opacity-70",
+                          selectedProjectIds.has(project.id) && "bg-[var(--primary)]/5",
                           isPlanLocked && "cursor-not-allowed bg-[var(--surface-hover)]/50"
                         )}
                         onClick={() => handleRowClick(project.id, project.name)}
                       >
+                        <TableCell className="w-10 pl-3" onClick={(event) => event.stopPropagation()}>
+                          <Checkbox
+                            checked={selectedProjectIds.has(project.id)}
+                            onCheckedChange={() => toggleProjectSelection(project.id)}
+                            aria-label={`Select ${project.name}`}
+                            disabled={isTemp || isBulkDeleting || isBulkMoving}
+                          />
+                        </TableCell>
                         <TableCell className="pl-8">
                           <span className="text-sm text-[var(--muted-foreground)]">{project.client_name || "No client"}</span>
                         </TableCell>
@@ -702,7 +915,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
               <>
                 {folders.length > 0 && (
                   <TableRow className="bg-[var(--secondary)]/5 hover:bg-[var(--secondary)]/5">
-                    <TableCell colSpan={5} className="py-2">
+                    <TableCell colSpan={6} className="py-2">
                       <span className="text-sm font-semibold text-[var(--foreground)]">No Folder</span>
                       <span className="text-xs text-[var(--tertiary-foreground)] ml-2">({projectsByFolder.ungrouped.length})</span>
                     </TableCell>
@@ -719,11 +932,20 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
                       className={cn(
                         "cursor-pointer transition-colors duration-150 hover:bg-[var(--primary)]/10",
                         isTemp && "opacity-70",
+                        selectedProjectIds.has(project.id) && "bg-[var(--primary)]/5",
                         folders.length > 0 && "pl-8",
                         isPlanLocked && "cursor-not-allowed bg-[var(--surface-hover)]/50"
                       )}
                       onClick={() => handleRowClick(project.id, project.name)}
                     >
+                      <TableCell className="w-10 pl-3" onClick={(event) => event.stopPropagation()}>
+                        <Checkbox
+                          checked={selectedProjectIds.has(project.id)}
+                          onCheckedChange={() => toggleProjectSelection(project.id)}
+                          aria-label={`Select ${project.name}`}
+                          disabled={isTemp || isBulkDeleting || isBulkMoving}
+                        />
+                      </TableCell>
                       <TableCell className={folders.length > 0 ? "pl-8" : ""}>
                         <span className="text-sm text-[var(--muted-foreground)]">{project.client_name || "No client"}</span>
                       </TableCell>

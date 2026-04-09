@@ -79,9 +79,12 @@ export default function DashboardLayoutClient({
   const pathname = usePathname();
   const wasProjectView = useRef<boolean | null>(null);
   const isFirstRender = useRef(true);
+  const isProjectTemplatesPage = pathname === "/dashboard/projects/templates";
 
   const isProjectView =
-    pathname?.startsWith("/dashboard/projects/") && pathname !== "/dashboard/projects";
+    pathname?.startsWith("/dashboard/projects/") &&
+    pathname !== "/dashboard/projects" &&
+    !isProjectTemplatesPage;
   const isWorkflowRoute = pathname?.startsWith("/dashboard/workflow");
 
   const normalizedPathname = pathname?.replace(/\/$/, "") ?? "";
@@ -880,8 +883,11 @@ function LayoutMain({ children }: { children: React.ReactNode }) {
   const isWorkflowPage = pathname?.startsWith("/dashboard/workflow");
   const isWorkflowCanvas = pathname?.match(/^\/dashboard\/workflow\/[^/]+$/);
   const isCalendarPage = pathname?.startsWith("/dashboard/calendar");
+  const isProjectTemplatesPage = pathname === "/dashboard/projects/templates";
   const isProjectOrClientDetail =
-    (pathname?.startsWith("/dashboard/projects/") && pathname !== "/dashboard/projects") ||
+    ((pathname?.startsWith("/dashboard/projects/") &&
+      pathname !== "/dashboard/projects" &&
+      !isProjectTemplatesPage)) ||
     (pathname?.startsWith("/dashboard/clients/") && pathname !== "/dashboard/clients");
   const isFullBleedPage =
     pathname?.startsWith("/dashboard/settings") ||

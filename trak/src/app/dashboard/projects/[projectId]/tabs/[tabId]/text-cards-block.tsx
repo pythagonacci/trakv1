@@ -41,6 +41,8 @@ import { Calendar, Plus, X } from "lucide-react";
 interface TextCardsBlockProps {
   block: Block;
   workspaceId?: string;
+  projectId?: string;
+  onUpdate?: (updatedBlock?: Block) => void;
 }
 
 interface WorkspaceMemberLike {
@@ -90,7 +92,7 @@ function getPersistedFieldName(row: TextCardRow): string {
 
 function normalizeDueDateValue(value: TextCardRowValue): DueDateRange | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const candidate = value as Record<string, unknown>;
+  const candidate = value as unknown as Record<string, unknown>;
   const start = typeof candidate.start === "string" ? candidate.start : null;
   const end = typeof candidate.end === "string" ? candidate.end : null;
   if (!start && !end) return null;

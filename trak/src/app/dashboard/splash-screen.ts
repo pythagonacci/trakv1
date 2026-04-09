@@ -38,7 +38,9 @@ export function shouldAutoShowSplashForSession(
   splashAutoShowState = "claimed";
 
   try {
-    cookieDocument.cookie = createSplashCookie("pending");
+    if (cookieDocument) {
+      cookieDocument.cookie = createSplashCookie("pending");
+    }
   } catch {
     // Ignore cookie access failures and fall back to the in-memory session gate.
   }
@@ -52,7 +54,9 @@ export function markSplashShownForSession(
   splashAutoShowState = "completed";
 
   try {
-    cookieDocument.cookie = createSplashCookie("1");
+    if (cookieDocument) {
+      cookieDocument.cookie = createSplashCookie("1");
+    }
   } catch {
     // Ignore cookie access failures and rely on the in-memory session gate.
   }
