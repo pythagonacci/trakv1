@@ -2,6 +2,14 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { type Block } from '@/app/actions/block';
 import { type TabWithChildren } from '@/app/actions/tab';
 import { queryKeys } from '@/lib/react-query/query-client';
+import {
+  buildClientPerfHeaders,
+  logClientPerf,
+} from '@/lib/perf/perf-trace';
+
+type PerfOptions = {
+  navigationId?: string;
+};
 
 /**
  * Hook to fetch and cache tab blocks
@@ -11,7 +19,7 @@ import { queryKeys } from '@/lib/react-query/query-client';
  * @param tabId - The tab ID to fetch blocks for
  * @param initialBlocks - Server-fetched blocks to hydrate cache (optional)
  */
-export function useTabBlocks(tabId: string, initialBlocks?: Block[]) {
+export function useTabBlocks(tabId: string, initialBlocks?: Block[], options?: PerfOptions) {
   const queryClient = useQueryClient();
 
   // Check if we already have cached data for this tab
@@ -25,9 +33,15 @@ export function useTabBlocks(tabId: string, initialBlocks?: Block[]) {
   return useQuery({
     queryKey: queryKeys.tabBlocks(tabId),
     queryFn: async () => {
-      if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log(`[PERF] client getTabBlocks via route tabId=${tabId}`);
+      logClientPerf(
+        `[PERF] client getTabBlocks via route nav=${options?.navigationId ?? "none"} tabId=${tabId} hasCache=${hasCache} usingInitialData=${Boolean(shouldUseInitialData)}`
+      );
       const response = await fetch(`/api/blocks/tab?tabId=${encodeURIComponent(tabId)}`, {
         cache: "no-store",
+        headers: buildClientPerfHeaders({
+          navigationId: options?.navigationId,
+          source: "useTabBlocks",
+        }),
       });
       const json = await response.json();
       if (!response.ok || json?.error) {
@@ -79,7 +93,11 @@ export function useProjectTabs(projectId: string, initialTabs?: TabWithChildren[
  * @param fileIds - Array of file IDs to fetch URLs for
  * @param initialUrls - Server-fetched URLs to hydrate cache (optional)
  */
-export function useBatchFileUrls(fileIds: string[], initialUrls?: Record<string, string>) {
+export function useBatchFileUrls(
+  fileIds: string[],
+  initialUrls?: Record<string, string>,
+  options?: PerfOptions
+) {
   const queryClient = useQueryClient();
   const cachedData = queryClient.getQueryData<Record<string, string>>(queryKeys.fileUrls(fileIds));
   const hasCache = !!cachedData;
@@ -88,6 +106,7 @@ export function useBatchFileUrls(fileIds: string[], initialUrls?: Record<string,
     ? fileIds.every((id) => Boolean(initialUrls?.[id]))
     : false;
   const shouldUseInitialData = !hasCache && initialUrlsCoverAll;
+  const initialCoverageCount = fileIds.filter((id) => Boolean(initialUrls?.[id])).length;
 
   return useQuery({
     queryKey: queryKeys.fileUrls(fileIds),
@@ -95,10 +114,16 @@ export function useBatchFileUrls(fileIds: string[], initialUrls?: Record<string,
       if (fileIds.length === 0) {
         return {};
       }
-      if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log(`[PERF] client useBatchFileUrls ids=${fileIds.length}`);
+      logClientPerf(
+        `[PERF] client useBatchFileUrls nav=${options?.navigationId ?? "none"} ids=${fileIds.length} hasCache=${hasCache} hasInitialUrls=${hasInitialUrls} initialCoverage=${initialCoverageCount}/${fileIds.length} initialUrlsCoverAll=${initialUrlsCoverAll} refetchOnMount=true`
+      );
       const params = new URLSearchParams({ ids: fileIds.join(",") });
       const response = await fetch(`/api/files/batch-urls?${params.toString()}`, {
         cache: "no-store",
+        headers: buildClientPerfHeaders({
+          navigationId: options?.navigationId,
+          source: "useBatchFileUrls",
+        }),
       });
       const json = await response.json();
       if (!response.ok || json?.error) {

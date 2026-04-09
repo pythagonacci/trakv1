@@ -67,6 +67,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { DndContext, DragEndEvent, useDraggable, useDroppable, DragStartEvent, DragOverlay, closestCenter, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
+import {
+  buildClientPerfHeaders,
+  getCurrentPerfNavigationId,
+  logClientPerf,
+} from "@/lib/perf/perf-trace";
 
 type ZoomLevel = "day" | "week" | "month" | "quarter" | "year";
 
@@ -898,9 +903,16 @@ export default function TimelineBlock({ block, onUpdate, workspaceId, projectId,
     }
 
     const loadMembers = async () => {
-      if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log(`[PERF] client timeline getWorkspaceMembers workspaceId=${workspaceId}`);
+      const navigationId = getCurrentPerfNavigationId();
+      logClientPerf(
+        `[PERF] client timeline getWorkspaceMembers nav=${navigationId ?? "none"} workspaceId=${workspaceId}`
+      );
       const response = await fetch(`/api/workspaces/members?workspaceId=${encodeURIComponent(workspaceId)}`, {
         cache: "no-store",
+        headers: buildClientPerfHeaders({
+          navigationId,
+          source: "TimelineBlock.membersEffect",
+        }),
       });
       const json = await response.json();
       if (response.ok && json?.data) {

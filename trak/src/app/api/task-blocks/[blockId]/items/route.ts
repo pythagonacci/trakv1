@@ -4,6 +4,7 @@ import { getAuthenticatedUser, checkWorkspaceMembership } from "@/lib/auth-utils
 import { buildEntityPropertiesFromRows } from "@/app/actions/entity-properties";
 import type { TaskItemPriority } from "@/types/task";
 import type { EntityProperties } from "@/types/properties";
+import { formatPerfContext, getPerfRequestContext } from "@/lib/perf/perf-trace";
 
 type TaskEntityPropertiesMap = Record<string, EntityProperties>;
 type TaskBlockBundle = {
@@ -62,6 +63,7 @@ export async function GET(
   { params }: { params: Promise<{ blockId: string }> }
 ) {
   const t0 = performance.now();
+  const perfContext = getPerfRequestContext(request);
   const resolvedParams = await params;
   const blockId =
     resolvedParams?.blockId ??
@@ -111,7 +113,7 @@ export async function GET(
       return NextResponse.json({ error: "Not a member of this workspace" }, { status: 403 });
     }
 
-    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] route getTaskItemsByBlock auth ms=${Math.round(performance.now() - tAuth0)} taskBlockId=${blockId}`);
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] route getTaskItemsByBlock auth ms=${Math.round(performance.now() - tAuth0)} taskBlockId=${blockId}${formatPerfContext(perfContext)}`);
 
     const tItems = performance.now();
     const { data: rawItems, error: itemsError } = await supabase
@@ -125,7 +127,7 @@ export async function GET(
     }
 
     if (!rawItems || rawItems.length === 0) {
-      if (process.env.PERF_DEBUG === "1") console.log(`[PERF] route getTaskItemsByBlock taskBlockId=${blockId} items=0 totalMs=${Math.round(performance.now() - t0)}`);
+      if (process.env.PERF_DEBUG === "1") console.log(`[PERF] route getTaskItemsByBlock taskBlockId=${blockId} items=0 totalMs=${Math.round(performance.now() - t0)}${formatPerfContext(perfContext)}`);
       return NextResponse.json({ data: { tasks: [], entityPropertiesByTaskId: {} } satisfies TaskBlockBundle });
     }
 
@@ -136,7 +138,7 @@ export async function GET(
       ? rawItems.filter((item: any) => !item.is_placeholder)
       : rawItems;
 
-    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] route getTaskItemsByBlock items query ms=${Math.round(performance.now() - tItems)} count=${items.length}`);
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] route getTaskItemsByBlock items query ms=${Math.round(performance.now() - tItems)} count=${items.length}${formatPerfContext(perfContext)}`);
 
     const taskIds = items.map((item: any) => item.id);
 
@@ -169,7 +171,7 @@ export async function GET(
 
     if (process.env.PERF_DEBUG === "1") {
       console.log(
-        `[PERF] route getTaskItemsByBlock parallel ms=${Math.round(performance.now() - tParallel)} subtasks=${subtasksResult.data?.length} comments=${commentsResult.data?.length} tags=${tagLinksResult.data?.length} assignees=${assigneesResult.data?.length} entityProps=${entityPropsResult.data?.length}`
+        `[PERF] route getTaskItemsByBlock parallel ms=${Math.round(performance.now() - tParallel)} subtasks=${subtasksResult.data?.length} comments=${commentsResult.data?.length} tags=${tagLinksResult.data?.length} assignees=${assigneesResult.data?.length} entityProps=${entityPropsResult.data?.length}${formatPerfContext(perfContext)}`
       );
     }
 
@@ -300,7 +302,7 @@ export async function GET(
     });
 
     const payloadBytes = Buffer.byteLength(JSON.stringify({ tasks: taskViews, entityPropertiesByTaskId }), "utf8");
-    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] route getTaskItemsByBlock taskBlockId=${blockId} tasks=${taskViews.length} entityProps=${entityPropsResult.data?.length ?? 0} payloadBytes=${payloadBytes} totalMs=${Math.round(performance.now() - t0)}`);
+    if (process.env.PERF_DEBUG === "1") console.log(`[PERF] route getTaskItemsByBlock taskBlockId=${blockId} tasks=${taskViews.length} entityProps=${entityPropsResult.data?.length ?? 0} payloadBytes=${payloadBytes} totalMs=${Math.round(performance.now() - t0)}${formatPerfContext(perfContext)}`);
 
     return NextResponse.json({ data: { tasks: taskViews, entityPropertiesByTaskId } satisfies TaskBlockBundle });
   } catch (error) {

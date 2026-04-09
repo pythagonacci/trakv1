@@ -21,6 +21,7 @@ import { getWorkspacePlanLockState } from "@/lib/billing/locks";
 import PlanLockedState from "@/components/billing/plan-locked-state";
 import type { Block } from "@/app/actions/block";
 import { getDefaultSubtabForEmptyParent } from "@/lib/tabs/default-subtab";
+import { createPerfNavigationId } from "@/lib/perf/perf-trace";
 
 // 🔒 Force dynamic - user-specific data shouldn't be cached across users
 export const dynamic = "force-dynamic";
@@ -34,6 +35,7 @@ export default async function TabPage({
 }) {
   const supabase = await createClient();
   const renderId = Math.random().toString(36).slice(2, 10);
+  const perfNavigationId = createPerfNavigationId("tab");
 
   // Await params in Next.js 15
   const { projectId: projectIdParam, tabId: tabIdParam } = await params;
@@ -61,7 +63,9 @@ export default async function TabPage({
     notFound();
   }
   if (process.env.PERF_DEBUG === "1") {
-    console.log(`[PERF] TAB_PAGE_RENDER id=${renderId} projectId=${projectId} tabId=${tabId}`);
+    console.log(
+      `[PERF] TAB_PAGE_RENDER id=${renderId} nav=${perfNavigationId} projectId=${projectId} tabId=${tabId}`
+    );
   }
 
   const _tPage0 = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
@@ -266,16 +270,24 @@ export default async function TabPage({
     ...(inlineFileUrlsResult.data || {}),
     ...(attachmentFileUrlsResult.data || {}),
   };
+  const uniqueRequestedFileIds = Array.from(new Set([...fileIds, ...attachmentFileIds]));
+  const unresolvedFileIds = uniqueRequestedFileIds.filter((id) => !initialFileUrls[id]);
 
   if (process.env.PERF_DEBUG === '1') {
     const blockPayloadBytes = Buffer.byteLength(JSON.stringify(blocks), 'utf8');
     const fileUrlBytes = Buffer.byteLength(JSON.stringify(initialFileUrls), 'utf8');
-    console.log(`[PERF] page.tsx filePrefetch ms=${Math.round(performance.now() - _tFilePrefetch)} inlineIds=${fileIds.length} attachmentIds=${attachmentFileIds.length} urlsResolved=${Object.keys(initialFileUrls).length}`);
-    console.log(`[PERF] page.tsx TOTAL ms=${Math.round(performance.now() - _tPage0)} blockPayloadBytes=${blockPayloadBytes} fileUrlBytes=${fileUrlBytes}`);
+    console.log(
+      `[PERF] page.tsx filePrefetch nav=${perfNavigationId} ms=${Math.round(performance.now() - _tFilePrefetch)} inlineIds=${fileIds.length} attachmentIds=${attachmentFileIds.length} requestedIds=${uniqueRequestedFileIds.length} urlsResolved=${Object.keys(initialFileUrls).length} unresolvedIds=${unresolvedFileIds.length}`
+    );
+    console.log(
+      `[PERF] page.tsx TOTAL nav=${perfNavigationId} ms=${Math.round(performance.now() - _tPage0)} blockPayloadBytes=${blockPayloadBytes} fileUrlBytes=${fileUrlBytes}`
+    );
     blocks.forEach(b => {
       const contentBytes = Buffer.byteLength(JSON.stringify(b.content ?? {}), 'utf8');
       if (contentBytes > 5000) {
-        console.log(`[PERF] heavy block type=${b.type} id=${b.id} contentBytes=${contentBytes}`);
+        console.log(
+          `[PERF] heavy block nav=${perfNavigationId} type=${b.type} id=${b.id} contentBytes=${contentBytes}`
+        );
       }
     });
   } else {
@@ -337,6 +349,7 @@ export default async function TabPage({
           projectId={projectId}
           projectName={project.name}
           workspaceId={workspaceId}
+          perfNavigationId={perfNavigationId}
           blocks={blocks}
           initialBlockPropertiesById={blockPropertiesById}
           scrollToTaskId={taskId}

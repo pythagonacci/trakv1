@@ -14,6 +14,12 @@ import { cn } from "@/lib/utils";
 import { formatBlockText } from "@/lib/format-block-text";
 import FileUploadZone from "./file-upload-zone";
 import { useAI } from "@/components/ai";
+import { useUser } from "@/hooks/use-user";
+import {
+  buildClientPerfHeaders,
+  getCurrentPerfNavigationId,
+  logClientPerf,
+} from "@/lib/perf/perf-trace";
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
@@ -451,6 +457,7 @@ export default function FileBlock({
   const canUploadFiles = isPublicClientPage ? allowPublicUploads : !readOnly;
   const canManageFiles = !isPublicClientPage && !readOnly;
   const canAnalyzeFiles = !isPublicClientPage;
+  const { data: currentUser } = useUser();
   
   const content = (block.content || {}) as {
     heightPx?: number;
@@ -472,14 +479,20 @@ export default function FileBlock({
   const [loadingFileIds, setLoadingFileIds] = useState<Set<string>>(new Set());
   const [fileComments, setFileComments] = useState<Record<string, FileComment[]>>({});
   const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>({});
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [deletingCommentIds, setDeletingCommentIds] = useState<Set<string>>(new Set());
   const [previewHeightPx, setPreviewHeightPx] = useState<number | null>(initialPreviewHeight);
   const previewHeightRef = useRef<number | null>(initialPreviewHeight);
+  const resolvedFileUrlsRef = useRef<Record<string, string>>({});
+  const loadFilesInFlightRef = useRef(false);
+  const initialLoadKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     previewHeightRef.current = previewHeightPx;
   }, [previewHeightPx]);
+
+  useEffect(() => {
+    resolvedFileUrlsRef.current = resolvedFileUrls;
+  }, [resolvedFileUrls]);
 
   useEffect(() => {
     if (!hasInitialPublicFiles) return;
@@ -514,23 +527,6 @@ export default function FileBlock({
   }, [isPublicClientPage]);
 
   useEffect(() => {
-    if (isPublicClientPage) return;
-    let isMounted = true;
-    if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log("[PERF] client file-block getCurrentUser");
-    fetch("/api/auth/current-user", { cache: "no-store" })
-      .then((res) => res.json())
-      .then((result) => {
-        if (!isMounted) return;
-        if (result?.data) {
-          setCurrentUserId(result.data.id);
-        }
-      });
-    return () => {
-      isMounted = false;
-    };
-  }, [isPublicClientPage]);
-
-  useEffect(() => {
     const handleCommentSaved = (event: Event) => {
       const detail = (event as CustomEvent<{ fileId?: string }>).detail;
       if (!detail?.fileId) return;
@@ -555,11 +551,19 @@ export default function FileBlock({
 
   const ensureFileUrls = useCallback(async (blockFiles: BlockFile[]) => {
     if (isPublicClientPage) return;
-    const combinedUrls = { ...fileUrls, ...resolvedFileUrls };
+    const navigationId = getCurrentPerfNavigationId();
+    const combinedUrls = { ...fileUrls, ...resolvedFileUrlsRef.current };
+    const totalIds = blockFiles
+      .map((blockFile) => blockFile.file?.id)
+      .filter((id: string | null | undefined): id is string => Boolean(id));
     const missingIds = blockFiles
       .map((blockFile) => blockFile.file?.id)
       .filter((id: string | null | undefined): id is string => Boolean(id))
       .filter((id) => !combinedUrls[id]);
+
+    logClientPerf(
+      `[PERF] client file-block ensureFileUrls nav=${navigationId ?? "none"} blockId=${block.id} totalIds=${totalIds.length} cachedIds=${totalIds.length - missingIds.length} missingIds=${missingIds.length}`
+    );
 
     if (missingIds.length === 0) return;
 
@@ -569,10 +573,16 @@ export default function FileBlock({
       return next;
     });
 
-    if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log(`[PERF] client file-block getBatchFileUrls ids=${missingIds.length}`);
+    logClientPerf(
+      `[PERF] client file-block getBatchFileUrls nav=${navigationId ?? "none"} blockId=${block.id} ids=${missingIds.length}`
+    );
     const params = new URLSearchParams({ ids: missingIds.join(",") });
     const response = await fetch(`/api/files/batch-urls?${params.toString()}`, {
       cache: "no-store",
+      headers: buildClientPerfHeaders({
+        navigationId,
+        source: "FileBlock.ensureFileUrls",
+      }),
     });
     const result = await response.json();
     if (response.ok && result?.data) {
@@ -589,25 +599,39 @@ export default function FileBlock({
       missingIds.forEach((id) => next.delete(id));
       return next;
     });
-  }, [fileUrls, isPublicClientPage, resolvedFileUrls]);
+  }, [fileUrls, isPublicClientPage, block.id]);
 
   const loadFiles = useCallback(async () => {
+    if (loadFilesInFlightRef.current) {
+      return;
+    }
+
     // Skip loading if this is a temporary block (not yet saved to database)
     if (block.id.startsWith('temp-')) {
       setLoading(false);
       setFiles([]);
       return;
     }
-    
+
+    loadFilesInFlightRef.current = true;
     setLoading(true);
     try {
-      if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log(`[PERF] client file-block getBlockFiles blockId=${block.id}`);
+      const navigationId = getCurrentPerfNavigationId();
+      logClientPerf(
+        `[PERF] client file-block getBlockFiles nav=${navigationId ?? "none"} blockId=${block.id} public=${isPublicClientPage}`
+      );
       const response = await fetch(
         isPublicClientPage
           ? `/api/client-files/block?blockId=${encodeURIComponent(block.id)}&publicToken=${encodeURIComponent(publicToken || "")}`
           : `/api/files/block?blockId=${encodeURIComponent(block.id)}`,
         {
           cache: "no-store",
+          headers: isPublicClientPage
+            ? undefined
+            : buildClientPerfHeaders({
+                navigationId,
+                source: "FileBlock.loadFiles",
+              }),
         }
       );
       const result = (await response.json()) as PublicBlockFilesResponse;
@@ -638,8 +662,8 @@ export default function FileBlock({
     } catch (error) {
       console.error("Failed to load block files:", error);
       setFiles([]);
-    }
-    finally {
+    } finally {
+      loadFilesInFlightRef.current = false;
       setLoading(false);
     }
   }, [
@@ -652,6 +676,9 @@ export default function FileBlock({
 
   useEffect(() => {
     if (hasInitialPublicFiles) return;
+    const loadKey = `${isPublicClientPage ? "public" : "private"}:${publicToken ?? ""}:${block.id}`;
+    if (initialLoadKeyRef.current === loadKey) return;
+    initialLoadKeyRef.current = loadKey;
     const timeoutId = window.setTimeout(() => {
       void loadFiles();
     }, 0);
@@ -659,7 +686,7 @@ export default function FileBlock({
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [hasInitialPublicFiles, loadFiles]);
+  }, [block.id, hasInitialPublicFiles, isPublicClientPage, loadFiles, publicToken]);
 
   const handleDeleteFile = async (attachmentId: string) => {
     if (!canManageFiles) return;
@@ -770,21 +797,6 @@ export default function FileBlock({
     document.addEventListener("mouseup", handleMouseUp);
   };
 
-  if (loading) {
-    return <div className="text-sm text-[var(--muted-foreground)]">Loading files…</div>;
-  }
-
-  if (block.id.startsWith('temp-')) {
-    return (
-      <div className="rounded-[6px] border border-dashed border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-center text-sm text-[var(--muted-foreground)]">
-        Saving block... You can upload files once it&apos;s ready.
-      </div>
-    );
-  }
-
-  const mergedFileUrls = { ...fileUrls, ...resolvedFileUrls };
-  const pdfFiles = files.filter((blockFile) => isPdfFile(blockFile.file));
-  const otherFiles = files.filter((blockFile) => !isPdfFile(blockFile.file));
   const templateHeader = (templateTitle || templateDescription) ? (
     <div className="space-y-1">
       {templateTitle && (
@@ -799,6 +811,47 @@ export default function FileBlock({
       )}
     </div>
   ) : null;
+
+  if (loading && files.length === 0 && canUploadFiles) {
+    return (
+      <div className="space-y-3">
+        {templateHeader}
+        <FileUploadZone
+          workspaceId={workspaceId}
+          projectId={projectId}
+          blockId={block.id}
+          onUploadComplete={handleUploadComplete}
+          compact={true}
+          publicUpload={
+            isPublicClientPage && publicToken && setClientIdentityName
+              ? {
+                  publicToken,
+                  identity: clientIdentity ?? null,
+                  setIdentityName: setClientIdentityName,
+                }
+              : undefined
+          }
+        />
+      </div>
+    );
+  }
+
+  if (loading) {
+    return <div className="text-sm text-[var(--muted-foreground)]">Loading files…</div>;
+  }
+
+  if (block.id.startsWith('temp-')) {
+    return (
+      <div className="rounded-[6px] border border-dashed border-[var(--border)] bg-[var(--surface)] px-4 py-6 text-center text-sm text-[var(--muted-foreground)]">
+        Saving block... You can upload files once it&apos;s ready.
+      </div>
+    );
+  }
+
+  const mergedFileUrls = { ...fileUrls, ...resolvedFileUrls };
+  const currentUserId = isPublicClientPage ? null : currentUser?.id ?? null;
+  const pdfFiles = files.filter((blockFile) => isPdfFile(blockFile.file));
+  const otherFiles = files.filter((blockFile) => !isPdfFile(blockFile.file));
 
   // Show empty state if no files
   if (files.length === 0) {

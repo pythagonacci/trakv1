@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthenticatedUser, getTabMetadata, checkWorkspaceMembership } from "@/lib/auth-utils";
+import { formatPerfContext, getPerfRequestContext } from "@/lib/perf/perf-trace";
 
 export const dynamic = "force-dynamic";
 
@@ -8,6 +9,7 @@ const BLOCKS_PER_TAB_LIMIT = 500;
 
 export async function GET(request: NextRequest) {
   const t0 = process.env.PERF_DEBUG === "1" ? Date.now() : 0;
+  const perfContext = getPerfRequestContext(request);
   const url = new URL(request.url);
   const tabId = url.searchParams.get("tabId");
 
@@ -23,7 +25,7 @@ export async function GET(request: NextRequest) {
     const user = await getAuthenticatedUser();
     if (!user) {
       if (process.env.PERF_DEBUG === "1") {
-        console.log(`[PERF] route getTabBlocks tabId=${tabId} error=Unauthorized ms=${Math.round(Date.now() - t0)}`);
+        console.log(`[PERF] route getTabBlocks tabId=${tabId} error=Unauthorized ms=${Math.round(Date.now() - t0)}${formatPerfContext(perfContext)}`);
       }
       return NextResponse.json(
         { error: "Unauthorized" },
@@ -35,7 +37,7 @@ export async function GET(request: NextRequest) {
     const tab = await getTabMetadata(tabId);
     if (!tab) {
       if (process.env.PERF_DEBUG === "1") {
-        console.log(`[PERF] route getTabBlocks tabId=${tabId} error=TabNotFound ms=${Math.round(Date.now() - t0)}`);
+        console.log(`[PERF] route getTabBlocks tabId=${tabId} error=TabNotFound ms=${Math.round(Date.now() - t0)}${formatPerfContext(perfContext)}`);
       }
       return NextResponse.json(
         { error: "Tab not found" },
@@ -47,7 +49,7 @@ export async function GET(request: NextRequest) {
     const member = await checkWorkspaceMembership(workspaceId, user.id);
     if (!member) {
       if (process.env.PERF_DEBUG === "1") {
-        console.log(`[PERF] route getTabBlocks tabId=${tabId} error=NotMember ms=${Math.round(Date.now() - t0)}`);
+        console.log(`[PERF] route getTabBlocks tabId=${tabId} error=NotMember ms=${Math.round(Date.now() - t0)}${formatPerfContext(perfContext)}`);
       }
       return NextResponse.json(
         { error: "Not a member of this workspace" },
@@ -55,7 +57,7 @@ export async function GET(request: NextRequest) {
       );
     }
     if (process.env.PERF_DEBUG === "1") {
-      console.log(`[PERF] route getTabBlocks auth ms=${Math.round(Date.now() - tAuth0)}`);
+      console.log(`[PERF] route getTabBlocks auth ms=${Math.round(Date.now() - tAuth0)}${formatPerfContext(perfContext)}`);
     }
 
     const tQuery0 = Date.now();
@@ -71,7 +73,7 @@ export async function GET(request: NextRequest) {
     if (blocksError) {
       console.error("Get blocks error:", blocksError);
       if (process.env.PERF_DEBUG === "1") {
-        console.log(`[PERF] route getTabBlocks tabId=${tabId} error=Query ms=${Math.round(Date.now() - t0)}`);
+        console.log(`[PERF] route getTabBlocks tabId=${tabId} error=Query ms=${Math.round(Date.now() - t0)}${formatPerfContext(perfContext)}`);
       }
       return NextResponse.json(
         { error: "Failed to fetch blocks" },
@@ -82,14 +84,14 @@ export async function GET(request: NextRequest) {
     const blockCount = (blocks || []).length;
     const payloadBytes = Buffer.byteLength(JSON.stringify(blocks ?? []), "utf8");
     if (process.env.PERF_DEBUG === "1") {
-      console.log(`[PERF] route getTabBlocks query ms=${Math.round(Date.now() - tQuery0)} blocks=${blockCount} payloadBytes=${payloadBytes} totalMs=${Math.round(Date.now() - t0)}`);
+      console.log(`[PERF] route getTabBlocks query ms=${Math.round(Date.now() - tQuery0)} blocks=${blockCount} payloadBytes=${payloadBytes} totalMs=${Math.round(Date.now() - t0)}${formatPerfContext(perfContext)}`);
     }
 
     return NextResponse.json({ data: blocks || [] });
   } catch (error) {
     console.error("Get tab blocks exception:", error);
     if (process.env.PERF_DEBUG === "1") {
-      console.log(`[PERF] route getTabBlocks tabId=${tabId} error=Exception ms=${Math.round(Date.now() - t0)}`);
+      console.log(`[PERF] route getTabBlocks tabId=${tabId} error=Exception ms=${Math.round(Date.now() - t0)}${formatPerfContext(perfContext)}`);
     }
     return NextResponse.json(
       { error: "Failed to fetch blocks" },

@@ -26,6 +26,11 @@ import { searchTableRows, getFilteredRows, getTableRows } from "@/app/actions/ta
 import { getRelatedRows, configureRelationField } from "@/app/actions/tables/relation-actions";
 import { bulkUpdateRows, bulkDeleteRows, bulkDuplicateRows, bulkInsertRows } from "@/app/actions/tables/bulk-actions";
 import type { Table, TableField, TableRow, TableView, TableComment, FilterCondition } from "@/types/table";
+import {
+  buildClientPerfHeaders,
+  getCurrentPerfNavigationId,
+  logClientPerf,
+} from "@/lib/perf/perf-trace";
 
 // ---------------------------------------------------------------------------
 // Tables
@@ -50,8 +55,16 @@ export function useTableBootstrap(tableId: string) {
   return useQuery({
     queryKey: queryKeys.tableBootstrap(tableId),
     queryFn: async () => {
+      const navigationId = getCurrentPerfNavigationId();
+      logClientPerf(
+        `[PERF] client useTableBootstrap nav=${navigationId ?? "none"} tableId=${tableId}`
+      );
       const response = await fetch(`/api/tables/bootstrap?tableId=${encodeURIComponent(tableId)}`, {
         credentials: "include",
+        headers: buildClientPerfHeaders({
+          navigationId,
+          source: "useTableBootstrap",
+        }),
       });
       const payload = await response.json();
       if (!response.ok) {

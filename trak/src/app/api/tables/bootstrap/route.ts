@@ -4,8 +4,11 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import type { FilterCondition, SortCondition, TableField, TableRow, TableView, Table } from "@/types/table";
 import type { PostgrestFilterBuilder } from "@supabase/postgrest-js";
+import { formatPerfContext, getPerfRequestContext } from "@/lib/perf/perf-trace";
 
 export async function GET(request: Request) {
+  const t0 = process.env.PERF_DEBUG === "1" ? performance.now() : 0;
+  const perfContext = getPerfRequestContext(request);
   const url = new URL(request.url);
   const tableId = url.searchParams.get("tableId");
 
@@ -13,9 +16,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Missing tableId" }, { status: 400 });
   }
 
-  if (process.env.PERF_DEBUG === "1") console.log(`[PERF] route getTableBootstrap tableId=${tableId}`);
+  if (process.env.PERF_DEBUG === "1") console.log(`[PERF] route getTableBootstrap tableId=${tableId}${formatPerfContext(perfContext)}`);
 
   const supabaseClient = await createClient();
+  const tAuth0 = process.env.PERF_DEBUG === "1" ? performance.now() : 0;
   const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
   if (userError || !user) {
     if (process.env.PERF_DEBUG === "1") console.log(`[PERF] route getTableBootstrap unauthorized tableId=${tableId} userError=${userError?.message ?? "none"}`);
@@ -64,6 +68,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Table not found" }, { status: 403 });
   }
 
+  const tMeta0 = process.env.PERF_DEBUG === "1" ? performance.now() : 0;
   const [fieldsRes, viewRes] = await Promise.all([
     supabase.from("table_fields").select("*").eq("table_id", tableId).order("order", { ascending: true }),
     supabase.from("table_views").select("*").eq("table_id", tableId).eq("is_default", true).maybeSingle(),
@@ -93,6 +98,7 @@ export async function GET(request: Request) {
     filters
   );
   const sortedQuery = applyServerSorts(filteredQuery, sorts);
+  const tRows0 = process.env.PERF_DEBUG === "1" ? performance.now() : 0;
   const { data: rows, error: rowsError, count } = await (sortedQuery as PostgrestFilterBuilder<any, any, any, any>)
     .order("order", { ascending: true })
     .limit(PAGE_LIMIT);
@@ -106,6 +112,22 @@ export async function GET(request: Request) {
   const filtered =
     unsupportedFilters.length > 0 ? applyFilters(rows as TableRow[], unsupportedFilters) : (rows as TableRow[]);
   const sorted = unsupportedFilters.length > 0 ? applySorts(filtered, sorts) : filtered;
+
+  if (process.env.PERF_DEBUG === "1") {
+    const payload = {
+      table,
+      fields,
+      view,
+      rows: sorted,
+      totalRows,
+      hasMore: totalRows > PAGE_LIMIT,
+      nextOffset: totalRows > PAGE_LIMIT ? PAGE_LIMIT : null,
+    };
+    const payloadBytes = Buffer.byteLength(JSON.stringify(payload), "utf8");
+    console.log(
+      `[PERF] route getTableBootstrap tableId=${tableId} authMs=${Math.round(tMeta0 - tAuth0)} metaMs=${Math.round(tRows0 - tMeta0)} rowsMs=${Math.round(performance.now() - tRows0)} fields=${fields.length} rows=${sorted.length} totalRows=${totalRows} unsupportedFilters=${unsupportedFilters.length} payloadBytes=${payloadBytes} totalMs=${Math.round(performance.now() - t0)}${formatPerfContext(perfContext)}`
+    );
+  }
 
   return NextResponse.json({
     table,

@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkWorkspaceMembership, getAuthenticatedUser } from "@/lib/auth-utils";
+import { formatPerfContext, getPerfRequestContext } from "@/lib/perf/perf-trace";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   const t0 = process.env.PERF_DEBUG === "1" ? Date.now() : 0;
+  const perfContext = getPerfRequestContext(request);
   const url = new URL(request.url);
   const workspaceId = url.searchParams.get("workspaceId");
 
@@ -20,7 +22,7 @@ export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser();
   if (!user) {
     if (process.env.PERF_DEBUG === "1") {
-      console.log(`[PERF] route getWorkspaceMembers workspaceId=${workspaceId} error=Unauthorized ms=${Math.round(Date.now() - t0)}`);
+        console.log(`[PERF] route getWorkspaceMembers workspaceId=${workspaceId} error=Unauthorized ms=${Math.round(Date.now() - t0)}${formatPerfContext(perfContext)}`);
     }
     return NextResponse.json(
       { error: "Unauthorized" },
@@ -31,7 +33,7 @@ export async function GET(request: NextRequest) {
   const membership = await checkWorkspaceMembership(workspaceId, user.id);
   if (!membership) {
     if (process.env.PERF_DEBUG === "1") {
-      console.log(`[PERF] route getWorkspaceMembers workspaceId=${workspaceId} error=NotMember ms=${Math.round(Date.now() - t0)}`);
+        console.log(`[PERF] route getWorkspaceMembers workspaceId=${workspaceId} error=NotMember ms=${Math.round(Date.now() - t0)}${formatPerfContext(perfContext)}`);
     }
     return NextResponse.json(
       { error: "Not a member of this workspace" },
@@ -47,7 +49,7 @@ export async function GET(request: NextRequest) {
   if (error) {
     console.error("getWorkspaceMembers route error:", error);
     if (process.env.PERF_DEBUG === "1") {
-      console.log(`[PERF] route getWorkspaceMembers workspaceId=${workspaceId} error=Query ms=${Math.round(Date.now() - t0)}`);
+      console.log(`[PERF] route getWorkspaceMembers workspaceId=${workspaceId} error=Query ms=${Math.round(Date.now() - t0)}${formatPerfContext(perfContext)}`);
     }
     return NextResponse.json(
       { error: "Failed to fetch workspace members" },
@@ -57,7 +59,7 @@ export async function GET(request: NextRequest) {
 
   if (!members || members.length === 0) {
     if (process.env.PERF_DEBUG === "1") {
-      console.log(`[PERF] route getWorkspaceMembers workspaceId=${workspaceId} ms=${Math.round(Date.now() - t0)} count=0`);
+      console.log(`[PERF] route getWorkspaceMembers workspaceId=${workspaceId} ms=${Math.round(Date.now() - t0)} count=0${formatPerfContext(perfContext)}`);
     }
     return NextResponse.json({ data: [] });
   }
@@ -108,7 +110,7 @@ export async function GET(request: NextRequest) {
   }
 
   if (process.env.PERF_DEBUG === "1") {
-    console.log(`[PERF] route getWorkspaceMembers workspaceId=${workspaceId} ms=${Math.round(Date.now() - t0)} count=${transformed.length}`);
+    console.log(`[PERF] route getWorkspaceMembers workspaceId=${workspaceId} ms=${Math.round(Date.now() - t0)} count=${transformed.length}${formatPerfContext(perfContext)}`);
   }
 
   return NextResponse.json({ data: transformed });

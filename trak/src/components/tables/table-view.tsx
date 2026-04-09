@@ -78,6 +78,11 @@ import {
   normalizeCanonicalStatusValue,
 } from "@/lib/tables/universal-property";
 import { uploadFile } from "@/app/actions/file";
+import {
+  buildClientPerfHeaders,
+  getCurrentPerfNavigationId,
+  logClientPerf,
+} from "@/lib/perf/perf-trace";
 
 function TableViewLoadingState() {
   return (
@@ -298,10 +303,19 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
     queryKey: ['workspaceMembers', tableData?.table.workspace_id],
     queryFn: async () => {
       if (!tableData?.table.workspace_id) return [];
-      if (process.env.NEXT_PUBLIC_PERF_DEBUG === "1") console.log(`[PERF] client table getWorkspaceMembers workspaceId=${tableData.table.workspace_id}`);
+      const navigationId = getCurrentPerfNavigationId();
+      logClientPerf(
+        `[PERF] client table getWorkspaceMembers nav=${navigationId ?? "none"} workspaceId=${tableData.table.workspace_id}`
+      );
       const response = await fetch(
         `/api/workspaces/members?workspaceId=${encodeURIComponent(tableData.table.workspace_id)}`,
-        { cache: "no-store" }
+        {
+          cache: "no-store",
+          headers: buildClientPerfHeaders({
+            navigationId,
+            source: "TableView.workspaceMembers",
+          }),
+        }
       );
       const json = await response.json();
       if (!response.ok || json?.error) return [];
@@ -1996,7 +2010,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
                     calculations={view?.config?.field_calculations || {}}
                     rows={sortedRows}
                     onUpdateCalculation={handleUpdateCalculation}
-                    className="sticky top-0 z-[5]"
+                    className="sticky top-0 z-[40]"
                   />
                   {groupedData.grouped ? (
                     groupedData.groups.map((group) => (

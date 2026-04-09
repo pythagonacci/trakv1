@@ -58,7 +58,7 @@ export function SourceOriginLink({ origin, workspaceId, fallbackProjectId }: Sou
 
   const baseLinkClass = "underline hover:text-[var(--foreground)]";
   const linkNode = origin.sourceHref ? (
-    <Link href={origin.sourceHref} className={baseLinkClass}>
+    <Link href={origin.sourceHref} prefetch={false} className={baseLinkClass}>
       {origin.sourceName}
     </Link>
   ) : (

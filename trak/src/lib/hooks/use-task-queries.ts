@@ -19,12 +19,28 @@ import {
 import type { TaskItemView, TaskBlockBundle } from "@/app/actions/tasks/query-actions";
 import { queryKeys } from "@/lib/react-query/query-client";
 import type { TaskItem, TaskSubtask } from "@/types/task";
+import {
+  buildClientPerfHeaders,
+  getCurrentPerfNavigationId,
+  logClientInvalidation,
+  logClientPerf,
+} from "@/lib/perf/perf-trace";
 
 const taskKeys = {
   items: (blockId: string) => ["taskItems", blockId] as const,
   references: (taskId: string) => ["taskReferences", taskId] as const,
   subtaskReferences: (subtaskId: string) => ["subtaskReferences", subtaskId] as const,
 };
+
+function invalidateWithPerf(
+  qc: ReturnType<typeof useQueryClient>,
+  scope: string,
+  filters: Parameters<ReturnType<typeof useQueryClient>["invalidateQueries"]>[0]
+) {
+  const safeFilters = filters ?? {};
+  logClientInvalidation(scope, Array.isArray(safeFilters.queryKey) ? safeFilters.queryKey : ["unknown"]);
+  return qc.invalidateQueries(safeFilters);
+}
 
 let optimisticSequence = 0;
 
@@ -121,9 +137,19 @@ export function useTaskItems(
       const url = publicToken
         ? `${basePath}/${blockId}/items?publicToken=${encodeURIComponent(publicToken)}`
         : `${basePath}/${blockId}/items`;
+      const navigationId = getCurrentPerfNavigationId();
+      logClientPerf(
+        `[PERF] client useTaskItems nav=${navigationId ?? "none"} blockId=${blockId} public=${Boolean(publicToken)}`
+      );
 
       const response = await fetch(url, {
         cache: "no-store",
+        headers: publicToken
+          ? undefined
+          : buildClientPerfHeaders({
+              navigationId,
+              source: "useTaskItems",
+            }),
       });
       const result = await response.json();
       if (!response.ok || ("error" in result && result.error)) {
@@ -245,7 +271,8 @@ export function useCreateTaskItem(blockId: string) {
       });
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.chartLiveData() });
+      invalidateWithPerf(qc, "useCreateTaskItem.taskItems", { queryKey: ["taskItems"] });
+      invalidateWithPerf(qc, "useCreateTaskItem.chartLiveData", { queryKey: queryKeys.chartLiveData() });
     },
   });
 }
@@ -311,11 +338,11 @@ export function useUpdateTaskItem(blockId: string) {
     },
     onSettled: () => {
       // Source-linked table rows: when task is updated, derived rows are synced server-side; refetch tables so UI updates
-      qc.invalidateQueries({ queryKey: ["taskItems"] });
-      qc.invalidateQueries({ queryKey: ["timelineItems"] });
-      qc.invalidateQueries({ queryKey: queryKeys.chartLiveData() });
-      qc.invalidateQueries({ queryKey: ["tableRows"] });
-      qc.invalidateQueries({ queryKey: ["tableBootstrap"] });
+      invalidateWithPerf(qc, "useUpdateTaskItem.taskItems", { queryKey: ["taskItems"] });
+      invalidateWithPerf(qc, "useUpdateTaskItem.timelineItems", { queryKey: ["timelineItems"] });
+      invalidateWithPerf(qc, "useUpdateTaskItem.chartLiveData", { queryKey: queryKeys.chartLiveData() });
+      invalidateWithPerf(qc, "useUpdateTaskItem.tableRows", { queryKey: ["tableRows"] });
+      invalidateWithPerf(qc, "useUpdateTaskItem.tableBootstrap", { queryKey: ["tableBootstrap"] });
     },
   });
 }
@@ -342,8 +369,8 @@ export function useDeleteTaskItem(blockId: string) {
       }
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: taskKeys.items(blockId) });
-      qc.invalidateQueries({ queryKey: queryKeys.chartLiveData() });
+      invalidateWithPerf(qc, "useDeleteTaskItem.taskItems", { queryKey: ["taskItems"] });
+      invalidateWithPerf(qc, "useDeleteTaskItem.chartLiveData", { queryKey: queryKeys.chartLiveData() });
     },
   });
 }
@@ -352,7 +379,7 @@ export function useReorderTaskItems(blockId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (orderedIds: string[]) => reorderTaskItems(blockId, orderedIds),
-    onSuccess: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
+    onSuccess: () => invalidateWithPerf(qc, "useReorderTaskItems.taskItems", { queryKey: taskKeys.items(blockId) }),
   });
 }
 
@@ -361,7 +388,7 @@ export function useSetTaskSyncModeForBlock(blockId: string) {
   return useMutation({
     mutationFn: (mode: "snapshot" | "live") =>
       setTaskSyncModeForBlock({ taskBlockId: blockId, mode }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
+    onSuccess: () => invalidateWithPerf(qc, "useSetTaskSyncModeForBlock.taskItems", { queryKey: taskKeys.items(blockId) }),
   });
 }
 
@@ -505,7 +532,7 @@ export function useTaskSubtasks(blockId: string) {
       onError: (_err, _input, ctx) => {
         if (ctx?.previous) qc.setQueryData(taskKeys.items(blockId), ctx.previous);
       },
-      onSettled: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
+      onSettled: () => invalidateWithPerf(qc, "useTaskSubtasks.remove", { queryKey: taskKeys.items(blockId) }),
     }),
     reorder: useMutation({
       mutationFn: (input: { taskId: string; orderedSubtaskIds: string[] }) =>
@@ -563,7 +590,7 @@ export function useTaskComments(blockId: string) {
       onError: (_err, _input, ctx) => {
         if (ctx?.previous) qc.setQueryData(taskKeys.items(blockId), ctx.previous);
       },
-      onSettled: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
+      onSettled: () => invalidateWithPerf(qc, "useTaskComments.create", { queryKey: taskKeys.items(blockId) }),
     }),
     update: useMutation({
       mutationFn: (input: { commentId: string; updates: Parameters<typeof updateTaskComment>[1] }) =>
@@ -605,7 +632,7 @@ export function useTaskComments(blockId: string) {
       onError: (_err, _input, ctx) => {
         if (ctx?.previous) qc.setQueryData(taskKeys.items(blockId), ctx.previous);
       },
-      onSettled: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
+      onSettled: () => invalidateWithPerf(qc, "useTaskComments.remove", { queryKey: taskKeys.items(blockId) }),
     }),
   };
 }
@@ -628,7 +655,7 @@ export function useTaskTags(blockId: string) {
     onError: (_err, _input, ctx) => {
       if (ctx?.previous) qc.setQueryData(taskKeys.items(blockId), ctx.previous);
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
+    onSettled: () => invalidateWithPerf(qc, "useTaskTags.taskItems", { queryKey: ["taskItems"] }),
   });
 }
 
@@ -651,7 +678,7 @@ export function useTaskAssignees(blockId: string) {
     onError: (_err, _input, ctx) => {
       if (ctx?.previous) qc.setQueryData(taskKeys.items(blockId), ctx.previous);
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: taskKeys.items(blockId) }),
+    onSettled: () => invalidateWithPerf(qc, "useTaskAssignees.taskItems", { queryKey: ["taskItems"] }),
   });
 }
 
@@ -713,7 +740,7 @@ export function useCreateSubtaskReference(subtaskId?: string) {
       }
     },
     onSuccess: () => {
-      if (subtaskId) qc.invalidateQueries({ queryKey: taskKeys.subtaskReferences(subtaskId) });
+      if (subtaskId) invalidateWithPerf(qc, "useCreateSubtaskReference.references", { queryKey: taskKeys.subtaskReferences(subtaskId) });
     },
   });
 }
@@ -738,7 +765,7 @@ export function useDeleteSubtaskReference(subtaskId?: string) {
       }
     },
     onSuccess: () => {
-      if (subtaskId) qc.invalidateQueries({ queryKey: taskKeys.subtaskReferences(subtaskId) });
+      if (subtaskId) invalidateWithPerf(qc, "useDeleteSubtaskReference.references", { queryKey: taskKeys.subtaskReferences(subtaskId) });
     },
   });
 }
@@ -775,7 +802,7 @@ export function useCreateTaskReference(taskId?: string) {
       }
     },
     onSuccess: () => {
-      if (taskId) qc.invalidateQueries({ queryKey: taskKeys.references(taskId) });
+      if (taskId) invalidateWithPerf(qc, "useCreateTaskReference.references", { queryKey: taskKeys.references(taskId) });
     },
   });
 }
@@ -800,7 +827,7 @@ export function useDeleteTaskReference(taskId?: string) {
       }
     },
     onSuccess: () => {
-      if (taskId) qc.invalidateQueries({ queryKey: taskKeys.references(taskId) });
+      if (taskId) invalidateWithPerf(qc, "useDeleteTaskReference.references", { queryKey: taskKeys.references(taskId) });
     },
   });
 }

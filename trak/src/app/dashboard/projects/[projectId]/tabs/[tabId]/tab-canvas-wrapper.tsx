@@ -8,12 +8,17 @@ import type { EntityProperties } from "@/types/properties";
 import { TAB_THEMES } from "./tab-themes";
 import { useTabBlocks, useBatchFileUrls } from "@/lib/hooks/use-tab-data";
 import { useEntitiesProperties } from "@/lib/hooks/use-property-queries";
+import {
+  logClientPerf,
+  setCurrentPerfNavigationId,
+} from "@/lib/perf/perf-trace";
 
 interface TabCanvasWrapperProps {
   tabId: string;
   projectId: string;
   projectName?: string;
   workspaceId: string;
+  perfNavigationId?: string;
   blocks: Block[];
   initialBlockPropertiesById?: Record<string, EntityProperties>;
   scrollToTaskId?: string | null;
@@ -28,6 +33,7 @@ export default function TabCanvasWrapper({
   projectId,
   projectName,
   workspaceId,
+  perfNavigationId,
   blocks: initialBlocks,
   initialBlockPropertiesById = {},
   scrollToTaskId,
@@ -38,25 +44,19 @@ export default function TabCanvasWrapper({
   const [tabTheme, setTabTheme] = useState<string>("default");
 
   // 🚀 NEW: Use React Query for cached blocks
-  const { data: blocks, isLoading, isFetching, dataUpdatedAt, isPlaceholderData, isStale } = useTabBlocks(tabId, initialBlocks);
+  const { data: blocks, isLoading, isFetching, dataUpdatedAt, isPlaceholderData, isStale } = useTabBlocks(
+    tabId,
+    initialBlocks,
+    { navigationId: perfNavigationId }
+  );
   
   // Better cache detection: data exists, not fetching, and dataUpdatedAt is older than mount time
   const mountTimeRef = useRef(Date.now());
   const isFromCache = blocks && !isFetching && !isLoading && dataUpdatedAt && dataUpdatedAt < mountTimeRef.current;
   
-  console.log('useTabBlocks result:', { 
-    tabId,
-    blocksCount: blocks?.length || 0,
-    initialBlocksCount: initialBlocks?.length || 0,
-    isLoading,
-    isFetching,
-    isPlaceholderData,
-    isStale,
-    dataUpdatedAt: dataUpdatedAt ? new Date(dataUpdatedAt).toISOString() : null,
-    mountTime: new Date(mountTimeRef.current).toISOString(),
-    isFromCache,
-    hasData: !!blocks
-  });
+  logClientPerf(
+    `[PERF] client useTabBlocks result nav=${perfNavigationId ?? "none"} tabId=${tabId} blocks=${blocks?.length || 0} initialBlocks=${initialBlocks?.length || 0} isLoading=${isLoading} isFetching=${isFetching} isPlaceholderData=${isPlaceholderData} isStale=${isStale} isFromCache=${Boolean(isFromCache)} hasData=${Boolean(blocks)} dataUpdatedAt=${dataUpdatedAt ? new Date(dataUpdatedAt).toISOString() : "null"} mountTime=${new Date(mountTimeRef.current).toISOString()}`
+  );
 
   // 🚀 NEW: Use React Query for cached file URLs
   const fileIds = blocks?.flatMap((block: Block) => {
@@ -85,25 +85,19 @@ export default function TabCanvasWrapper({
     return ids;
   }) || [];
 
-  const { data: fileUrls, isLoading: fileUrlsLoading, isFetching: fileUrlsFetching, dataUpdatedAt: fileUrlsUpdatedAt } = useBatchFileUrls(fileIds, initialFileUrls);
+  const { data: fileUrls, isLoading: fileUrlsLoading, isFetching: fileUrlsFetching, dataUpdatedAt: fileUrlsUpdatedAt } = useBatchFileUrls(
+    fileIds,
+    initialFileUrls,
+    { navigationId: perfNavigationId }
+  );
   
   // Better cache detection for file URLs
   const fileUrlsMountTimeRef = useRef(Date.now());
   const fileUrlsIsFromCache = fileUrls && !fileUrlsFetching && !fileUrlsLoading && fileUrlsUpdatedAt && fileUrlsUpdatedAt < fileUrlsMountTimeRef.current;
   
-  console.log('useBatchFileUrls result:', {
-    fileIds: fileIds.length,
-    fileUrlsCount: Object.keys(fileUrls || {}).length,
-    initialFileUrlsCount: Object.keys(initialFileUrls).length,
-    isLoading: fileUrlsLoading,
-    isFetching: fileUrlsFetching,
-    dataUpdatedAt: fileUrlsUpdatedAt ? new Date(fileUrlsUpdatedAt).toISOString() : null,
-    mountTime: new Date(fileUrlsMountTimeRef.current).toISOString(),
-    isFromCache: fileUrlsIsFromCache,
-    hasData: !!fileUrls,
-    queryEnabled: fileIds.length > 0, // Shows if query is enabled
-    note: fileIds.length === 0 ? 'Query disabled (no file IDs)' : 'Query active'
-  });
+  logClientPerf(
+    `[PERF] client useBatchFileUrls result nav=${perfNavigationId ?? "none"} fileIds=${fileIds.length} fileUrls=${Object.keys(fileUrls || {}).length} initialFileUrls=${Object.keys(initialFileUrls).length} isLoading=${fileUrlsLoading} isFetching=${fileUrlsFetching} isFromCache=${Boolean(fileUrlsIsFromCache)} hasData=${Boolean(fileUrls)} queryEnabled=${fileIds.length > 0} dataUpdatedAt=${fileUrlsUpdatedAt ? new Date(fileUrlsUpdatedAt).toISOString() : "null"} mountTime=${new Date(fileUrlsMountTimeRef.current).toISOString()}`
+  );
 
   const blockIds = useMemo(
     () => (blocks || []).map((block: Block) => block.id),
@@ -112,10 +106,22 @@ export default function TabCanvasWrapper({
   const {
     data: queriedBlockPropertiesById = {},
     isSuccess: hasLoadedBlockProperties,
-  } = useEntitiesProperties("block", blockIds, workspaceId);
+  } = useEntitiesProperties("block", blockIds, workspaceId, {
+    navigationId: perfNavigationId,
+    source: "TabCanvasWrapper.blockProperties",
+    initialData: initialBlockPropertiesById,
+    hydrateInitialData: true,
+  });
   const blockPropertiesById = hasLoadedBlockProperties
     ? queriedBlockPropertiesById
     : initialBlockPropertiesById;
+
+  useEffect(() => {
+    setCurrentPerfNavigationId(perfNavigationId ?? null);
+    return () => {
+      setCurrentPerfNavigationId(null);
+    };
+  }, [perfNavigationId]);
 
   // Load theme from localStorage
   useEffect(() => {

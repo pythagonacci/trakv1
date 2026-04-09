@@ -8,11 +8,22 @@ import { createTimelineDependency, deleteTimelineDependency, getTimelineDependen
 import { getResolvedTimelineItems } from "@/app/actions/timelines/query-actions";
 import { autoScheduleTimeline } from "@/app/actions/timelines/auto-schedule-actions";
 import type { TimelineDependency, TimelineEvent, TimelineEventPriority, TimelineEventStatus, TimelineItem } from "@/types/timeline";
+import { logClientInvalidation } from "@/lib/perf/perf-trace";
 
 const timelineKeys = {
   items: (blockId: string) => ["timelineItems", blockId] as const,
   dependencies: (blockId: string) => ["timelineDependencies", blockId] as const,
 };
+
+function invalidateWithPerf(
+  qc: ReturnType<typeof useQueryClient>,
+  scope: string,
+  filters: Parameters<ReturnType<typeof useQueryClient>["invalidateQueries"]>[0]
+) {
+  const safeFilters = filters ?? {};
+  logClientInvalidation(scope, Array.isArray(safeFilters.queryKey) ? safeFilters.queryKey : ["unknown"]);
+  return qc.invalidateQueries(safeFilters);
+}
 
 let optimisticSequence = 0;
 
@@ -288,7 +299,7 @@ export function useCreateTimelineEvent(blockId: string) {
 
       // Invalidate entity properties for the newly created event
       if ("data" in result && result.data?.id) {
-        qc.invalidateQueries({
+        invalidateWithPerf(qc, "useCreateTimelineEvent.entityProperties", {
           queryKey: queryKeys.entityProperties("timeline_event", result.data.id),
         });
       }
@@ -334,12 +345,12 @@ export function useUpdateTimelineEvent(blockId: string) {
       }
 
       // Invalidate entity properties to refresh the Properties section
-      qc.invalidateQueries({
+      invalidateWithPerf(qc, "useUpdateTimelineEvent.entityProperties", {
         queryKey: queryKeys.entityProperties("timeline_event", variables.eventId),
       });
       // Source-linked table rows: when timeline event is updated, derived rows are synced server-side; refetch tables
-      qc.invalidateQueries({ queryKey: ["tableRows"] });
-      qc.invalidateQueries({ queryKey: ["tableBootstrap"] });
+      invalidateWithPerf(qc, "useUpdateTimelineEvent.tableRows", { queryKey: ["tableRows"] });
+      invalidateWithPerf(qc, "useUpdateTimelineEvent.tableBootstrap", { queryKey: ["tableBootstrap"] });
     },
   });
 }
@@ -367,7 +378,7 @@ export function useDeleteTimelineEvent(blockId: string) {
       }
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: timelineKeys.items(blockId) });
+      invalidateWithPerf(qc, "useDeleteTimelineEvent.items", { queryKey: timelineKeys.items(blockId) });
     }
   });
 }
@@ -415,7 +426,7 @@ export function useDuplicateTimelineEvent(blockId: string) {
       }
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: timelineKeys.items(blockId) });
+      invalidateWithPerf(qc, "useDuplicateTimelineEvent.items", { queryKey: timelineKeys.items(blockId) });
     }
   });
 }
@@ -456,7 +467,7 @@ export function useSetTimelineEventBaseline(blockId: string) {
       }
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: timelineKeys.items(blockId) });
+      invalidateWithPerf(qc, "useSetTimelineEventBaseline.items", { queryKey: timelineKeys.items(blockId) });
     }
   });
 }
@@ -492,11 +503,11 @@ export function useCreateTimelineReference(blockId: string) {
       }
     },
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: timelineKeys.items(blockId) });
+      invalidateWithPerf(qc, "useCreateTimelineReference.items", { queryKey: timelineKeys.items(blockId) });
       if (variables?.eventId) {
-        qc.invalidateQueries({ queryKey: ["timelineReferences", variables.eventId] });
+        invalidateWithPerf(qc, "useCreateTimelineReference.referencesByEvent", { queryKey: ["timelineReferences", variables.eventId] });
       } else {
-        qc.invalidateQueries({ queryKey: ["timelineReferences"] });
+        invalidateWithPerf(qc, "useCreateTimelineReference.references", { queryKey: ["timelineReferences"] });
       }
     },
   });
@@ -508,7 +519,7 @@ export function useUpdateTimelineReference(blockId: string) {
     mutationFn: (input: { referenceId: string; updates: Parameters<typeof updateTimelineReference>[1] }) =>
       updateTimelineReference(input.referenceId, input.updates),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: timelineKeys.items(blockId) });
+      invalidateWithPerf(qc, "useUpdateTimelineReference.items", { queryKey: timelineKeys.items(blockId) });
     },
   });
 }
@@ -536,8 +547,8 @@ export function useDeleteTimelineReference(blockId: string) {
       }
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: timelineKeys.items(blockId) });
-      qc.invalidateQueries({ queryKey: ["timelineReferences"] });
+      invalidateWithPerf(qc, "useDeleteTimelineReference.items", { queryKey: timelineKeys.items(blockId) });
+      invalidateWithPerf(qc, "useDeleteTimelineReference.references", { queryKey: ["timelineReferences"] });
     },
   });
 }
@@ -547,7 +558,7 @@ export function useBulkImportTimelineRows(blockId: string) {
   return useMutation({
     mutationFn: bulkImportTableRows,
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: timelineKeys.items(blockId) });
+      invalidateWithPerf(qc, "useBulkImportTimelineRows.items", { queryKey: timelineKeys.items(blockId) });
     },
   });
 }
@@ -581,7 +592,7 @@ export function useCreateTimelineDependency(blockId: string) {
       }
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: timelineKeys.dependencies(blockId) });
+      invalidateWithPerf(qc, "useCreateTimelineDependency.dependencies", { queryKey: timelineKeys.dependencies(blockId) });
     },
   });
 }
@@ -604,7 +615,7 @@ export function useDeleteTimelineDependency(blockId: string) {
       }
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: timelineKeys.dependencies(blockId) });
+      invalidateWithPerf(qc, "useDeleteTimelineDependency.dependencies", { queryKey: timelineKeys.dependencies(blockId) });
     },
   });
 }
@@ -614,7 +625,7 @@ export function useAutoScheduleTimeline(blockId: string) {
   return useMutation({
     mutationFn: () => autoScheduleTimeline(blockId),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: timelineKeys.items(blockId) });
+      invalidateWithPerf(qc, "useAutoScheduleTimeline.items", { queryKey: timelineKeys.items(blockId) });
     },
   });
 }

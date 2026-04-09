@@ -66,6 +66,7 @@ export function SharedTableBadge({ tableId, currentBlockId }: SharedTableBadgePr
                   {href ? (
                     <Link
                       href={href}
+                      prefetch={false}
                       className="flex items-center gap-1 text-[10px] text-[var(--primary)] hover:underline"
                     >
                       {label}

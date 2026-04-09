@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { logger } from "@/lib/logger";
+import { formatPerfContext, getPerfRequestContext } from "@/lib/perf/perf-trace";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   const t0 = process.env.PERF_DEBUG === "1" ? Date.now() : 0;
+  const perfContext = getPerfRequestContext(request);
   const url = new URL(request.url);
   const ids = url.searchParams.getAll("ids");
   const idsParam = url.searchParams.get("ids");
@@ -20,6 +22,7 @@ export async function GET(request: NextRequest) {
   }
 
   const uniqueFileIds = Array.from(new Set(fileIds));
+  const tAuth0 = process.env.PERF_DEBUG === "1" ? Date.now() : 0;
   const supabase = await createClient();
 
   const {
@@ -58,6 +61,7 @@ export async function GET(request: NextRequest) {
       { status: 403 }
     );
   }
+  const tQuery0 = process.env.PERF_DEBUG === "1" ? Date.now() : 0;
 
   const urlPromises = files.map(async (file) => {
     try {
@@ -80,6 +84,7 @@ export async function GET(request: NextRequest) {
     }
   });
 
+  const tSign0 = process.env.PERF_DEBUG === "1" ? Date.now() : 0;
   const urlResults = await Promise.all(urlPromises);
 
   const urlMap: Record<string, string> = {};
@@ -90,8 +95,12 @@ export async function GET(request: NextRequest) {
   });
 
   if (process.env.PERF_DEBUG === "1") {
+    const payloadBytes = Buffer.byteLength(JSON.stringify(urlMap), "utf8");
+    const authMs = Math.round(tQuery0 - tAuth0);
+    const queryMs = Math.round(tSign0 - tQuery0);
+    const signMs = Math.round(Date.now() - tSign0);
     console.log(
-      `[PERF] route getBatchFileUrls ids=${uniqueFileIds.length} ms=${Math.round(Date.now() - t0)}`
+      `[PERF] route getBatchFileUrls ids=${uniqueFileIds.length} authMs=${authMs} queryMs=${queryMs} signMs=${signMs} payloadBytes=${payloadBytes} returnedIds=${Object.keys(urlMap).length} totalMs=${Math.round(Date.now() - t0)}${formatPerfContext(perfContext)}`
     );
   }
 

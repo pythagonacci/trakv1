@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { formatPerfContext, getPerfRequestContext } from "@/lib/perf/perf-trace";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  const t0 = process.env.PERF_DEBUG === "1" ? Date.now() : 0;
+  const perfContext = getPerfRequestContext(request);
   const url = new URL(request.url);
   const blockId = url.searchParams.get("blockId");
 
@@ -12,6 +15,7 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = await createClient();
+  const tQuery0 = process.env.PERF_DEBUG === "1" ? Date.now() : 0;
   const {
     data: { user },
     error: authError,
@@ -41,6 +45,13 @@ export async function GET(request: NextRequest) {
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  if (process.env.PERF_DEBUG === "1") {
+    const payloadBytes = Buffer.byteLength(JSON.stringify(files ?? []), "utf8");
+    console.log(
+      `[PERF] route getBlockFiles blockId=${blockId} attachments=${files?.length ?? 0} queryMs=${Math.round(Date.now() - tQuery0)} payloadBytes=${payloadBytes} totalMs=${Math.round(Date.now() - t0)}${formatPerfContext(perfContext)}`
+    );
   }
 
   return NextResponse.json({ data: files || [] });
