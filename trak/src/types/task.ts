@@ -5,6 +5,11 @@ export interface TaskRollupConfig {
   id?: string;
   [key: string]: unknown;
 }
+export interface ProjectTaskRollupConfig {
+  enabled: true;
+  mode: "all_project_tasks";
+  syncMode: "live";
+}
 
 export type TaskTableHiddenColumn = "status" | "priority" | "assignee" | "dueDate" | "tags";
 export type TaskStatus = "todo" | "in-progress" | "done";
@@ -145,4 +150,5 @@ export interface TaskBlockContent {
   rollups?: TaskRollupConfig[];
   showRollup?: boolean;
   tableHiddenColumns?: TaskTableHiddenColumn[];
+  projectRollup?: ProjectTaskRollupConfig;
 }

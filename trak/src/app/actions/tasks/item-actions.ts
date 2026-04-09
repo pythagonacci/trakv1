@@ -7,6 +7,7 @@ import { mapTagNamesToOptionIds, type TagFieldOption } from "@/lib/tables/tag-fi
 import { syncTimelineStatusFieldsToEntityProperties } from "@/lib/timeline-status-sync";
 import { syncTimelinePriorityFieldsToEntityProperties } from "@/lib/timeline-priority-sync";
 import { deriveTaskSeedFromTableRowSource } from "@/lib/tasks/table-row-task-derivation";
+import { isProjectTaskRollupBlockContent } from "@/lib/tasks/project-rollup";
 import type {
   TimelineEventPriority,
   TimelineEventStatus,
@@ -64,6 +65,30 @@ function normalizeTaskRow(row: any): TaskItem {
     ...(row as TaskItem),
     priorities,
   };
+}
+
+async function listProjectTaskRollupBlocks(
+  supabase: any,
+  projectId: string | null | undefined
+): Promise<Array<{ id: string }>> {
+  if (!projectId) return [];
+  const { data: tabs, error: tabsError } = await supabase
+    .from("tabs")
+    .select("id")
+    .eq("project_id", projectId);
+  if (tabsError || !tabs || tabs.length === 0) return [];
+
+  const tabIds = tabs.map((tab: any) => String(tab.id));
+  const { data: blocks, error: blocksError } = await supabase
+    .from("blocks")
+    .select("id, content")
+    .eq("type", "task")
+    .in("tab_id", tabIds);
+  if (blocksError || !blocks) return [];
+
+  return blocks
+    .filter((block: any) => isProjectTaskRollupBlockContent(block.content))
+    .map((block: any) => ({ id: String(block.id) }));
 }
 
 function normalizeFieldName(name: string): string {
@@ -702,6 +727,29 @@ export async function createTaskItem(
     }
   }
 
+  try {
+    const rollupBlocks = await listProjectTaskRollupBlocks(supabase, block.project_id);
+    const isCurrentRollupBlock = rollupBlocks.some((entry) => entry.id === block.id);
+    const isLiveTaskDerivedCopy = sourceEntityType === "task" && Boolean(sourceEntityId) && sourceSyncMode === "live";
+
+    if (!isCurrentRollupBlock && !isLiveTaskDerivedCopy && rollupBlocks.length > 0) {
+      for (const rollupBlock of rollupBlocks) {
+        if (rollupBlock.id === block.id) continue;
+        await duplicateTasksToBlock({
+          taskIds: [data.id],
+          targetBlockId: rollupBlock.id,
+          forceSourceTaskLink: true,
+          authContext: { supabase, userId },
+        });
+      }
+    }
+  } catch (rollupError) {
+    console.error("Failed to mirror task into project rollup blocks", {
+      taskId: data.id,
+      error: rollupError,
+    });
+  }
+
   return { data: normalizeTaskRow(data) };
 }
 
@@ -1145,6 +1193,7 @@ export async function duplicateTasksToBlock(input: {
   targetBlockId: string;
   includeAssignees?: boolean;
   includeTags?: boolean;
+  forceSourceTaskLink?: boolean;
   authContext?: AuthContext;
 }): Promise<ActionResult<{ createdCount: number; createdTaskIds: string[]; skipped: string[] }>> {
   const access = await requireTaskBlockAccess(input.targetBlockId, { authContext: input.authContext });
@@ -1300,15 +1349,15 @@ export async function duplicateTasksToBlock(input: {
       .insert({
         ...baseInsert,
         source_task_id:
-          task.source_entity_type === "table_row" && task.source_entity_id
+          !input.forceSourceTaskLink && task.source_entity_type === "table_row" && task.source_entity_id
             ? null
             : task.id,
         source_entity_type:
-          task.source_entity_type === "table_row" && task.source_entity_id
+          !input.forceSourceTaskLink && task.source_entity_type === "table_row" && task.source_entity_id
             ? "table_row"
             : "task",
         source_entity_id:
-          task.source_entity_type === "table_row" && task.source_entity_id
+          !input.forceSourceTaskLink && task.source_entity_type === "table_row" && task.source_entity_id
             ? task.source_entity_id
             : task.id,
         source_sync_mode: "live",
@@ -1475,7 +1524,36 @@ export async function setTaskSyncModeForBlock(input: {
 export async function deleteTaskItem(taskId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<null>> {
   const access = await requireTaskItemAccess(taskId, { authContext: opts?.authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
-  const { supabase } = access;
+  const { supabase, task } = access;
+
+  const isLiveTaskDerivedCopy =
+    task.source_entity_type === "task" &&
+    Boolean(task.source_entity_id) &&
+    task.source_sync_mode === "live";
+
+  if (!isLiveTaskDerivedCopy) {
+    const { data: derivedTasks } = await supabase
+      .from("task_items")
+      .select("id")
+      .eq("source_entity_type", "task")
+      .eq("source_entity_id", taskId)
+      .eq("source_sync_mode", "live");
+
+    const derivedTaskIds = (derivedTasks ?? []).map((row: any) => String(row.id)).filter(Boolean);
+    if (derivedTaskIds.length > 0) {
+      await supabase
+        .from("entity_properties")
+        .delete()
+        .eq("entity_type", "task")
+        .in("entity_id", derivedTaskIds);
+
+      const { error: derivedDeleteError } = await supabase
+        .from("task_items")
+        .delete()
+        .in("id", derivedTaskIds);
+      if (derivedDeleteError) return { error: "Failed to delete derived task copies" };
+    }
+  }
 
   // Delete entity_properties for this task
   await supabase

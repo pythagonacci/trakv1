@@ -155,6 +155,26 @@ export async function setTaskAssignees(
     logDbCall("task_items", "update", tTiMs);
   }
 
+  try {
+    const { fanOutSourceTaskUpdate } = await import("@/app/actions/tasks/item-actions");
+    const fanoutSourceTaskId =
+      task.source_entity_type === "task" &&
+      task.source_entity_id &&
+      task.source_sync_mode === "live"
+        ? task.source_entity_id
+        : taskId;
+    await fanOutSourceTaskUpdate({
+      supabase,
+      sourceTaskId: fanoutSourceTaskId,
+      userId: actorId,
+    });
+  } catch (fanoutError) {
+    console.error("Failed to fan out task assignee update to derived entities", {
+      taskId,
+      error: fanoutError,
+    });
+  }
+
   if (opts?.timing) opts.timing.t_insert_assignees_ms = Math.round(performance.now() - t0);
   aiDebug("setTaskAssignees:db_calls_summary", { count: dbCalls.length, calls: dbCalls, total_ms: Math.round(performance.now() - t0) });
 
