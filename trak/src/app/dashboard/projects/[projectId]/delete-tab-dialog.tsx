@@ -10,7 +10,7 @@ interface DeleteTabDialogProps {
   onClose: () => void;
   tab: { id: string; name: string } | null;
   onSuccess?: () => void;
-  triggerRef?: React.RefObject<HTMLElement | null> | null;
+  triggerElement?: HTMLElement | null;
 }
 
 export default function DeleteTabDialog({
@@ -18,47 +18,11 @@ export default function DeleteTabDialog({
   onClose,
   tab,
   onSuccess,
-  triggerRef,
+  triggerElement,
 }: DeleteTabDialogProps) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
-  const [position, setPosition] = useState({ top: 0, left: 0 });
   const popoverRef = useRef<HTMLDivElement>(null);
-
-  // Reset state when modal opens/closes or tab changes
-  useEffect(() => {
-    if (isOpen) {
-      // Reset state when opening for a new tab
-      setIsDeleting(false);
-      setError("");
-    } else {
-      // Reset state when closing
-      setIsDeleting(false);
-      setError("");
-    }
-  }, [isOpen, tab?.id]); // Reset when isOpen changes or when tab ID changes
-
-  // Calculate position based on trigger element
-  useEffect(() => {
-    if (isOpen && triggerRef?.current) {
-      const rect = triggerRef.current.getBoundingClientRect();
-      const popoverWidth = 320; // w-80 = 320px
-      // Position below the trigger, aligned to the right edge
-      let left = rect.right - popoverWidth;
-      // Ensure it doesn't go off the left edge
-      if (left < 8) {
-        left = 8;
-      }
-      // Ensure it doesn't go off the right edge
-      if (rect.right > window.innerWidth - 8) {
-        left = window.innerWidth - popoverWidth - 8;
-      }
-      setPosition({
-        top: rect.bottom + 6,
-        left: left,
-      });
-    }
-  }, [isOpen, triggerRef]);
 
   // Handle click outside to close
   useEffect(() => {
@@ -71,8 +35,8 @@ export default function DeleteTabDialog({
       if (
         popoverRef.current &&
         !popoverRef.current.contains(e.target as Node) &&
-        triggerRef?.current &&
-        !triggerRef.current.contains(e.target as Node)
+        triggerElement &&
+        !triggerElement.contains(e.target as Node)
       ) {
         onClose();
       }
@@ -80,7 +44,7 @@ export default function DeleteTabDialog({
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isOpen, isDeleting, onClose, triggerRef]);
+  }, [isOpen, isDeleting, onClose, triggerElement]);
 
   const handleDelete = async () => {
     if (!tab) return;
@@ -102,8 +66,9 @@ export default function DeleteTabDialog({
       setError("");
       onSuccess?.();
       onClose();
-    } catch (err: any) {
-      setError(err.message || "Failed to delete tab");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to delete tab";
+      setError(message);
       setIsDeleting(false);
     }
   };
@@ -118,13 +83,20 @@ export default function DeleteTabDialog({
 
   if (!isOpen || !tab) return null;
 
+  const triggerRect = triggerElement?.getBoundingClientRect();
+  const popoverWidth = 320;
+  const computedLeft = triggerRect
+    ? Math.max(8, Math.min(triggerRect.right - popoverWidth, window.innerWidth - popoverWidth - 8))
+    : 8;
+  const computedTop = triggerRect ? triggerRect.bottom + 6 : 8;
+
   const popoverContent = (
     <div
       ref={popoverRef}
       className="fixed z-[9999] w-80 rounded-[2px] border border-[var(--border)] bg-[var(--surface)] shadow-[0_4px_16px_rgba(0,0,0,0.12)]"
       style={{
-        top: `${position.top}px`,
-        left: `${Math.max(8, Math.min(position.left, window.innerWidth - 328))}px`, // Keep within viewport
+        top: `${computedTop}px`,
+        left: `${computedLeft}px`,
       }}
     >
       {/* Compact Header */}
@@ -186,4 +158,3 @@ export default function DeleteTabDialog({
   
   return popoverContent;
 }
-

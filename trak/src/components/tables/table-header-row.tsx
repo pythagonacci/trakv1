@@ -215,12 +215,12 @@ export function TableHeaderRow({
   const someSelected = selectedCount > 0 && selectedCount < totalCount;
 
   return (
-    <div className={`relative w-full ${className ?? ""}`}>
+    <div className={`relative isolate w-full ${className ?? ""}`}>
       <div
-        className="grid border-b border-l border-[var(--border)] bg-[var(--primary)]/10 w-full"
+        className="grid border-b border-l border-[var(--border)] bg-[var(--primary-pale)] w-full"
         style={{ gridTemplateColumns: template }}
       >
-        <div className="flex items-center justify-center border-r border-[var(--border)] bg-[var(--primary)]/10 sticky left-0 z-30">
+        <div className="flex items-center justify-center border-r border-[var(--border)] bg-[var(--primary-pale)] sticky left-0 z-50">
           <input
             type="checkbox"
             checked={allSelected}
@@ -237,7 +237,7 @@ export function TableHeaderRow({
               <div
               key={field.id}
               ref={columnRefs?.[field.id]}
-              className={`${isPinned ? "sticky z-20 bg-[var(--primary)]/10" : ""}`}
+              className={`${isPinned ? "sticky z-40 bg-[var(--primary-pale)]" : ""}`}
               style={isPinned ? { 
                 left: `${pinnedOffsets[field.id]}px`,
                 boxShadow: idx > 0 ? '2px 0 4px rgba(0,0,0,0.1)' : 'none'
@@ -275,7 +275,7 @@ export function TableHeaderRow({
         </div>
       );
     })}
-        <div className="flex items-center justify-center border-l border-[var(--border)] bg-[var(--primary)]/10 min-w-[40px] sticky right-0 z-30 shadow-[-4px_0_8px_rgba(0,0,0,0.06)]">
+        <div className="flex items-center justify-center border-l border-[var(--border)] bg-[var(--primary-pale)] min-w-[40px] sticky right-0 z-50 shadow-[-4px_0_8px_rgba(0,0,0,0.06)]">
           <button
             onClick={onAddField}
             className="inline-flex items-center justify-center w-8 h-6 rounded-[4px] border border-dashed border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--secondary)] hover:text-[var(--foreground)] transition-colors duration-150 text-sm"
@@ -394,7 +394,7 @@ function FieldHeader({
   };
 
   return (
-    <div className="px-3 py-2 flex items-center gap-1.5 border-r border-[var(--border)] bg-[var(--primary)]/10 relative min-h-0">
+    <div className="px-3 py-2 flex items-center gap-1.5 border-r border-[var(--border)] bg-[var(--primary-pale)] relative min-h-0">
       <div className="flex-1 overflow-hidden min-w-0">
         <input
           className="w-full bg-transparent text-[10px] font-medium uppercase tracking-wide text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] outline-none truncate border border-transparent focus:border-[var(--border-strong)] rounded-[4px] px-1.5 py-0.5"

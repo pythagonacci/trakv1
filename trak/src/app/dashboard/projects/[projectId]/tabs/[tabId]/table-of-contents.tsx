@@ -143,7 +143,12 @@ export default function TableOfContents({
   };
   const navigateToTab = (tabId: string, tabName: string) => {
     if (!projectName) return;
-    router.push(buildProjectTabPath(projectId, tabId, projectName, tabName));
+    const nextPath = buildProjectTabPath(projectId, tabId, projectName, tabName);
+    if (pathname === nextPath) {
+      return;
+    }
+
+    router.push(nextPath);
   };
 
   const hasSubtabs = subtabConfig && subtabConfig.subtabs.length > 0;

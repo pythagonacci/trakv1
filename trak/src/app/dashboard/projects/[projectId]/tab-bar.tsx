@@ -47,7 +47,6 @@ export default function TabBar({
   tabs,
   projectId,
   projectName,
-  isClientProject = false,
   clientPageEnabled = false,
   lockedTabIds = [],
 }: TabBarProps) {
@@ -59,12 +58,11 @@ export default function TabBar({
   const [createDialogParentId, setCreateDialogParentId] = useState<string | undefined>(undefined);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [deleteConfirmTab, setDeleteConfirmTab] = useState<Tab | null>(null);
-  const [deleteTriggerRef, setDeleteTriggerRef] = useState<React.RefObject<HTMLElement | null> | null>(null);
+  const [deleteTriggerElement, setDeleteTriggerElement] = useState<HTMLElement | null>(null);
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const editInputRef = useRef<HTMLInputElement>(null);
-  const menuTriggerRefs = useRef<Record<string, React.RefObject<HTMLButtonElement | null>>>({});
   const [isHoveringRevealZone, setIsHoveringRevealZone] = useState(false);
   const [isHoveringFloating, setIsHoveringFloating] = useState(false);
   const [isAtTop, setIsAtTop] = useState(true);
@@ -135,7 +133,13 @@ export default function TabBar({
       return;
     }
 
-    router.push(buildProjectTabPath(projectId, tab.id, projectName, tab.name));
+    const nextPath = buildProjectTabPath(projectId, tab.id, projectName, tab.name);
+    if (pathname === nextPath) {
+      setMobileMenuOpen(false);
+      return;
+    }
+
+    router.push(nextPath);
     setMobileMenuOpen(false);
   };
 
@@ -238,7 +242,16 @@ export default function TabBar({
   };
 
   const activeTabInfo = findParentOfActiveTab();
-  const [expandedTabId, setExpandedTabId] = useState<string | null>(activeTabInfo?.parent.id || null);
+  const preferredExpandedTabId = (() => {
+    if (activeTabInfo?.parent.id) return activeTabInfo.parent.id;
+    const activeRootTab = tabs.find((tab) => tab.id === activeTabId && tab.children && tab.children.length > 0);
+    return activeRootTab?.id ?? null;
+  })();
+  const [expandedTabId, setExpandedTabId] = useState<string | null>(preferredExpandedTabId);
+
+  useEffect(() => {
+    setExpandedTabId(preferredExpandedTabId);
+  }, [preferredExpandedTabId]);
 
   const renderTab = (tab: Tab, depth = 0, showDropdown = true) => {
     const isActive = activeTabId === tab.id;
@@ -248,13 +261,7 @@ export default function TabBar({
     const isParentOfActive = activeTabInfo?.parent.id === tab.id;
     const isPlanLocked = lockedTabIdSet.has(tab.id);
 
-    // Create ref for menu trigger if it doesn't exist
-    if (!menuTriggerRefs.current[tab.id]) {
-      menuTriggerRefs.current[tab.id] = React.createRef<HTMLButtonElement>();
-    }
-    const menuTriggerRef = menuTriggerRefs.current[tab.id];
-
-    return (
+      return (
       <div key={tab.id}>
         <div className={cn("group relative flex items-center", depth > 0 && "pl-0")}>
           {isEditing ? (
@@ -277,8 +284,9 @@ export default function TabBar({
                 onClick={(e) => handleTabClick(tab, e)}
                 onDoubleClick={(e) => handleDoubleClick(tab, e)}
                 className={cn(
-                  "relative whitespace-nowrap py-3 text-sm transition-colors flex flex-col items-start gap-0",
-                  showDropdown ? "pl-3 pr-0" : "px-3",
+                  "relative whitespace-nowrap text-sm transition-colors",
+                  depth === 0 ? "flex flex-col items-start gap-0 py-3" : "inline-flex items-center py-1.5",
+                  showDropdown ? (depth === 0 ? "pl-3 pr-0" : "pl-2.5 pr-0") : depth === 0 ? "px-3" : "px-2.5",
                   isPlanLocked && "cursor-not-allowed opacity-60",
                   isActive || isParentOfActive
                     ? "text-[var(--foreground)] after:absolute after:bottom-0 after:left-0 after:right-0 after:h-[2px] after:bg-[var(--foreground)]"
@@ -287,16 +295,13 @@ export default function TabBar({
                 )}
                 title={isPlanLocked ? "Locked on Free plan" : undefined}
               >
-                {/* Parent tab name or child tab name */}
                 <span className="truncate max-w-xs text-left inline-flex items-center gap-1">
                   {isPlanLocked && <Lock className="h-3 w-3 flex-shrink-0 text-[var(--muted-foreground)]" aria-hidden />}
                   {tab.is_workflow_page && <Sparkles className="h-3.5 w-3.5 flex-shrink-0 text-amber-500/90" aria-hidden />}
-                  {depth === 0 && isParentOfActive ? tab.name : tab.name}
+                  {tab.name}
                 </span>
-                
-                {/* Active subtab underneath (only on parent) */}
                 {depth === 0 && isParentOfActive && activeTabInfo?.activeChild && (
-                  <span className="text-xs font-bold text-[var(--foreground)] mt-0.5">
+                  <span className="mt-0.5 text-[11px] font-semibold text-[var(--foreground)]">
                     {activeTabInfo.activeChild.name}
                   </span>
                 )}
@@ -335,10 +340,10 @@ export default function TabBar({
             >
               <DropdownMenuTrigger asChild>
                 <button
-                  ref={menuTriggerRef}
                   onClick={(e) => {
                     e.stopPropagation();
                     e.preventDefault();
+                    setDeleteTriggerElement(e.currentTarget);
                   }}
                   className="ml-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center self-center rounded-[6px] text-[var(--tertiary-foreground)] opacity-0 pointer-events-none transition-all duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] focus-visible:opacity-100 focus-visible:pointer-events-auto group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
                 >
@@ -394,7 +399,6 @@ export default function TabBar({
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={() => {
-                      setDeleteTriggerRef(menuTriggerRef);
                       setDeleteConfirmTab(tab);
                       setOpenMenuId(null); // Close the dropdown menu
                     }}
@@ -409,9 +413,8 @@ export default function TabBar({
           )}
         </div>
         
-        {/* Show all subtabs in dropdown when expanded */}
-        {isExpanded && hasChildren && !isParentOfActive && depth === 0 && (
-          <div className="pl-6 border-l-2 border-[var(--border)] ml-3 space-y-1 py-1">
+        {isExpanded && hasChildren && depth === 0 && (
+          <div className="ml-2 border-l border-[var(--border)] pl-3 py-0.5 space-y-0.5">
             {tab.children!.map((child) => renderTab(child, 1, showDropdown))}
           </div>
         )}
@@ -497,13 +500,13 @@ export default function TabBar({
                 </span>
               </button>
               {tab.children && tab.children.length > 0 && (
-                <div className="ml-4 mt-1 space-y-1">
+                <div className="ml-4 mt-0.5 space-y-0.5">
                   {tab.children.map((child) => (
                     <button
                       key={child.id}
                       onClick={() => handleTabClick(child)}
                       className={cn(
-                        "flex w-full items-center gap-1.5 rounded-[6px] px-3 py-1.5 text-xs",
+                        "flex w-full items-center gap-1.5 rounded-[6px] px-3 py-1 text-xs",
                         activeTabId === child.id
                           ? "bg-[var(--surface-hover)] text-[var(--foreground)]"
                           : "text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
@@ -585,11 +588,11 @@ export default function TabBar({
         isOpen={deleteConfirmTab !== null}
         onClose={() => {
           setDeleteConfirmTab(null);
-          setDeleteTriggerRef(null);
+          setDeleteTriggerElement(null);
         }}
         tab={deleteConfirmTab}
         onSuccess={handleDeleteSuccess}
-        triggerRef={deleteTriggerRef}
+        triggerElement={deleteTriggerElement}
       />
     </>
   );

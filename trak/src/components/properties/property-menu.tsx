@@ -318,6 +318,57 @@ function PopoverDivider() {
   return <div className="mx-0 border-t border-[var(--border)]" />;
 }
 
+function PillValueSelect({
+  value,
+  noneValue,
+  onValueChange,
+  options,
+  colorMap,
+  size = "default",
+}: {
+  value: string | null;
+  noneValue: string;
+  onValueChange: (value: string | null) => void;
+  options: Array<{ value: string; label: string }>;
+  colorMap: Record<string, string>;
+  size?: "default" | "compact";
+}) {
+  const activeOption = value ? options.find((option) => option.value === value) : null;
+  const pillClassName = cn(
+    "inline-flex items-center rounded-[4px] font-medium",
+    size === "compact" ? "px-2 py-0.5 text-[11px]" : "px-2 py-0.5 text-xs",
+    value
+      ? colorMap[value]
+      : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)]"
+  );
+  const itemPillClassName = cn(
+    "inline-flex items-center rounded-[4px] font-medium",
+    size === "compact" ? "px-2 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
+  );
+
+  return (
+    <Select value={value ?? noneValue} onValueChange={(nextValue) => onValueChange(nextValue === noneValue ? null : nextValue)}>
+      <SelectTrigger className="h-auto min-h-0 w-auto border-0 bg-transparent p-0 shadow-none hover:bg-transparent focus:border-transparent focus:ring-0 focus:ring-offset-0">
+        <span className={pillClassName}>{activeOption?.label ?? "None"}</span>
+      </SelectTrigger>
+      <SelectContent className="w-auto min-w-0 max-w-[9rem] p-1.5">
+        <SelectItem value={noneValue} className="rounded-[4px] py-0.5 pl-7 pr-1.5 text-[10px] font-medium text-[var(--muted-foreground)]">
+          None
+        </SelectItem>
+        {options.map((option) => (
+          <SelectItem
+            key={option.value}
+            value={option.value}
+            className="rounded-[4px] py-0.5 pl-7 pr-1.5 text-[10px] focus:bg-[var(--surface-hover)]"
+          >
+            <span className={cn(itemPillClassName, colorMap[option.value])}>{option.label}</span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 /**
  * Menu for viewing and editing properties on an entity
  */
@@ -592,26 +643,23 @@ export function PropertyMenu({
                     placeholder="Name"
                     className="text-[11px] font-medium text-[var(--muted-foreground)] bg-transparent border-0 outline-none focus:ring-1 focus:ring-[var(--border)] rounded px-0.5 w-full"
                   />
-                  <div className="mt-0.5 flex items-center justify-between gap-1.5">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <Dot tone={field.value ? STATUS_TONE[field.value] : "neutral"} />
-                      <Select value={field.value ?? STATUS_NONE} onValueChange={(v) => { const next = v === STATUS_NONE ? null : (v as Status); setStatusDrafts((prev) => prev.map((e) => e.id === field.id ? { ...e, value: next } : e)); }}>
-                        <SelectTrigger className="h-6 border-0 shadow-none gap-0.5 text-[11px] font-semibold p-0 bg-transparent">
-                          <SelectValue placeholder="None" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={STATUS_NONE}>None</SelectItem>
-                          {STATUS_OPTIONS.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}><span className={cn("font-medium", STATUS_COLORS[opt.value])}>{opt.label}</span></SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  <div className="mt-1 flex items-center justify-between gap-1.5">
+                    <PillValueSelect
+                      value={field.value}
+                      noneValue={STATUS_NONE}
+                      onValueChange={(nextValue) =>
+                        setStatusDrafts((prev) =>
+                          prev.map((entry) => entry.id === field.id ? { ...entry, value: nextValue as Status | null } : entry)
+                        )
+                      }
+                      options={STATUS_OPTIONS}
+                      colorMap={STATUS_COLORS}
+                      size="compact"
+                    />
                     <div className="flex items-center gap-1 shrink-0">
                       {statusDrafts.length > 1 && (
                         <button type="button" onClick={() => setStatusDrafts((prev) => prev.filter((e) => e.id !== field.id))} className="rounded p-0.5 hover:bg-[var(--surface)] text-[var(--muted-foreground)]"><X className="h-2.5 w-2.5" /></button>
                       )}
-                      <ChevronDown className="h-3.5 w-3.5 text-[var(--muted-foreground)]" />
                     </div>
                   </div>
                 </div>
@@ -679,31 +727,19 @@ export function PropertyMenu({
                       placeholder="Name"
                       className="text-[11px] font-medium text-[var(--muted-foreground)] bg-transparent border-0 outline-none focus:ring-1 focus:ring-[var(--border)] rounded px-0.5 w-full"
                     />
-                    <div className="mt-0.5 flex items-center justify-between gap-1.5">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <Dot tone={field.value ? PRIORITY_TONE[field.value] : "neutral"} />
-                        <Select
-                          value={field.value ?? PRIORITY_NONE}
-                          onValueChange={(v) => {
-                            const next = v === PRIORITY_NONE ? null : (v as Priority);
-                            setPriorityDrafts((prev) =>
-                              prev.map((e) => (e.id === field.id ? { ...e, value: next } : e))
-                            );
-                          }}
-                        >
-                          <SelectTrigger className="h-6 border-0 shadow-none gap-0.5 text-[11px] font-semibold p-0 bg-transparent">
-                            <SelectValue placeholder="None" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value={PRIORITY_NONE}>None</SelectItem>
-                            {PRIORITY_OPTIONS.map((opt) => (
-                              <SelectItem key={opt.value} value={opt.value}>
-                                <span className={cn("font-medium", PRIORITY_COLORS[opt.value])}>{opt.label}</span>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
+                    <div className="mt-1 flex items-center justify-between gap-1.5">
+                      <PillValueSelect
+                        value={field.value}
+                        noneValue={PRIORITY_NONE}
+                        onValueChange={(nextValue) =>
+                          setPriorityDrafts((prev) =>
+                            prev.map((entry) => (entry.id === field.id ? { ...entry, value: nextValue as Priority | null } : entry))
+                          )
+                        }
+                        options={PRIORITY_OPTIONS}
+                        colorMap={PRIORITY_COLORS}
+                        size="compact"
+                      />
                       <div className="flex items-center gap-1 shrink-0">
                         {priorityDrafts.length > 1 && (
                           <button
@@ -716,7 +752,6 @@ export function PropertyMenu({
                             <X className="h-2.5 w-2.5" />
                           </button>
                         )}
-                        <ChevronDown className="h-3.5 w-3.5 text-[var(--muted-foreground)]" />
                       </div>
                     </div>
                   </div>
@@ -1162,7 +1197,7 @@ export function PropertyMenu({
                       ) : (
                         <div className="space-y-1.5">
                           {statusDrafts.map((field) => (
-                            <div key={field.id} className="grid grid-cols-[72px_1fr_auto] items-center gap-1.5">
+                            <div key={field.id} className="grid grid-cols-[72px_auto_auto] items-center gap-1.5">
                               <Input
                                 value={field.field_name}
                                 onChange={(e) => {
@@ -1174,33 +1209,19 @@ export function PropertyMenu({
                                 placeholder="Name"
                                 className="h-7 min-w-0 text-xs"
                               />
-                              <Select
-                                value={field.value ?? STATUS_NONE}
-                                onValueChange={(value) => {
-                                  const nextValue = value === STATUS_NONE ? null : (value as Status);
+                              <PillValueSelect
+                                value={field.value}
+                                noneValue={STATUS_NONE}
+                                onValueChange={(nextValue) =>
                                   setStatusDrafts((prev) =>
                                     prev.map((entry) =>
-                                      entry.id === field.id ? { ...entry, value: nextValue } : entry
+                                      entry.id === field.id ? { ...entry, value: nextValue as Status | null } : entry
                                     )
-                                  );
-                                }}
-                              >
-                                <SelectTrigger className="h-7 w-full max-w-[130px] min-w-0 text-xs">
-                                  <SelectValue placeholder="None" />
-                                </SelectTrigger>
-                                <SelectContent className="max-w-[130px]">
-                                  <SelectItem value={STATUS_NONE}>
-                                    <span className="text-xs text-[var(--muted-foreground)]">None</span>
-                                  </SelectItem>
-                                  {STATUS_OPTIONS.map((option) => (
-                                    <SelectItem key={option.value} value={option.value}>
-                                      <span className={cn("inline-flex items-center rounded px-2 py-0.5 text-xs font-medium", STATUS_COLORS[option.value])}>
-                                        {option.label}
-                                      </span>
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                                  )
+                                }
+                                options={STATUS_OPTIONS}
+                                colorMap={STATUS_COLORS}
+                              />
                               {statusDrafts.length > 1 && (
                                 <Button
                                   type="button"
@@ -1256,7 +1277,7 @@ export function PropertyMenu({
                                   : true
                               )
                               .map((field) => (
-                                <div key={field.id} className="grid grid-cols-[72px_1fr_auto] items-center gap-1.5">
+                                <div key={field.id} className="grid grid-cols-[72px_auto_auto] items-center gap-1.5">
                                   <Input
                                     value={field.field_name}
                                     onChange={(event) => {
@@ -1270,38 +1291,19 @@ export function PropertyMenu({
                                     placeholder="Name"
                                     className="h-7 min-w-0 text-xs"
                                   />
-                                  <Select
-                                    value={field.value ?? PRIORITY_NONE}
-                                    onValueChange={(value) => {
-                                      const nextValue = value === PRIORITY_NONE ? null : (value as Priority);
+                                  <PillValueSelect
+                                    value={field.value}
+                                    noneValue={PRIORITY_NONE}
+                                    onValueChange={(nextValue) =>
                                       setPriorityDrafts((prev) =>
                                         prev.map((entry) =>
-                                          entry.id === field.id ? { ...entry, value: nextValue } : entry
+                                          entry.id === field.id ? { ...entry, value: nextValue as Priority | null } : entry
                                         )
-                                      );
-                                    }}
-                                  >
-                                    <SelectTrigger className="h-7 w-full max-w-[130px] min-w-0 text-xs">
-                                      <SelectValue placeholder="None" />
-                                    </SelectTrigger>
-                                    <SelectContent className="max-w-[130px]">
-                                      <SelectItem value={PRIORITY_NONE}>
-                                        <span className="text-xs text-[var(--muted-foreground)]">None</span>
-                                      </SelectItem>
-                                      {PRIORITY_OPTIONS.map((option) => (
-                                        <SelectItem key={option.value} value={option.value}>
-                                          <span
-                                            className={cn(
-                                              "inline-flex items-center rounded px-2 py-0.5 text-xs font-medium",
-                                              PRIORITY_COLORS[option.value]
-                                            )}
-                                          >
-                                            {option.label}
-                                          </span>
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
+                                      )
+                                    }
+                                    options={PRIORITY_OPTIONS}
+                                    colorMap={PRIORITY_COLORS}
+                                  />
                                   {priorityDrafts.length > 1 && (
                                     <Button
                                       type="button"

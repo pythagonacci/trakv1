@@ -46,6 +46,7 @@ import { useWorkspaceBilling } from "@/hooks/use-workspace-billing";
 // DEMO (magic links): remove DemoUploadToastTrigger + related state when recording is done
 import Toast from "@/app/dashboard/projects/toast";
 import {
+  buildSplashGreeting,
   createUnavailableSplashWeather,
   markSplashShownForSession,
   resolveSplashWeather,
@@ -112,7 +113,7 @@ export default function DashboardLayoutClient({
   }, [isProjectView]);
 
   useEffect(() => {
-    if (shouldAutoShowSplashForSession(window.sessionStorage)) {
+    if (shouldAutoShowSplashForSession(document)) {
       startTransition(() => {
         setShowSplash(true);
       });
@@ -130,7 +131,7 @@ export default function DashboardLayoutClient({
         {showSplash && (
           <SplashScreen
             onFinish={() => {
-              markSplashShownForSession(window.sessionStorage);
+              markSplashShownForSession(document);
               setShowSplash(false);
             }}
           />
@@ -214,7 +215,7 @@ function SplashScreen({ onFinish }: { onFinish: () => void }) {
   }, [currentUser?.firstName, resolvedName]);
 
   const name = resolvedName || "there";
-  const greeting = `Good Morning, ${name}`;
+  const greeting = buildSplashGreeting(name);
 
   useEffect(() => {
     if (!resolvedName) return;

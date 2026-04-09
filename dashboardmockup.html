@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trak — Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --cream:#FEFEFE;
+  --cream2:#FAF9F6;
+  --cream3:#F5F2EC;
+  --card:#FFFFFF;
+  --terra:#2A537A;
+  --terra-pale:#E0EBF5;
+  --ink:#1C1916;
+  --ink2:#4A4540;
+  --ink3:#8A847C;
+  --ink4:#C2BCB4;
+  --border:rgba(28,25,22,0.09);
+  --border2:rgba(28,25,22,0.16);
+  --green:#3B6B35;
+  --green-bg:#EAF2E8;
+  --blue:#2A537A;
+  --blue-bg:#E0EBF5;
+  --amber:#C4622D;
+  --amber-bg:#FAE5D8;
+  --slate:#3B6B35;
+  --slate-bg:#EAF2E8;
+  --red:#8B3030;
+  --red-bg:#F5E0E0;
+}
+
+html, body {
+  height: 100%;
+  font-family: 'DM Sans', sans-serif;
+  background: var(--cream);
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.layout {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── SIDEBAR ── */
+.sidebar {
+  width: 200px;
+  background: var(--cream2);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.sid-top {
+  padding: 14px 12px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ws-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.ws-mark {
+  width: 26px; height: 26px;
+  background: var(--ink);
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Instrument Serif', serif;
+  font-size: 14px;
+  color: var(--cream);
+  flex-shrink: 0;
+}
+
+.ws-name {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.2px;
+  color: var(--ink);
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(28,25,22,0.05);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 6px 9px;
+  color: var(--ink3);
+  font-size: 11.5px;
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+}
+
+.ask-ai {
+  margin: 8px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--blue);
+  color: #fff;
+  border-radius: 7px;
+  padding: 8px 11px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.ask-badge {
+  margin-left: auto;
+  background: rgba(255,255,255,0.12);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 10px;
+  letter-spacing: 0.3px;
+}
+
+.sid-nav {
+  flex: 1;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  color: var(--ink2);
+  cursor: pointer;
+  font-size: 12.5px;
+  position: relative;
+  transition: background 0.1s;
+}
+
+.nav-item:hover { background: rgba(28,25,22,0.05); }
+
+.nav-item.active {
+  background: var(--cream);
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 50%;
+  transform: translateY(-50%);
+  width: 2.5px; height: 14px;
+  background: var(--terra);
+  border-radius: 2px;
+}
+
+.nav-item svg {
+  width: 14px; height: 14px;
+  opacity: 0.4;
+  flex-shrink: 0;
+}
+
+.nav-item.active svg { opacity: 0.8; }
+
+.sid-bottom {
+  padding: 11px 13px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.avatar {
+  width: 27px; height: 27px;
+  border-radius: 50%;
+  background: var(--terra);
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 500;
+  flex-shrink: 0;
+}
+
+.uname { font-size: 12px; font-weight: 500; color: var(--ink); }
+.uemail { font-size: 10.5px; color: var(--ink3); }
+
+/* ── MAIN ── */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 28px;
+  border-bottom: 1px solid var(--border);
+  background: var(--cream);
+  flex-shrink: 0;
+}
+
+.topbar-left {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.tb-greeting {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.2px;
+  color: var(--ink);
+}
+
+.tb-date {
+  font-size: 12px;
+  color: var(--ink3);
+  font-weight: 300;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.icon-btn {
+  width: 31px; height: 31px;
+  border-radius: 7px;
+  border: 1px solid var(--border2);
+  background: transparent;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  color: var(--ink2);
+}
+
+.cfg-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border2);
+  border-radius: 7px;
+  background: transparent;
+  padding: 0 12px;
+  height: 31px;
+  font-size: 12px;
+  color: var(--ink2);
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+}
+
+.new-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--terra);
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  padding: 0 14px;
+  height: 31px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+}
+
+.new-btn:hover { background: #1e3f5e; }
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 26px 28px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── GREETING ── */
+.greeting { font-family: 'DM Sans', sans-serif; font-size: 22px; font-weight: 500; letter-spacing: -0.4px; color: var(--ink); line-height: 1.1; }
+.greeting-sub { font-size: 13px; color: var(--ink3); font-weight: 300; margin-top: 5px; }
+
+/* ── CARD ── */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 17px;
+  border-bottom: 1px solid var(--border);
+}
+
+.card-header-left {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.card-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  font-weight: 500;
+  color: var(--ink2);
+}
+
+.card-sub-label {
+  font-size: 11px;
+  color: var(--ink3);
+}
+
+/* ── NOTIFICATIONS ── */
+.notif-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-radius: 0 0 11px 11px;
+  overflow: hidden;
+}
+
+.notif-col {
+  padding: 13px 17px;
+}
+
+.notif-col + .notif-col {
+  border-left: 1px solid var(--border);
+}
+
+.notif-col-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--ink2);
+  font-weight: 500;
+  margin-bottom: 10px;
+}
+
+.notif-item {
+  display: flex;
+  gap: 9px;
+  padding: 9px 11px;
+  border-radius: 7px;
+  background: var(--cream2);
+  border: 1px solid var(--border2);
+}
+
+.notif-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--terra);
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.notif-text { font-size: 12.5px; color: var(--ink); line-height: 1.4; font-weight: 400; }
+.notif-meta { font-size: 11px; color: var(--ink3); margin-top: 3px; }
+.notif-empty { font-size: 12.5px; color: var(--ink3); font-style: italic; }
+
+/* ── AI OVERVIEW ── */
+.ai-spark {
+  width: 20px; height: 20px;
+  background: var(--terra-pale);
+  border-radius: 5px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px;
+  color: var(--terra);
+}
+
+.regen-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--ink3);
+  cursor: pointer;
+  background: none;
+  border: none;
+  font-family: 'DM Sans', sans-serif;
+}
+
+.ai-body {
+  padding: 16px 17px;
+}
+
+.ai-text {
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--ink2);
+  font-weight: 300;
+}
+
+.ai-text b { color: var(--ink); font-weight: 500; }
+
+.ai-chip {
+  background: var(--terra-pale);
+  color: var(--terra);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  display: inline;
+}
+
+.ai-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 17px;
+  border-top: 1px solid var(--border);
+  background: rgba(28,25,22,0.018);
+}
+
+.ai-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  color: var(--ink4);
+}
+
+/* ── TODAY ── */
+.section-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.sec-title { font-family: 'DM Sans', sans-serif; font-size: 16px; font-weight: 500; letter-spacing: -0.2px; color: var(--ink); }
+
+.sec-sub {
+  font-size: 11.5px;
+  color: var(--ink3);
+  font-weight: 300;
+  margin-top: 2px;
+}
+
+.view-all {
+  font-size: 11.5px;
+  color: var(--terra);
+  cursor: pointer;
+  font-weight: 500;
+  margin-top: 3px;
+  text-decoration: none;
+}
+
+.three-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 13px;
+  margin-top: 13px;
+}
+
+.col-head {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  font-weight: 500;
+  margin-bottom: 9px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.cpip {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.tcard {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-left-width: 2.5px;
+  border-radius: 8px;
+  padding: 11px 13px;
+  margin-bottom: 7px;
+  cursor: pointer;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.tcard:hover {
+  border-color: var(--border2);
+  box-shadow: 0 1px 8px rgba(28,25,22,0.06);
+}
+
+.tcard.c-due  { border-left-color: var(--blue); }
+.tcard.c-up   { border-left-color: var(--slate); }
+.tcard.c-past { border-left-color: var(--red); }
+
+.tname2 {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink);
+  margin-bottom: 4px;
+  line-height: 1.35;
+}
+
+.tproj {
+  font-size: 10.5px;
+  color: var(--ink3);
+  margin-bottom: 6px;
+}
+
+.tpills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.p {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.p-tab    { background: rgba(28,25,22,0.06); color: var(--ink2); }
+.p-high   { background: var(--amber-bg); color: var(--amber); }
+.p-urgent { background: var(--red-bg); color: var(--red); }
+.p-today  { background: var(--terra-pale); color: var(--terra); }
+.p-date   { background: var(--cream2); color: var(--ink3); }
+.p-dred   { background: var(--red-bg); color: var(--red); }
+</style>
+</head>
+<body>
+
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sid-top">
+      <div class="ws-row">
+        <div class="ws-mark">T</div>
+        <div class="ws-name">TWOD</div>
+      </div>
+      <div class="search">
+        <svg width="11" height="11" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.3"/><path d="M10 10L13 13" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Search projects…
+      </div>
+    </div>
+
+    <div class="ask-ai">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 2L9.5 6.5L14 8L9.5 9.5L8 14L6.5 9.5L2 8L6.5 6.5L8 2Z" fill="currentColor"/></svg>
+      Ask AI
+      <span class="ask-badge">⌘K</span>
+    </div>
+
+    <div class="sid-nav">
+      <div class="nav-item active">
+        <svg viewBox="0 0 16 16" fill="currentColor"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>
+        Home
+      </div>
+      <div class="nav-item">
+        <svg viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.3"/><path d="M5 8h6M5 11h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Projects
+      </div>
+      <div class="nav-item">
+        <svg viewBox="0 0 16 16" fill="none"><path d="M2 4h12M2 8h12M2 12h8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Everything
+      </div>
+      <div class="nav-item">
+        <svg viewBox="0 0 16 16" fill="none"><path d="M3 12V6l5-4 5 4v6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><rect x="6" y="9" width="4" height="3" rx="0.5" fill="currentColor" opacity="0.5"/></svg>
+        Workflow
+      </div>
+      <div class="nav-item">
+        <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="6" r="3" stroke="currentColor" stroke-width="1.3"/><path d="M2 14c0-3 2.7-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Clients
+      </div>
+      <div class="nav-item">
+        <svg viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M5 3V2M11 3V2M2 7h12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Calendar
+      </div>
+      <div class="nav-item">
+        <svg viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M5 6h6M5 9h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Docs
+      </div>
+      <div class="nav-item">
+        <svg viewBox="0 0 16 16" fill="none"><path d="M2 11L6 7l3 3 5-6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Products
+      </div>
+      <div class="nav-item">
+        <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="2" fill="currentColor" opacity="0.4"/></svg>
+        Settings
+      </div>
+    </div>
+
+    <div class="sid-bottom">
+      <div class="avatar">A</div>
+      <div>
+        <div class="uname">Amna</div>
+        <div class="uemail"><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="94f5f9faf5d4f3f9f5fdf8baf7fbf9">[email&#160;protected]</a></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+
+    <!-- TOPBAR -->
+    <div class="topbar">
+      <div class="topbar-left">
+        <span class="tb-greeting">Amna</span>
+        <span class="tb-date">Wednesday, March 25th</span>
+      </div>
+      <div class="topbar-right">
+        <div class="icon-btn">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 2a5 5 0 015 5c0 2.5-.8 4-1 5H4c-.2-1-1-2.5-1-5a5 5 0 015-5z" stroke="currentColor" stroke-width="1.2"/><path d="M6.5 13.5a1.5 1.5 0 003 0" stroke="currentColor" stroke-width="1.2"/></svg>
+        </div>
+        <button class="cfg-btn">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.3"/></svg>
+          Configure dashboard
+        </button>
+        <button class="new-btn">
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M6 1v10M1 6h10" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>
+          New project
+        </button>
+      </div>
+    </div>
+
+    <!-- CONTENT -->
+    <div class="content">
+
+      <div>
+        <div class="greeting">Good morning.</div>
+        <div class="greeting-sub">Here's what needs your attention today.</div>
+      </div>
+
+      <!-- NOTIFICATIONS -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-header-left">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 2a5 5 0 015 5c0 2.5-.8 4-1 5H4c-.2-1-1-2.5-1-5a5 5 0 015-5z" stroke="var(--ink3)" stroke-width="1.2"/><path d="M6.5 13.5a1.5 1.5 0 003 0" stroke="var(--ink3)" stroke-width="1.2"/></svg>
+            <span class="card-label">Notifications</span>
+            <span class="card-sub-label">Client and teammate updates in one place.</span>
+          </div>
+        </div>
+        <div class="notif-cols">
+          <div class="notif-col">
+            <div class="notif-col-title">Client Feedback</div>
+            <div class="notif-item">
+              <div class="notif-dot"></div>
+              <div>
+                <div class="notif-text">"Uploaded file: Photography Contract.pdf"</div>
+                <div class="notif-meta">Eddie · Limited Ed. Snowboard Launch · Campaign Shoot · 2d ago</div>
+              </div>
+            </div>
+          </div>
+          <div class="notif-col">
+            <div class="notif-col-title">Team Updates</div>
+            <div class="notif-empty">No comments from teammates yet.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI OVERVIEW -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-header-left">
+            <div class="ai-spark">✦</div>
+            <span class="card-label">AI Overview</span>
+          </div>
+          <button class="regen-btn">
+            <svg width="11" height="11" viewBox="0 0 14 14" fill="none"><path d="M2 7a5 5 0 019-3M12 7a5 5 0 01-9 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M11 4V1M3 10v3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+            Regenerate
+          </button>
+        </div>
+        <div class="ai-body">
+          <div class="ai-text">
+            The <b>Limited Ed. Snowboard Launch</b> has <span class="ai-chip">2 overdue items</span> — Production Run and Campaign Shoot — requiring immediate attention. Today's focus should be the <b>Manufacturing &amp; Production</b> milestone and the Influencer Seeding Program. Looking ahead, urgent priorities include the <b>Creative Production Sprint</b> and Product Page + Landing Build due <b>March 28th</b>. Resolve Inventory Allocation blockers to stay on track for the <b>March 30th Go-Live</b>.
+          </div>
+        </div>
+        <div class="ai-footer">
+          <div class="ai-meta">
+            <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1"/></svg>
+            Generated by AI
+          </div>
+          <div class="ai-meta">just now</div>
+        </div>
+      </div>
+
+      <!-- TODAY -->
+      <div>
+        <div class="section-row">
+          <div>
+            <div class="sec-title">Today</div>
+            <div class="sec-sub">What matters now and coming up.</div>
+          </div>
+          <a class="view-all">View all →</a>
+        </div>
+
+        <div class="three-col">
+
+          <!-- DUE TODAY -->
+          <div>
+            <div class="col-head" style="color:var(--terra)">
+              <div class="cpip" style="background:var(--terra)"></div>
+              Due Today
+            </div>
+            <div class="tcard c-due">
+              <div class="tname2">Influencer Seeding Program</div>
+              <div class="tproj">Limited Ed. Snowboard Launch</div>
+              <div class="tpills">
+                <span class="p p-tab">Launch Timeline</span>
+                <span class="p p-high">High</span>
+                <span class="p p-today">Today</span>
+              </div>
+            </div>
+            <div class="tcard c-due">
+              <div class="tname2">Manufacturing &amp; Production</div>
+              <div class="tproj">Limited Ed. Snowboard Launch</div>
+              <div class="tpills">
+                <span class="p p-tab">Launch Timeline</span>
+                <span class="p p-urgent">Urgent</span>
+                <span class="p p-today">Today</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- UPCOMING -->
+          <div>
+            <div class="col-head" style="color:var(--slate)">
+              <div class="cpip" style="background:var(--slate)"></div>
+              Upcoming
+            </div>
+            <div class="tcard c-up">
+              <div class="tname2">Product Page + Landing Build</div>
+              <div class="tproj">Limited Ed. Snowboard Launch</div>
+              <div class="tpills">
+                <span class="p p-tab">Launch Timeline</span>
+                <span class="p p-urgent">Urgent</span>
+                <span class="p p-date">Mar 28</span>
+              </div>
+            </div>
+            <div class="tcard c-up">
+              <div class="tname2">Post-Production + Asset Delivery</div>
+              <div class="tproj">Limited Ed. Snowboard Launch</div>
+              <div class="tpills">
+                <span class="p p-tab">Launch Timeline</span>
+                <span class="p p-high">High</span>
+                <span class="p p-date">Mar 28</span>
+              </div>
+            </div>
+            <div class="tcard c-up">
+              <div class="tname2">Creative Production Sprint</div>
+              <div class="tproj">Limited Ed. Snowboard Launch</div>
+              <div class="tpills">
+                <span class="p p-tab">Launch Timeline</span>
+                <span class="p p-high">High</span>
+                <span class="p p-date">Mar 28</span>
+              </div>
+            </div>
+            <div class="tcard c-up">
+              <div class="tname2">Launch Week Go-Live</div>
+              <div class="tproj">Limited Ed. Snowboard Launch</div>
+              <div class="tpills">
+                <span class="p p-tab">Launch Timeline</span>
+                <span class="p p-urgent">Urgent</span>
+                <span class="p p-date">Mar 30</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- PAST DUE -->
+          <div>
+            <div class="col-head" style="color:var(--red)">
+              <div class="cpip" style="background:var(--red)"></div>
+              Past Due
+            </div>
+            <div class="tcard c-past">
+              <div class="tname2">Email capture + waitlist flow</div>
+              <div class="tproj">Limited Ed. Snowboard Launch</div>
+              <div class="tpills">
+                <span class="p p-tab">Launch Timeline</span>
+                <span class="p p-high">High</span>
+                <span class="p p-dred">Mar 7</span>
+              </div>
+            </div>
+            <div class="tcard c-past">
+              <div class="tname2">Conduct final event walkthrough</div>
+              <div class="tproj">Limited Ed. Snowboard Launch</div>
+              <div class="tpills">
+                <span class="p p-tab">Content Calendar</span>
+                <span class="p p-dred">Mar 8</span>
+              </div>
+            </div>
+            <div class="tcard c-past">
+              <div class="tname2">Finalize Peptide Formula</div>
+              <div class="tproj">Limited Ed. Snowboard Launch</div>
+              <div class="tpills">
+                <span class="p p-tab">Launch Timeline</span>
+                <span class="p p-urgent">Urgent</span>
+                <span class="p p-dred">Mar 10</span>
+              </div>
+            </div>
+            <div class="tcard c-past">
+              <div class="tname2">Approve booth layout and display design</div>
+              <div class="tproj">Limited Ed. Snowboard Launch</div>
+              <div class="tpills">
+                <span class="p p-tab">Content Calendar</span>
+                <span class="p p-high">High</span>
+                <span class="p p-dred">Mar 10</span>

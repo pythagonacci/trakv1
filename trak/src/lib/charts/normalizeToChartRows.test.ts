@@ -112,6 +112,75 @@ describe("normalizeToChartRows", () => {
     });
   });
 
+  describe("subtasks", () => {
+    it("produces ChartRow[] with subtask metadata and derived status", () => {
+      const raw = [
+        {
+          id: "st1",
+          title: "Write docs",
+          completed: false,
+          task_id: "task-1",
+          task_title: "Launch checklist",
+        },
+        {
+          id: "st2",
+          title: "Review copy",
+          status: "done",
+          completed: false,
+          priority: "high",
+          due_date: "2025-04-02T10:00:00.000Z",
+          task_id: "task-1",
+          task_title: "Launch checklist",
+        },
+      ];
+
+      const rows = normalizeToChartRows("subtasks", raw);
+      expect(rows).toHaveLength(2);
+
+      expect(rows[0]).toMatchObject({
+        id: "st1",
+        "Task Title": "Write docs",
+        type: "subtask",
+        status: "todo",
+        parentTaskId: "task-1",
+        parentTaskTitle: "Launch checklist",
+      });
+
+      expect(rows[1]).toMatchObject({
+        id: "st2",
+        "Task Title": "Review copy",
+        type: "subtask",
+        status: "done",
+        priority: "high",
+        parentTaskId: "task-1",
+        parentTaskTitle: "Launch checklist",
+      });
+      expect(rows[1!]["Due Date"]).toBe("2025-04-02");
+    });
+
+    it("preserves non-binary statuses so charts can show new buckets on refresh", () => {
+      const raw = [
+        { id: "st1", title: "Write docs", status: "blocked", completed: false, task_id: "task-1", task_title: "Launch checklist" },
+        { id: "st2", title: "Review copy", status: "in_progress", completed: false, task_id: "task-1", task_title: "Launch checklist" },
+        { id: "st3", title: "Ship", completed: true, task_id: "task-1", task_title: "Launch checklist" },
+      ];
+
+      const rows = normalizeToChartRows("subtasks", raw);
+      const chartData = buildChartData({
+        focusRows: rows,
+        spec: makeSpec({ breakdown: { field: "status" } }),
+      });
+
+      expect(chartData.type).toBe("categorical");
+      if (chartData.type !== "categorical") return;
+
+      const byLabel = Object.fromEntries(chartData.data.map((d) => [d.label, d.value]));
+      expect(byLabel["blocked"]).toBe(1);
+      expect(byLabel["in_progress"]).toBe(1);
+      expect(byLabel["done"]).toBe(1);
+    });
+  });
+
   describe("table_rows", () => {
     it("produces ChartRow[] with id, Task Title from data, status, assignee, tags", () => {
       const raw = [

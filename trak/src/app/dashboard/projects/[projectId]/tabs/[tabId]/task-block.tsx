@@ -3698,9 +3698,33 @@ export default function TaskBlock({
                                 .map((id) => getWorkspaceMember(id)?.name || getWorkspaceMember(id)?.email)
                                 .filter(Boolean) as string[];
                               const subtaskPriority = normalizePriority(subtaskProps?.priority ?? null);
-                              const subtaskPriorityLabel = subtaskPriority
-                                ? PRIORITY_OPTIONS.find((o) => o.value === subtaskPriority)?.label ?? subtaskPriority
-                                : null;
+                              const subtaskPriorityFields = (() => {
+                                const namedFields =
+                                  subtaskProps?.priorities
+                                    ?.map((field, index) => {
+                                      return {
+                                        id: field?.id ?? `subtask-priority-${index}`,
+                                        field_name: String(field?.field_name ?? "").trim() || "Priority",
+                                        value: normalizePriority(field?.value ?? null),
+                                      };
+                                    })
+                                    .filter(
+                                      (
+                                        field
+                                      ): field is {
+                                        id: string;
+                                        field_name: string;
+                                        value: Priority | null;
+                                      } => Boolean(field)
+                                    ) ?? [];
+
+                                const valueFields = namedFields.filter(
+                                  (field): field is { id: string; field_name: string; value: Priority } => Boolean(field.value)
+                                );
+                                if (valueFields.length > 0) return valueFields;
+                                if (namedFields.length > 0) return [namedFields[0]];
+                                return [{ id: "subtask-priority-default", field_name: "Priority", value: subtaskPriority }];
+                              })();
                               const subtaskAssigneeLabel = subtaskAssigneeNames.length ? subtaskAssigneeNames.join(", ") : null;
                               const subtaskStatusLabel =
                                 STATUS_OPTIONS.find((o) => o.value === subtaskStatus)?.label ?? subtaskStatus;
@@ -3907,6 +3931,54 @@ export default function TaskBlock({
                                               </DropdownMenuContent>
                                             </DropdownMenu>
                                           )}
+                                          {subtaskPriorityFields.map((priorityField) => {
+                                            const priorityLabel = getPriorityButtonLabel(priorityField);
+
+                                            if (canUseSubtaskProperties && subtaskEntityId) {
+                                              return (
+                                                <PropertyFieldDropdown
+                                                  key={`${subtaskId}-priority-${priorityField.id}`}
+                                                  entityType="subtask"
+                                                  entityId={subtaskEntityId}
+                                                  workspaceId={workspaceId}
+                                                  group="priority"
+                                                  fieldId={priorityField.value ? priorityField.id : undefined}
+                                                  disabled={locked}
+                                                >
+                                                  <button
+                                                    type="button"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    className={cn(
+                                                      "inline-flex items-center gap-1 rounded-[4px] px-1.5 py-0.5 text-xs font-medium transition-opacity hover:opacity-90",
+                                                      priorityField.value
+                                                        ? PRIORITY_COLORS[priorityField.value]
+                                                        : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
+                                                    )}
+                                                    title={priorityField.value ? (priorityLabel ?? undefined) : `Set ${priorityField.field_name}`}
+                                                  >
+                                                    <Flag className="h-3 w-3" />
+                                                    {priorityLabel ? <span className="max-w-[220px] truncate">{priorityLabel}</span> : null}
+                                                  </button>
+                                                </PropertyFieldDropdown>
+                                              );
+                                            }
+
+                                            return (
+                                              <span
+                                                key={`${subtaskId}-priority-${priorityField.id}`}
+                                                className={cn(
+                                                  "inline-flex items-center gap-1 rounded-[4px] px-1.5 py-0.5 text-xs font-medium",
+                                                  priorityField.value
+                                                    ? PRIORITY_COLORS[priorityField.value]
+                                                    : "border border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)]"
+                                                )}
+                                                title={priorityField.value ? (priorityLabel ?? undefined) : `Set ${priorityField.field_name}`}
+                                              >
+                                                <Flag className="h-3 w-3" />
+                                                {priorityLabel ? <span className="max-w-[220px] truncate">{priorityLabel}</span> : null}
+                                              </span>
+                                            );
+                                          })}
                                           {subtaskProps && (
                                             <>
                                               <PropertyBadges
@@ -3914,6 +3986,8 @@ export default function TaskBlock({
                                                   ...subtaskProps,
                                                   status: null,
                                                   statuses: [],
+                                                  priority: null,
+                                                  priorities: [],
                                                   assignees: [],
                                                   assignee_ids: [],
                                                   assignee_id: null,

@@ -7,9 +7,9 @@ export interface SplashWeather {
 export const WEATHER_LOOKUP_TIMEOUT_MS = 2000;
 export const SPLASH_HIDE_DELAY_MS = 800;
 export const SPLASH_FADE_DURATION_MS = 300;
-export const SPLASH_SESSION_STORAGE_KEY = "trak-dashboard-splash-seen";
+export const SPLASH_SESSION_COOKIE_NAME = "trak-dashboard-splash-seen";
 
-let splashAutoShowState: "idle" | "pending" | "completed" = "idle";
+let splashAutoShowState: "idle" | "claimed" | "completed" = "idle";
 
 export function createUnavailableSplashWeather(summary: string): SplashWeather {
   return {
@@ -20,43 +20,57 @@ export function createUnavailableSplashWeather(summary: string): SplashWeather {
 }
 
 export function shouldAutoShowSplashForSession(
-  storage?: Pick<Storage, "getItem"> | null
+  cookieDocument?: Pick<Document, "cookie"> | null
 ) {
-  if (splashAutoShowState === "pending") {
-    return true;
-  }
-
-  if (splashAutoShowState === "completed") {
+  const splashCookieValue = readCookieValue(
+    cookieDocument?.cookie,
+    SPLASH_SESSION_COOKIE_NAME
+  );
+  if (splashCookieValue === "pending" || splashCookieValue === "1") {
+    splashAutoShowState = "completed";
     return false;
   }
 
-  try {
-    if (storage?.getItem(SPLASH_SESSION_STORAGE_KEY) === "1") {
-      splashAutoShowState = "completed";
-      return false;
-    }
-  } catch {
-    // Ignore storage access failures and fall back to the in-memory session gate.
+  if (splashAutoShowState !== "idle") {
+    return false;
   }
 
-  splashAutoShowState = "pending";
+  splashAutoShowState = "claimed";
+
+  try {
+    cookieDocument.cookie = createSplashCookie("pending");
+  } catch {
+    // Ignore cookie access failures and fall back to the in-memory session gate.
+  }
+
   return true;
 }
 
 export function markSplashShownForSession(
-  storage?: Pick<Storage, "setItem"> | null
+  cookieDocument?: Pick<Document, "cookie"> | null
 ) {
   splashAutoShowState = "completed";
 
   try {
-    storage?.setItem(SPLASH_SESSION_STORAGE_KEY, "1");
+    cookieDocument.cookie = createSplashCookie("1");
   } catch {
-    // Ignore storage access failures and rely on the in-memory session gate.
+    // Ignore cookie access failures and rely on the in-memory session gate.
   }
 }
 
 export function resetSplashSessionStateForTests() {
   splashAutoShowState = "idle";
+}
+
+export function buildSplashGreeting(name: string, now = new Date()) {
+  return `${getTimeOfDayGreeting(now)}, ${name}`;
+}
+
+export function getTimeOfDayGreeting(now = new Date()) {
+  const hour = now.getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
 }
 
 export function resolveSplashWeather({
@@ -112,4 +126,21 @@ export function resolveSplashWeather({
       }
     );
   });
+}
+
+function createSplashCookie(value: "pending" | "1") {
+  return `${SPLASH_SESSION_COOKIE_NAME}=${value}; Path=/; SameSite=Lax`;
+}
+
+function readCookieValue(cookieHeader: string | undefined, name: string) {
+  if (!cookieHeader) return null;
+
+  const cookies = cookieHeader.split(";");
+  for (const cookie of cookies) {
+    const trimmedCookie = cookie.trim();
+    if (!trimmedCookie.startsWith(`${name}=`)) continue;
+    return trimmedCookie.slice(name.length + 1);
+  }
+
+  return null;
 }

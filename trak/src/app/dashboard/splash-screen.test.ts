@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import {
+  buildSplashGreeting,
   createUnavailableSplashWeather,
   markSplashShownForSession,
   resetSplashSessionStateForTests,
@@ -33,24 +34,32 @@ describe("resolveSplashWeather", () => {
   });
 
   it("only auto-shows once per browser session", () => {
-    const storage = {
-      getItem: vi.fn(() => null),
-      setItem: vi.fn(),
+    const cookieDocument = {
+      cookie: "",
     };
 
-    expect(shouldAutoShowSplashForSession(storage)).toBe(true);
+    expect(shouldAutoShowSplashForSession(cookieDocument)).toBe(true);
+    expect(cookieDocument.cookie).toContain("trak-dashboard-splash-seen=pending");
 
-    markSplashShownForSession(storage);
+    expect(shouldAutoShowSplashForSession(cookieDocument)).toBe(false);
 
-    expect(shouldAutoShowSplashForSession(storage)).toBe(false);
-    expect(storage.setItem).toHaveBeenCalledWith("trak-dashboard-splash-seen", "1");
+    markSplashShownForSession(cookieDocument);
+
+    expect(shouldAutoShowSplashForSession(cookieDocument)).toBe(false);
+    expect(cookieDocument.cookie).toContain("trak-dashboard-splash-seen=1");
   });
 
   it("skips auto-show when the session was already marked seen", () => {
-    const storage = {
-      getItem: vi.fn(() => "1"),
+    const cookieDocument = {
+      cookie: "trak-dashboard-splash-seen=1",
     };
 
-    expect(shouldAutoShowSplashForSession(storage)).toBe(false);
+    expect(shouldAutoShowSplashForSession(cookieDocument)).toBe(false);
+  });
+
+  it("builds a morning, afternoon, or evening greeting from the current time", () => {
+    expect(buildSplashGreeting("Amna", new Date("2026-04-09T08:00:00"))).toBe("Good morning, Amna");
+    expect(buildSplashGreeting("Amna", new Date("2026-04-09T14:00:00"))).toBe("Good afternoon, Amna");
+    expect(buildSplashGreeting("Amna", new Date("2026-04-09T20:00:00"))).toBe("Good evening, Amna");
   });
 });

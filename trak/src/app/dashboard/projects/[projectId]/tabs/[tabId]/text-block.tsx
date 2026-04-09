@@ -156,17 +156,25 @@ export default function TextBlock({
   autoFocus = false,
   readOnly = false,
 }: TextBlockProps) {
-  const blockContent = (block.content || {}) as { text?: string; borderless?: boolean };
+  const blockContent = (block.content || {}) as { text?: string; borderless?: boolean; heightPx?: number };
   const initialContent = blockContent.text || "";
   const isEmpty = !initialContent || initialContent.trim() === "";
+  const initialHeightPx =
+    typeof blockContent.heightPx === "number" && blockContent.heightPx > 0
+      ? blockContent.heightPx
+      : null;
   const [isEditing, setIsEditing] = useState(!readOnly && (autoFocus || isEmpty));
   const [content, setContent] = useState(initialContent);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [isBorderless, setIsBorderless] = useState(Boolean(blockContent.borderless));
+  const [minHeightPx, setMinHeightPx] = useState<number | null>(initialHeightPx);
   const [activeFormatting, setActiveFormatting] = useState({ bold: false, italic: false, underline: false });
   const [activeHighlightColor, setActiveHighlightColor] = useState<HighlightColor | null>(null);
   const textareaRef = useRef<HTMLDivElement>(null);
+  const displayRef = useRef<HTMLDivElement>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const minHeightRef = useRef<number | null>(initialHeightPx);
+  const resizeStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
   const mentionRangeRef = useRef<Range | null>(null);
   const mentionStartRef = useRef<{ node: Node; offset: number } | null>(null);
   const mentionEndRef = useRef<{ node: Node; offset: number } | null>(null);
@@ -190,6 +198,16 @@ export default function TextBlock({
       return () => cancelAnimationFrame(raf);
     }
   }, [block.content, isBorderless]);
+
+  useEffect(() => {
+    const next =
+      typeof (block.content as Record<string, unknown> | undefined)?.heightPx === "number" &&
+      (block.content as Record<string, unknown>).heightPx > 0
+        ? ((block.content as Record<string, unknown>).heightPx as number)
+        : null;
+    minHeightRef.current = next;
+    setMinHeightPx((current) => (current === next ? current : next));
+  }, [block.content]);
 
   const editingRef = useRef(false);
 
@@ -231,7 +249,7 @@ export default function TextBlock({
 
     const resizeEditable = () => {
       editableDiv.style.height = "auto";
-      const newHeight = Math.max(20, editableDiv.scrollHeight); // Minimum 20px height (1 line)
+      const newHeight = Math.max(20, minHeightRef.current ?? 0, editableDiv.scrollHeight);
       editableDiv.style.height = `${newHeight}px`;
     };
 
@@ -259,6 +277,7 @@ export default function TextBlock({
             ...(block.content as Record<string, unknown> | undefined),
             text: textToSave,
             borderless: isBorderless,
+            heightPx: minHeightRef.current,
           },
         });
         setSaveStatus("saved");
@@ -270,6 +289,71 @@ export default function TextBlock({
       }
     },
     [block.id, onUpdate, isBorderless, block.content]
+  );
+
+  const handleResizeMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (readOnly) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const measuredHeight =
+        textareaRef.current?.getBoundingClientRect().height ??
+        displayRef.current?.getBoundingClientRect().height ??
+        minHeightRef.current ??
+        20;
+
+      resizeStateRef.current = {
+        startY: e.clientY,
+        startHeight: Math.max(20, Math.round(measuredHeight)),
+      };
+
+      const handleMouseMove = (ev: MouseEvent) => {
+        if (!resizeStateRef.current) return;
+        const delta = ev.clientY - resizeStateRef.current.startY;
+        const nextHeight = Math.max(20, Math.round(resizeStateRef.current.startHeight + delta));
+        minHeightRef.current = nextHeight;
+        setMinHeightPx(nextHeight);
+      };
+
+      const handleMouseUp = async () => {
+        document.removeEventListener("mousemove", handleMouseMove);
+        document.removeEventListener("mouseup", handleMouseUp);
+
+        const finalHeight = Math.max(20, Math.round(minHeightRef.current ?? resizeStateRef.current?.startHeight ?? 20));
+        minHeightRef.current = finalHeight;
+        setMinHeightPx(finalHeight);
+        resizeStateRef.current = null;
+
+        if (!block.id.startsWith("temp-")) {
+          try {
+            const result = await updateBlock({
+              blockId: block.id,
+              content: {
+                ...(block.content as Record<string, unknown> | undefined),
+                text: content,
+                borderless: isBorderless,
+                heightPx: finalHeight,
+              },
+            });
+
+            if ("data" in result && result.data) {
+              onUpdate?.();
+            } else if ("error" in result && result.error) {
+              console.error("Failed to update text block height:", result.error);
+            } else {
+              onUpdate?.();
+            }
+          } catch (error) {
+            console.error("Failed to update text block height:", error);
+          }
+        }
+      };
+
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+    },
+    [block.content, block.id, content, isBorderless, onUpdate, readOnly]
   );
 
   useEffect(() => {
@@ -1341,12 +1425,20 @@ export default function TextBlock({
             }
           }}
           className="w-full resize-none bg-transparent px-2 py-1 pt-7 text-sm leading-normal text-[var(--foreground)] focus:outline-none overflow-hidden min-h-[20px] [&_strong]:font-bold [&_b]:font-bold"
-          style={{ minHeight: '20px', height: 'auto' }}
+          style={{ minHeight: `${Math.max(20, minHeightPx ?? 20)}px`, height: 'auto' }}
         />
         {saveStatus !== "idle" && (
           <div className="absolute bottom-2 right-2 text-xs text-[var(--tertiary-foreground)]">
             {saveStatus === "saving" && "Saving…"}
             {saveStatus === "saved" && "Saved"}
+          </div>
+        )}
+        {!readOnly && (
+          <div
+            className="mt-1 flex justify-end cursor-row-resize select-none"
+            onMouseDown={handleResizeMouseDown}
+          >
+            <div className="h-1 w-10 rounded-full bg-[var(--border)] hover:bg-[var(--foreground)]" />
           </div>
         )}
       </div>
@@ -1358,6 +1450,7 @@ export default function TextBlock({
   return (
     <div className="space-y-2">
       <div
+        ref={displayRef}
         onClick={(e) => {
           if (readOnly) return;
           const target = e.target as HTMLElement;
@@ -1370,9 +1463,18 @@ export default function TextBlock({
           "text-sm leading-normal text-[var(--foreground)]",
           readOnly ? "" : "cursor-text"
         )}
+        style={minHeightPx ? { minHeight: `${minHeightPx}px` } : undefined}
         dangerouslySetInnerHTML={{ __html: formatted }}
       />
       {workspaceId && projectId && <AttachedFilesList blockId={block.id} onUpdate={onUpdate} />}
+      {!readOnly && (
+        <div
+          className="flex justify-end cursor-row-resize select-none"
+          onMouseDown={handleResizeMouseDown}
+        >
+          <div className="h-1 w-10 rounded-full bg-[var(--border)] hover:bg-[var(--foreground)]" />
+        </div>
+      )}
     </div>
   );
 }
