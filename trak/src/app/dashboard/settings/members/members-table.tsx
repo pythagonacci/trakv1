@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Crown, Shield, User, MoreVertical, UserPlus } from "lucide-react";
+import { Crown, Shield, User, MoreVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Table,
@@ -11,6 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
 import InviteMemberDialog from "./invite-member-dialog";
 import EditMemberDialog from "./edit-member-dialog";
 
@@ -73,23 +74,26 @@ export default function MembersTable({
 
   return (
     <div className="space-y-4">
-      {/* Header with Invite Button */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">Team Members</h2>
-          <p className="text-sm text-[var(--muted-foreground)] mt-0.5">
-            Manage who has access to this workspace
-          </p>
+      {/* Header with inline action */}
+      <div className="space-y-1">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold tracking-normal text-[var(--foreground)]">
+            Team Members
+          </h2>
+          {canManage && (
+            <Button
+              onClick={() => setInviteDialogOpen(true)}
+              size="sm"
+              variant="outline"
+              className="rounded-[2px] border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] hover:bg-[var(--surface-hover)]"
+            >
+              Invite member
+            </Button>
+          )}
         </div>
-        {canManage && (
-          <button
-            onClick={() => setInviteDialogOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[var(--river-indigo)] hover:bg-[var(--river-indigo)]/90 rounded-[var(--radius-md)] transition-colors"
-          >
-            <UserPlus className="h-4 w-4" />
-            Invite Member
-          </button>
-        )}
+        <p className="text-sm text-[var(--muted-foreground)]">
+          Manage who has access to this workspace
+        </p>
       </div>
 
       {/* Members Table */}

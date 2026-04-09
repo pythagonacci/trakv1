@@ -327,20 +327,21 @@ export async function inviteMember(workspaceId: string, email: string, role: 'ad
       .single()
     if (!workspace) return { error: 'Workspace not found.' }
 
-    const token = randomBytes(32).toString('hex')
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
 
     const { data: existingInvite } = await supabase
       .from('workspace_invitations')
-      .select('id')
+      .select('id, token')
       .eq('workspace_id', workspaceId)
       .eq('email', normalizedEmail)
       .maybeSingle()
 
+    const token = existingInvite?.token ?? randomBytes(32).toString('hex')
+
     if (existingInvite) {
       const { error: updateErr } = await supabase
         .from('workspace_invitations')
-        .update({ token, expires_at: expiresAt, role, created_by: user.id })
+        .update({ expires_at: expiresAt, role, created_by: user.id })
         .eq('id', existingInvite.id)
       if (updateErr) return { error: updateErr.message }
     } else {

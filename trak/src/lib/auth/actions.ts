@@ -46,6 +46,107 @@ function normalizeAuthErrorMessage(message: string) {
   return message;
 }
 
+async function findAuthUserByEmail(service: Awaited<ReturnType<typeof createServiceClient>>, email: string) {
+  const normalizedEmail = email.toLowerCase().trim()
+  let page = 1
+
+  while (true) {
+    const { data, error } = await service.auth.admin.listUsers({ page, perPage: 200 })
+    if (error) {
+      return { user: null, error }
+    }
+
+    const matchedUser =
+      data.users.find((candidate) => candidate.email?.toLowerCase().trim() === normalizedEmail) ?? null
+
+    if (matchedUser) {
+      return { user: matchedUser, error: null }
+    }
+
+    if (!data.nextPage || data.users.length === 0) {
+      return { user: null, error: null }
+    }
+
+    page = data.nextPage
+  }
+}
+
+async function acceptWorkspaceInviteForUser(params: {
+  inviteToken: string
+  userId: string
+  userEmail?: string | null
+}) {
+  const token = params.inviteToken.trim()
+  if (!token) {
+    return { accepted: false, error: 'Invalid or missing invitation.', workspaceId: null }
+  }
+
+  const supabase = await createServiceClient()
+  const { data: invite, error: inviteError } = await supabase
+    .from('workspace_invitations')
+    .select('id, email, role, expires_at, workspace_id')
+    .eq('token', token)
+    .maybeSingle()
+
+  if (inviteError || !invite) {
+    return { accepted: false, error: 'Invitation not found or expired.', workspaceId: null }
+  }
+
+  const expiresAt = invite.expires_at ? new Date(invite.expires_at).getTime() : 0
+  if (Date.now() > expiresAt) {
+    return { accepted: false, error: 'This invitation has expired.', workspaceId: null }
+  }
+
+  const normalizedInviteEmail = invite.email.toLowerCase().trim()
+  const normalizedUserEmail = params.userEmail?.toLowerCase().trim()
+  if (!normalizedUserEmail || normalizedUserEmail !== normalizedInviteEmail) {
+    return { accepted: false, error: 'Please sign in with the email address that was invited.', workspaceId: null }
+  }
+
+  const { data: existingMembership } = await supabase
+    .from('workspace_members')
+    .select('id')
+    .eq('workspace_id', invite.workspace_id)
+    .eq('user_id', params.userId)
+    .maybeSingle()
+
+  if (!existingMembership) {
+    try {
+      await assertCanAddWorkspaceMember(invite.workspace_id, supabase)
+    } catch (error) {
+      return {
+        accepted: false,
+        error: error instanceof Error ? error.message : 'This workspace has no available seats right now.',
+        workspaceId: null,
+      }
+    }
+
+    const { error: memberError } = await supabase
+      .from('workspace_members')
+      .insert({
+        workspace_id: invite.workspace_id,
+        user_id: params.userId,
+        role: invite.role,
+      })
+
+    if (memberError && memberError.code !== '23505') {
+      return { accepted: false, error: memberError.message, workspaceId: null }
+    }
+  }
+
+  await supabase.from('workspace_invitations').delete().eq('id', invite.id)
+
+  return { accepted: true, error: null, workspaceId: invite.workspace_id }
+}
+
+export async function acceptWorkspaceInviteAfterLogin(inviteToken: string, user: { id: string; email?: string | null }) {
+  return acceptWorkspaceInviteForUser({
+    inviteToken,
+    userId: user.id,
+    userEmail: user.email,
+  })
+}
+
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | null = null
 
@@ -74,6 +175,7 @@ async function getSignupBasePath() {
 
 export async function login(formData: FormData) {
   const supabase = await createClient()
+  const inviteToken = (formData.get('inviteToken') as string | null)?.trim() ?? ''
 
   const data = {
     email: formData.get('email') as string,
@@ -148,6 +250,24 @@ export async function login(formData: FormData) {
     const { data: { user } } = await supabase.auth.getUser()
     if (user?.id) {
       await claimSharedClientPagesForUser({ userId: user.id, email: user.email })
+      if (inviteToken) {
+        const inviteResult = await acceptWorkspaceInviteForUser({
+          inviteToken,
+          userId: user.id,
+          userEmail: user.email,
+        })
+        if (inviteResult.error) {
+          redirect(
+            '/invite/accept?token=' +
+              encodeURIComponent(inviteToken) +
+              '&error=' +
+              encodeURIComponent(inviteResult.error),
+          )
+        }
+        if (inviteResult.workspaceId) {
+          await setCurrentWorkspaceAfterInvite(inviteResult.workspaceId)
+        }
+      }
     }
     const signupBasePath = await getSignupBasePath()
     const stage = user?.user_metadata?.signup_stage
@@ -262,12 +382,51 @@ export async function signupWithInvite(formData: FormData) {
     redirect('/invite/accept?token=' + encodeURIComponent(token) + '&error=' + encodeURIComponent(error instanceof Error ? error.message : 'This workspace has no available seats right now.'))
   }
 
-  const { data: newUser, error: createError } = await supabase.auth.admin.createUser({
+  let { data: newUser, error: createError } = await supabase.auth.admin.createUser({
     email,
     password,
     email_confirm: true,
     user_metadata: { first_name: firstName, last_name: lastName },
   })
+
+  if (createError?.message.includes('already been registered')) {
+    const { user: existingAuthUser, error: existingAuthUserError } = await findAuthUserByEmail(supabase, email)
+    if (existingAuthUserError) {
+      redirect('/invite/accept?token=' + encodeURIComponent(token) + '&error=' + encodeURIComponent(normalizeAuthErrorMessage(existingAuthUserError.message)))
+    }
+
+    if (existingAuthUser?.id) {
+      const { error: profileRepairError } = await supabase
+        .from('profiles')
+        .upsert({ id: existingAuthUser.id, email }, { onConflict: 'id' })
+
+      if (profileRepairError) {
+        redirect('/invite/accept?token=' + encodeURIComponent(token) + '&error=' + encodeURIComponent(profileRepairError.message))
+      }
+
+      const nextMetadata = {
+        ...(existingAuthUser.user_metadata ?? {}),
+        ...(firstName ? { first_name: firstName } : {}),
+        ...(lastName ? { last_name: lastName } : {}),
+      }
+
+      const { data: repairedUser, error: repairUserError } = await supabase.auth.admin.updateUserById(
+        existingAuthUser.id,
+        {
+          password,
+          email_confirm: true,
+          user_metadata: nextMetadata,
+        },
+      )
+
+      if (repairUserError || !repairedUser.user?.id) {
+        redirect('/invite/accept?token=' + encodeURIComponent(token) + '&error=' + encodeURIComponent(normalizeAuthErrorMessage(repairUserError?.message ?? 'Account could not be repaired.')))
+      }
+
+      newUser = repairedUser
+      createError = null
+    }
+  }
 
   if (createError) {
     const msg = normalizeAuthErrorMessage(createError.message)

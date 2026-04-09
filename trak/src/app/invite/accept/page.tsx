@@ -135,7 +135,7 @@ export default async function InviteAcceptPage({ searchParams }: PageProps) {
         </Button>
         <p className="text-xs text-[var(--muted-foreground)] text-center">
           Already have an account?{" "}
-          <Link href={`/login?email=${encodeURIComponent(invite.email)}`} className="font-medium text-[var(--primary)] hover:underline">
+          <Link href={`/login?email=${encodeURIComponent(invite.email)}&inviteToken=${encodeURIComponent(token)}`} className="font-medium text-[var(--primary)] hover:underline">
             Sign in
           </Link>
         </p>

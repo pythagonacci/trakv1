@@ -11,7 +11,7 @@ import { createClient } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 
 interface PageProps {
-  searchParams: Promise<{ redirectedFrom?: string; error?: string; message?: string; email?: string }>;
+  searchParams: Promise<{ redirectedFrom?: string; error?: string; message?: string; email?: string; inviteToken?: string }>;
 }
 
 function normalizeLoginErrorMessage(message?: string) {
@@ -46,6 +46,10 @@ export default async function LoginPage({ searchParams }: PageProps) {
   if (session) {
     const stage = session.user?.user_metadata?.signup_stage;
     if (!stage || stage === "complete") {
+      if (params?.inviteToken) {
+        const next = params?.redirectedFrom || "/dashboard";
+        redirect(`/invite/claim?token=${encodeURIComponent(params.inviteToken)}&next=${encodeURIComponent(next)}`);
+      }
       redirect(params?.redirectedFrom || "/dashboard");
     }
     if (stage === "otp_sent" || stage === "email_verified") redirect("/signup/password");
@@ -56,6 +60,7 @@ export default async function LoginPage({ searchParams }: PageProps) {
   const errorMessage = normalizeLoginErrorMessage(params?.error);
   const infoMessage = params?.message;
   const prefilledEmail = params?.email ?? "";
+  const inviteToken = params?.inviteToken ?? "";
 
   return (
     <AuthShell title="Sign in" subtitle="Welcome back.">
@@ -71,6 +76,7 @@ export default async function LoginPage({ searchParams }: PageProps) {
       )}
       <form action={login} className="space-y-5">
         <input type="hidden" name="redirectTo" value={redirectTo} />
+        <input type="hidden" name="inviteToken" value={inviteToken} />
         <div>
           <Label htmlFor="email">Email</Label>
           <div className="relative">

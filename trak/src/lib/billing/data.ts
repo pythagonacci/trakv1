@@ -11,6 +11,10 @@ import {
 } from "@/lib/billing/config";
 import { BillingError } from "@/lib/billing/errors";
 import { planKeyFromPriceId, billingStatusFromStripeStatus } from "@/lib/billing/stripe";
+import {
+  getMissingWorkspaceBillingOptionalTrialColumn,
+  omitWorkspaceBillingColumn,
+} from "@/lib/billing/workspace-billing-compat";
 
 export interface WorkspaceBillingRow {
   id: string;
@@ -65,17 +69,25 @@ function addDays(value: Date, days: number) {
   return next;
 }
 
-export function hasWorkspaceUsedStandardTrial(row: Pick<WorkspaceBillingRow, "trial_started_at">) {
-  return Boolean(row.trial_started_at);
+function getAppManagedTrialStartAt(row: Pick<WorkspaceBillingRow, "trial_started_at" | "current_period_start">) {
+  return row.trial_started_at ?? row.current_period_start ?? null;
+}
+
+function getAppManagedTrialEndsAt(row: Pick<WorkspaceBillingRow, "trial_ends_at" | "current_period_end">) {
+  return row.trial_ends_at ?? row.current_period_end ?? null;
+}
+
+export function hasWorkspaceUsedStandardTrial(row: Pick<WorkspaceBillingRow, "trial_started_at" | "current_period_start">) {
+  return Boolean(getAppManagedTrialStartAt(row));
 }
 
 export function isAppManagedStandardTrial(
-  row: Pick<WorkspaceBillingRow, "plan_key" | "billing_status" | "stripe_subscription_id" | "trial_ends_at">
+  row: Pick<WorkspaceBillingRow, "plan_key" | "billing_status" | "stripe_subscription_id" | "trial_ends_at" | "current_period_end">
 ) {
   return row.plan_key === "standard"
     && row.billing_status === "trialing"
     && !row.stripe_subscription_id
-    && Boolean(row.trial_ends_at);
+    && Boolean(getAppManagedTrialEndsAt(row));
 }
 
 async function maybeExpireAppManagedTrial(
@@ -83,11 +95,13 @@ async function maybeExpireAppManagedTrial(
   billing: WorkspaceBillingRow,
   supabase?: BillingClient
 ): Promise<WorkspaceBillingRow> {
-  if (!isAppManagedStandardTrial(billing) || !billing.trial_ends_at) {
+  const trialEndsAt = getAppManagedTrialEndsAt(billing);
+
+  if (!isAppManagedStandardTrial(billing) || !trialEndsAt) {
     return billing;
   }
 
-  const trialEndsAtMs = new Date(billing.trial_ends_at).getTime();
+  const trialEndsAtMs = new Date(trialEndsAt).getTime();
   if (Number.isNaN(trialEndsAtMs) || trialEndsAtMs > Date.now()) {
     return billing;
   }
@@ -229,7 +243,7 @@ export async function expireAppManagedStandardTrial(
     stripe_price_id: null,
     seat_quantity: seatQuantity,
     cancel_at_period_end: false,
-    current_period_start: null,
+    current_period_start: billing.current_period_start ?? billing.trial_started_at,
     current_period_end: null,
     last_synced_at: new Date().toISOString(),
   }, client);
@@ -241,16 +255,36 @@ export async function updateWorkspaceBillingRow(
   supabase?: BillingClient
 ) {
   const client = supabase ?? await createServiceClient();
-  const payload = {
+  const payload: Partial<Omit<WorkspaceBillingRow, "id" | "workspace_id" | "created_at" | "updated_at">> = {
     ...values,
     last_synced_at: values.last_synced_at ?? new Date().toISOString(),
   };
-  const { data, error } = await client
+
+  let nextPayload = payload;
+  let { data, error } = await client
     .from("workspace_billing")
-    .update(payload)
+    .update(nextPayload)
     .eq("workspace_id", workspaceId)
     .select("*")
     .single();
+
+  while (error) {
+    const missingColumn = getMissingWorkspaceBillingOptionalTrialColumn(error);
+    if (!missingColumn || !(missingColumn in nextPayload)) {
+      break;
+    }
+
+    nextPayload = omitWorkspaceBillingColumn(nextPayload, missingColumn);
+    const fallback = await client
+      .from("workspace_billing")
+      .update(nextPayload)
+      .eq("workspace_id", workspaceId)
+      .select("*")
+      .single();
+
+    data = fallback.data;
+    error = fallback.error;
+  }
 
   if (error) {
     throw new Error(`Failed to update workspace billing: ${error.message}`);

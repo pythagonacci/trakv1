@@ -2,6 +2,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { STANDARD_TRIAL_ENDING_REMINDER_DAYS } from "@/lib/billing/config";
 import { expireAppManagedStandardTrial } from "@/lib/billing/data";
 import { getBaseAppUrl } from "@/lib/billing/stripe";
+import { isMissingWorkspaceBillingTrialReminderColumnError } from "@/lib/billing/workspace-billing-compat";
 import { sendWorkspaceTrialEndingEmail } from "@/lib/email";
 import { createBillingTrialEndingNotifications } from "@/lib/notifications/service";
 
@@ -23,8 +24,8 @@ export async function processAppManagedStandardTrials() {
     .eq("plan_key", "standard")
     .eq("billing_status", "trialing")
     .is("stripe_subscription_id", null)
-    .not("trial_ends_at", "is", null)
-    .lte("trial_ends_at", now.toISOString());
+    .not("current_period_end", "is", null)
+    .lte("current_period_end", now.toISOString());
 
   if (expiredError) {
     throw new Error(`Failed to load expired app-managed trials: ${expiredError.message}`);
@@ -36,16 +37,23 @@ export async function processAppManagedStandardTrials() {
 
   const { data: reminderRows, error: reminderError } = await supabase
     .from("workspace_billing")
-    .select("workspace_id, trial_ends_at")
+    .select("workspace_id, current_period_end")
     .eq("plan_key", "standard")
     .eq("billing_status", "trialing")
     .is("stripe_subscription_id", null)
-    .not("trial_ends_at", "is", null)
+    .not("current_period_end", "is", null)
     .is("trial_ending_reminder_sent_at", null)
-    .gt("trial_ends_at", now.toISOString())
-    .lte("trial_ends_at", reminderWindowEnd);
+    .gt("current_period_end", now.toISOString())
+    .lte("current_period_end", reminderWindowEnd);
 
   if (reminderError) {
+    if (isMissingWorkspaceBillingTrialReminderColumnError(reminderError)) {
+      console.warn("[billing] skipping trial ending reminders because workspace_billing.trial_ending_reminder_sent_at is unavailable");
+      return {
+        expiredTrials: expiredTrials?.length ?? 0,
+        remindersSent: 0,
+      };
+    }
     throw new Error(`Failed to load trial reminder candidates: ${reminderError.message}`);
   }
 
@@ -87,7 +95,7 @@ export async function processAppManagedStandardTrials() {
         workspaceId: row.workspace_id,
         recipientIds,
         workspaceName: workspace.name,
-        trialEndsAt: row.trial_ends_at,
+        trialEndsAt: row.current_period_end,
         billingUrl,
       });
     }
@@ -96,7 +104,7 @@ export async function processAppManagedStandardTrials() {
       await sendWorkspaceTrialEndingEmail({
         to: email,
         workspaceName: workspace.name,
-        trialEndsAt: row.trial_ends_at,
+        trialEndsAt: row.current_period_end,
         billingUrl,
       });
     }
