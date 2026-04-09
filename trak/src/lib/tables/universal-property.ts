@@ -77,6 +77,8 @@ export function normalizeCanonicalStatusValue(value: unknown): Status | null {
   if (
     token === "in_progress" ||
     token === "inprogress" ||
+    token === "in_shoot" ||
+    token === "inshoot" ||
     token === "doing" ||
     token === "active" ||
     token === "working" ||
@@ -97,6 +99,9 @@ export function normalizeCanonicalStatusValue(value: unknown): Status | null {
     return "done";
   }
   if (token === "blocked" || token === "on_hold" || token === "stuck") return "blocked";
+  if (token === "needs_revision" || token === "needsrevision" || token === "revision_requested" || token === "rejected") {
+    return "blocked";
+  }
 
   return null;
 }

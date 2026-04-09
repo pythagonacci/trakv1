@@ -13,6 +13,11 @@ import { assertCanUseProjectTemplates } from '@/lib/billing/entitlements';
 import { planMeetsRequirement, type PlanKey } from '@/lib/billing/config';
 import { createServiceClient } from '@/lib/supabase/service';
 import { IndexingQueue } from '@/lib/search/job-queue';
+import {
+  buildProjectTaskRollupMirrorMetadata,
+  buildProjectTaskRollupMirrorSeeds,
+  isProjectTaskRollupBlockContent,
+} from '@/lib/tasks/project-rollup';
 
 // Type for project status
 type ProjectStatus = 'not_started' | 'in_progress' | 'complete'
@@ -182,6 +187,10 @@ function summarizeBlockPreview(
         detailLines,
       };
     }
+    case "cards":
+      return {
+        summary: getTitle(content.title) || "Cards",
+      };
     case "link":
       return {
         summary: truncatePreviewText(content.title || content.url, 80) || "Link",
@@ -306,6 +315,7 @@ type TemplateCloneMaps = {
   project: Map<string, string>;
   tab: Map<string, string>;
   block: Map<string, string>;
+  card: Map<string, string>;
   task: Map<string, string>;
   subtask: Map<string, string>;
   table: Map<string, string>;
@@ -319,6 +329,7 @@ function createTemplateCloneMaps(): TemplateCloneMaps {
     project: new Map(),
     tab: new Map(),
     block: new Map(),
+    card: new Map(),
     task: new Map(),
     subtask: new Map(),
     table: new Map(),
@@ -342,6 +353,7 @@ function remapUuid(value: string, maps: TemplateCloneMaps) {
     maps.project.get(value) ||
     maps.tab.get(value) ||
     maps.block.get(value) ||
+    maps.card.get(value) ||
     maps.task.get(value) ||
     maps.subtask.get(value) ||
     maps.table.get(value) ||
@@ -967,6 +979,12 @@ export async function createProjectFromTemplate(
     }
 
     const blocks = sourceBlocks ?? []
+    const sourceRollupTaskBlockIds = new Set(
+      blocks
+        .filter((block: any) => block.type === 'task' && isProjectTaskRollupBlockContent(block.content))
+        .map((block: any) => String(block.id))
+    )
+    const sourceCardBlockIds = blocks.filter((block: any) => block.type === 'cards').map((block: any) => String(block.id))
     const sourceTaskBlockIds = blocks.filter((block: any) => block.type === 'task').map((block: any) => String(block.id))
     const sourceTimelineBlockIds = blocks.filter((block: any) => block.type === 'timeline').map((block: any) => String(block.id))
     const sourceTableIds = uniqueStrings(
@@ -980,6 +998,7 @@ export async function createProjectFromTemplate(
     )
 
     const [
+      sourceCardsResult,
       sourceTaskItemsResult,
       sourceTimelineEventsResult,
       sourceTablesResult,
@@ -988,6 +1007,13 @@ export async function createProjectFromTemplate(
       sourceViewsResult,
       sourceRelationsResult,
     ] = await Promise.all([
+      sourceCardBlockIds.length === 0
+        ? Promise.resolve({ data: [] as any[], error: null })
+        : serviceSupabase
+            .from('cards')
+            .select('*')
+            .in('cards_block_id', sourceCardBlockIds)
+            .order('display_order', { ascending: true }),
       sourceTaskBlockIds.length === 0
         ? Promise.resolve({ data: [] as any[], error: null })
         : serviceSupabase
@@ -1023,20 +1049,29 @@ export async function createProjectFromTemplate(
             .in('to_table_id', sourceTableIds),
     ])
 
+    if (sourceCardsResult.error) return { error: 'Failed to load template cards' }
     if (sourceTaskItemsResult.error) return { error: 'Failed to load template tasks' }
     if (sourceTimelineEventsResult.error) return { error: 'Failed to load template timeline events' }
     if (sourceTablesResult.error || sourceFieldsResult.error || sourceRowsResult.error || sourceViewsResult.error || sourceRelationsResult.error) {
       return { error: 'Failed to load template table data' }
     }
 
-    const taskItems = sourceTaskItemsResult.data ?? []
+    const sourceCards = sourceCardsResult.data ?? []
+    const taskItems = (sourceTaskItemsResult.data ?? []).filter(
+      (task: any) => !sourceRollupTaskBlockIds.has(String(task.task_block_id))
+    )
     const timelineEvents = sourceTimelineEventsResult.data ?? []
     const tableRows = sourceRowsResult.data ?? []
+    const sourceCardIds = sourceCards.map((card: any) => String(card.id))
 
     const sourceTaskIds = taskItems.map((task: any) => String(task.id))
     const sourceSubtaskIdsPromise = sourceTaskIds.length === 0
       ? Promise.resolve({ data: [] as any[], error: null })
       : serviceSupabase.from('task_subtasks').select('*').in('task_id', sourceTaskIds).order('display_order', { ascending: true })
+
+    const sourceTaskAssigneesPromise = sourceTaskIds.length === 0
+      ? Promise.resolve({ data: [] as any[], error: null })
+      : serviceSupabase.from('task_assignees').select('task_id, assignee_id, assignee_name').in('task_id', sourceTaskIds)
 
     const sourceTaskTagLinksPromise = sourceTaskIds.length === 0
       ? Promise.resolve({ data: [] as any[], error: null })
@@ -1058,6 +1093,9 @@ export async function createProjectFromTemplate(
       blocks.length === 0
         ? Promise.resolve({ data: [] as any[], error: null })
         : serviceSupabase.from('entity_properties').select('*').eq('entity_type', 'block').in('entity_id', blocks.map((block: any) => String(block.id))),
+      sourceCardIds.length === 0
+        ? Promise.resolve({ data: [] as any[], error: null })
+        : serviceSupabase.from('entity_properties').select('*').eq('entity_type', 'card').in('entity_id', sourceCardIds),
       sourceTaskIds.length === 0
         ? Promise.resolve({ data: [] as any[], error: null })
         : serviceSupabase.from('entity_properties').select('*').eq('entity_type', 'task').in('entity_id', sourceTaskIds),
@@ -1068,12 +1106,14 @@ export async function createProjectFromTemplate(
 
     const [
       sourceSubtasksResult,
+      sourceTaskAssigneesResult,
       sourceTaskTagLinksResult,
       sourceDependenciesResult,
       sourceTimelineRefsResult,
       sourceEntityPropsResults,
     ] = await Promise.all([
       sourceSubtaskIdsPromise,
+      sourceTaskAssigneesPromise,
       sourceTaskTagLinksPromise,
       sourceDependenciesPromise,
       sourceTimelineRefsPromise,
@@ -1081,11 +1121,13 @@ export async function createProjectFromTemplate(
     ])
 
     if (sourceSubtasksResult.error) return { error: 'Failed to load template subtasks' }
+    if (sourceTaskAssigneesResult.error) return { error: 'Failed to load template task assignees' }
     if (sourceTaskTagLinksResult.error) return { error: 'Failed to load template task tags' }
     if (sourceDependenciesResult.error || sourceTimelineRefsResult.error) return { error: 'Failed to load template timeline metadata' }
     if (sourceEntityPropsResults.some((result) => result.error)) return { error: 'Failed to load template entity properties' }
 
     const sourceSubtasks = sourceSubtasksResult.data ?? []
+    const sourceTaskAssignees = sourceTaskAssigneesResult.data ?? []
     const sourceSubtaskIds = sourceSubtasks.map((subtask: any) => String(subtask.id))
 
     const sourceSubtaskRefsResult = sourceSubtaskIds.length === 0
@@ -1103,6 +1145,7 @@ export async function createProjectFromTemplate(
     const maps = createTemplateCloneMaps()
     sourceTabs.forEach((tab: any) => maps.tab.set(String(tab.id), crypto.randomUUID()))
     blocks.forEach((block: any) => maps.block.set(String(block.id), crypto.randomUUID()))
+    sourceCards.forEach((card: any) => maps.card.set(String(card.id), crypto.randomUUID()))
     taskItems.forEach((task: any) => maps.task.set(String(task.id), crypto.randomUUID()))
     sourceSubtasks.forEach((subtask: any) => maps.subtask.set(String(subtask.id), crypto.randomUUID()))
     ;(sourceTablesResult.data ?? []).forEach((table: any) => maps.table.set(String(table.id), crypto.randomUUID()))
@@ -1310,45 +1353,126 @@ export async function createProjectFromTemplate(
       }
     }
 
-    if (taskItems.length > 0) {
-      const taskPayload = taskItems.map((task: any) => {
-        const sanitizedTask = sanitizeAssignmentFields(sanitizeSourceLinkedRecord(task))
+    if (sourceCards.length > 0) {
+      const cardPayload = sourceCards.map((card: any) => {
+        const sanitizedCard = sanitizeAssignmentFields(card)
         return {
-          id: maps.task.get(String(task.id)),
-          task_block_id: maps.block.get(String(task.task_block_id)),
+          id: maps.card.get(String(card.id)),
+          cards_block_id: maps.block.get(String(card.cards_block_id)),
           workspace_id: workspaceId,
           project_id: project.id,
-          tab_id: task.tab_id ? maps.tab.get(String(task.tab_id)) || null : null,
-          title: task.title,
-          description: task.description ?? null,
-          due_date: task.due_date ?? null,
-          due_time: task.due_time ?? null,
-          start_date: task.start_date ?? null,
-          hide_icons: Boolean(task.hide_icons),
-          display_order: task.display_order,
-          recurring_enabled: Boolean(task.recurring_enabled),
-          recurring_frequency: task.recurring_frequency ?? null,
-          recurring_interval: task.recurring_interval ?? 1,
+          tab_id: card.tab_id ? maps.tab.get(String(card.tab_id)) || null : null,
+          title: card.title,
+          notes: card.notes ?? null,
+          asset_file_id: null,
+          asset_file_ids: [],
+          asset_kind: null,
+          asset_caption: null,
+          display_order: card.display_order,
+          width: card.width === 'full' ? 'full' : 'half',
+          height: card.height === 'compact' ? 'compact' : 'tall',
+          text_rows: cloneJsonValue((card as any).text_rows ?? []),
+          assignee_id: sanitizedCard.assignee_id ?? null,
+          due_date: card.due_date ?? null,
+          start_date: card.start_date ?? null,
+          tags: cloneJsonValue(card.tags ?? []),
+          priorities: cloneJsonValue(card.priorities ?? []),
+          statuses: cloneJsonValue(card.statuses ?? []),
+          assignees: [],
+          due_dates: cloneJsonValue(card.due_dates ?? []),
           created_by: userId,
           updated_by: userId,
-          assignee_id: sanitizedTask.assignee_id ?? null,
-          due_time_end: task.due_time_end ?? null,
-          source_task_id: null,
-          source_sync_mode: sanitizedTask.source_sync_mode ?? null,
-          source_entity_type: sanitizedTask.source_entity_type ?? null,
-          source_entity_id: sanitizedTask.source_entity_id ?? null,
-          edited: Boolean(sanitizedTask.edited),
-          priorities: cloneJsonValue(task.priorities ?? []),
-          statuses: cloneJsonValue(task.statuses ?? []),
-          is_placeholder: Boolean(task.is_placeholder),
-          assignees: [],
-          due_dates: cloneJsonValue(task.due_dates ?? []),
         }
       })
 
-      const { error: taskInsertError } = await serviceSupabase.from('task_items').insert(taskPayload)
+      const { error: cardInsertError } = await serviceSupabase.from('cards').insert(cardPayload)
+      if (cardInsertError) {
+        return { error: `Failed to clone cards: ${cardInsertError.message}` }
+      }
+    }
+
+    const taskPayload = taskItems.map((task: any) => {
+      const sanitizedTask = sanitizeAssignmentFields(sanitizeSourceLinkedRecord(task))
+      return {
+        id: maps.task.get(String(task.id)),
+        task_block_id: maps.block.get(String(task.task_block_id)),
+        workspace_id: workspaceId,
+        project_id: project.id,
+        tab_id: task.tab_id ? maps.tab.get(String(task.tab_id)) || null : null,
+        title: task.title,
+        description: task.description ?? null,
+        due_date: task.due_date ?? null,
+        due_time: task.due_time ?? null,
+        start_date: task.start_date ?? null,
+        hide_icons: Boolean(task.hide_icons),
+        display_order: task.display_order,
+        recurring_enabled: Boolean(task.recurring_enabled),
+        recurring_frequency: task.recurring_frequency ?? null,
+        recurring_interval: task.recurring_interval ?? 1,
+        created_by: userId,
+        updated_by: userId,
+        assignee_id: sanitizedTask.assignee_id ?? null,
+        due_time_end: task.due_time_end ?? null,
+        source_task_id: null,
+        source_sync_mode: sanitizedTask.source_sync_mode ?? null,
+        source_entity_type: sanitizedTask.source_entity_type ?? null,
+        source_entity_id: sanitizedTask.source_entity_id ?? null,
+        edited: Boolean(sanitizedTask.edited),
+        priorities: cloneJsonValue(task.priorities ?? []),
+        statuses: cloneJsonValue(task.statuses ?? []),
+        is_placeholder: Boolean(task.is_placeholder),
+        assignees: [],
+        due_dates: cloneJsonValue(task.due_dates ?? []),
+      }
+    })
+
+    const canonicalTaskAssigneePayload = sourceTaskAssignees
+      .map((row: any) => {
+        const taskId = maps.task.get(String(row.task_id))
+        if (!taskId) return null
+        return {
+          task_id: taskId,
+          assignee_id: row.assignee_id ?? null,
+          assignee_name: row.assignee_name ?? null,
+        }
+      })
+      .filter(Boolean)
+
+    const clonedRollupTaskBlocks = blocks
+      .filter((block: any) => block.type === 'task' && isProjectTaskRollupBlockContent(block.content))
+      .map((block: any) => ({
+        id: maps.block.get(String(block.id))!,
+        tab_id: maps.tab.get(String(block.tab_id)) || null,
+        workspace_id: workspaceId,
+        project_id: project.id,
+      }))
+
+    const taskRollupMirrorSeeds = buildProjectTaskRollupMirrorSeeds({
+      sourceTasks: taskPayload as any,
+      rollupBlocks: clonedRollupTaskBlocks,
+      actorUserId: userId,
+      taskAssignees: canonicalTaskAssigneePayload as any,
+    })
+
+    if (taskPayload.length > 0 || taskRollupMirrorSeeds.taskItems.length > 0) {
+      const taskInsertPayload = [...taskPayload, ...taskRollupMirrorSeeds.taskItems]
+      const { error: taskInsertError } = await serviceSupabase.from('task_items').insert(taskInsertPayload)
       if (taskInsertError) {
         return { error: `Failed to clone tasks: ${taskInsertError.message}` }
+      }
+    }
+
+    if (canonicalTaskAssigneePayload.length > 0) {
+      const { error: taskAssigneeInsertError } = await serviceSupabase.from('task_assignees').insert(canonicalTaskAssigneePayload)
+      if (taskAssigneeInsertError) {
+        return { error: `Failed to clone task assignees: ${taskAssigneeInsertError.message}` }
+      }
+    }
+
+    if (taskRollupMirrorSeeds.taskAssignees.length > 0) {
+      const { error: mirrorAssigneeInsertError } = await serviceSupabase.from('task_assignees').insert(taskRollupMirrorSeeds.taskAssignees)
+      if (mirrorAssigneeInsertError) {
+        return { error: `Failed to clone rollup task assignees: ${mirrorAssigneeInsertError.message}` }
       }
     }
 
@@ -1375,6 +1499,7 @@ export async function createProjectFromTemplate(
     }
 
     const taskTagLinks = sourceTaskTagLinksResult.data ?? []
+    let tagLinkPayload: Array<{ task_id: string; tag_id: string }> = []
     if (taskTagLinks.length > 0) {
       const workspaceTagIds = await ensureWorkspaceTaskTags(
         serviceSupabase,
@@ -1385,7 +1510,7 @@ export async function createProjectFromTemplate(
           .map((tag: any) => ({ name: String(tag.name), color: tag.color ? String(tag.color) : null }))
       )
 
-      const tagLinkPayload = taskTagLinks
+      tagLinkPayload = taskTagLinks
         .map((link: any) => {
           const taskId = maps.task.get(String(link.task_id))
           const tagName = link.tag?.name ? String(link.tag.name).toLowerCase() : null
@@ -1393,7 +1518,7 @@ export async function createProjectFromTemplate(
           if (!taskId || !tagId) return null
           return { task_id: taskId, tag_id: tagId }
         })
-        .filter(Boolean)
+        .filter((link): link is { task_id: string; tag_id: string } => Boolean(link))
 
       if (tagLinkPayload.length > 0) {
         const { error: tagLinkInsertError } = await serviceSupabase.from('task_tag_links').insert(tagLinkPayload)
@@ -1516,8 +1641,9 @@ export async function createProjectFromTemplate(
 
     const entityPropertyRows = [
       ...(sourceEntityPropsResults[0].data ?? []).map((row: any) => ({ ...row, entity_type: 'block' })),
-      ...(sourceEntityPropsResults[1].data ?? []).map((row: any) => ({ ...row, entity_type: 'task' })),
-      ...(sourceEntityPropsResults[2].data ?? []).map((row: any) => ({ ...row, entity_type: 'timeline_event' })),
+      ...(sourceEntityPropsResults[1].data ?? []).map((row: any) => ({ ...row, entity_type: 'card' })),
+      ...(sourceEntityPropsResults[2].data ?? []).map((row: any) => ({ ...row, entity_type: 'task' })),
+      ...(sourceEntityPropsResults[3].data ?? []).map((row: any) => ({ ...row, entity_type: 'timeline_event' })),
       ...(sourceSubtaskPropsResult.data ?? []).map((row: any) => ({ ...row, entity_type: 'subtask' })),
     ]
 
@@ -1528,6 +1654,8 @@ export async function createProjectFromTemplate(
         const entityId =
           entityType === 'block'
             ? maps.block.get(sourceId)
+            : entityType === 'card'
+            ? maps.card.get(sourceId)
             : entityType === 'task'
             ? maps.task.get(sourceId)
             : entityType === 'subtask'
@@ -1553,6 +1681,26 @@ export async function createProjectFromTemplate(
       const { error: entityPropertyInsertError } = await serviceSupabase.from('entity_properties').insert(entityPropertyPayload)
       if (entityPropertyInsertError) {
         return { error: `Failed to clone entity properties: ${entityPropertyInsertError.message}` }
+      }
+    }
+
+    const taskRollupMirrorMetadata = buildProjectTaskRollupMirrorMetadata({
+      mirrorTasks: taskRollupMirrorSeeds.taskItems as any,
+      taskTagLinks: tagLinkPayload,
+      entityProperties: (entityPropertyPayload as any[]).filter((row: any) => row.entity_type === 'task') as any,
+    })
+
+    if (taskRollupMirrorMetadata.taskTagLinks.length > 0) {
+      const { error: mirrorTagLinkInsertError } = await serviceSupabase.from('task_tag_links').insert(taskRollupMirrorMetadata.taskTagLinks)
+      if (mirrorTagLinkInsertError) {
+        return { error: `Failed to clone rollup task tags: ${mirrorTagLinkInsertError.message}` }
+      }
+    }
+
+    if (taskRollupMirrorMetadata.entityProperties.length > 0) {
+      const { error: mirrorEntityPropertyInsertError } = await serviceSupabase.from('entity_properties').insert(taskRollupMirrorMetadata.entityProperties)
+      if (mirrorEntityPropertyInsertError) {
+        return { error: `Failed to clone rollup task properties: ${mirrorEntityPropertyInsertError.message}` }
       }
     }
 
