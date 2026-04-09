@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createCard, deleteCard, updateCard } from "@/app/actions/cards/item-actions";
 import { createCardComment, deleteCardComment, updateCardComment } from "@/app/actions/cards/comment-actions";
 import type { CardCommentView, CardItemView, CardsBlockBundle } from "@/app/actions/cards/query-actions";
-import type { CardItem } from "@/types/card";
+import type { CardItem, TextCardRow } from "@/types/card";
 import type { EntityProperties } from "@/types/properties";
 
 const cardKeys = {
@@ -178,6 +178,7 @@ function applyCardUpdates(card: CardItemView, updates: Partial<Parameters<typeof
   if (updates.assetCaption !== undefined) next.assetCaption = updates.assetCaption ?? null;
   if (updates.width !== undefined) next.width = updates.width;
   if (updates.height !== undefined) next.height = updates.height;
+  if (updates.textRows !== undefined) next.textRows = updates.textRows as TextCardRow[];
   if (updates.status !== undefined) next.statuses = updates.status ? [{ field_name: "Status", value: updates.status }] : [];
   if (updates.statuses !== undefined) next.statuses = updates.statuses ?? [];
   if (updates.priority !== undefined) next.priorities = updates.priority ? [{ field_name: "Priority", value: updates.priority }] : [];
@@ -219,6 +220,7 @@ function toCardItemView(card: CardItem): CardItemView {
     assetCaption: card.asset_caption,
     width: card.width === "full" ? "full" : "half",
     height: card.height === "compact" ? "compact" : "tall",
+    textRows: Array.isArray(card.text_rows) ? card.text_rows : [],
     assigneeId: card.assignee_id,
     assigneeName: null,
     dueDate: card.due_date,
@@ -302,6 +304,7 @@ export function useCreateCard(blockId: string) {
         assetCaption: input.assetCaption ?? null,
         width: input.width ?? "half",
         height: input.height ?? "tall",
+        textRows: input.textRows ?? [],
         assigneeId: input.assigneeIds?.[0] ?? null,
         assigneeName: null,
         dueDate: input.dueDate?.end ?? input.dueDate?.start ?? null,

@@ -200,6 +200,8 @@ export default function BlockWrapper({
 
   const isDragging = externalIsDragging || isDraggingInternal;
   const borderless = Boolean((block.content as Record<string, unknown> | undefined)?.borderless) || block.type === "section_header";
+  const isTextCardBlock =
+    block.type === "cards" && (block.content as Record<string, unknown> | undefined)?.cardVariant === "text";
   const isSectionHeaderBlock = block.type === "section_header";
   const isTempBlock = block.id.startsWith("temp-");
   const initialEmbedHeight =
@@ -227,7 +229,9 @@ export default function BlockWrapper({
     }
     if (block.type === "table") return "Table block";
     if (block.type === "task") return "Task list";
-    if (block.type === "cards") return "Cards block";
+    if (block.type === "cards") {
+      return (block.content as Record<string, unknown> | undefined)?.cardVariant === "text" ? "Text card" : "Cards block";
+    }
     if (block.type === "timeline") return "Timeline block";
     if (block.type === "file") return "File block";
     if (block.type === "image") return "Image block";
@@ -402,9 +406,10 @@ export default function BlockWrapper({
       : { layout: "collage" as const, items: [] };
 
   const cardsLayouts = [
-    { label: "Single card", content: { title: "Cards", viewMode: "grid", initialCardCount: 1 } },
-    { label: "Array (2×2)", content: { title: "Cards", viewMode: "grid", initialCardCount: 4 } },
-    { label: "Array (2×3)", content: { title: "Cards", viewMode: "grid", initialCardCount: 6 } },
+    { label: "Single card", content: { title: "Cards", viewMode: "grid", cardVariant: "asset", initialCardCount: 1 } },
+    { label: "Array (2×2)", content: { title: "Cards", viewMode: "grid", cardVariant: "asset", initialCardCount: 4 } },
+    { label: "Array (2×3)", content: { title: "Cards", viewMode: "grid", cardVariant: "asset", initialCardCount: 6 } },
+    { label: "Text card", content: { title: "Cards", viewMode: "grid", cardVariant: "text", initialCardCount: 1 } },
   ];
 
   const isTextBlock = block.type === "text";
@@ -441,10 +446,12 @@ export default function BlockWrapper({
         ref={blockCardRef}
         className={cn(
           "relative flex min-w-0 flex-col w-full rounded-[var(--radius-sm)] transition-all duration-150 ease-out",
-          borderless
+          isTextCardBlock
+            ? "border-none bg-transparent px-0 py-0 shadow-none"
+            : borderless
             ? "border-none bg-transparent px-0 py-0 shadow-none"
             : isTextBlock
-              ? "border-y border-[var(--primary)]/35 bg-transparent px-3 py-2.5 shadow-none rounded-none"
+              ? "border-[0.5px] border-[var(--primary)]/20 bg-transparent px-3 py-2.5 shadow-none rounded-none"
               : "border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)] hover:border-[var(--primary)]/20"
         )}
         onDoubleClick={() => {

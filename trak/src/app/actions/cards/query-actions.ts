@@ -4,7 +4,7 @@ import { buildEntityPropertiesFromRows } from "@/app/actions/entity-properties";
 import { requireCardsBlockAccess } from "./context";
 import type { AuthContext } from "@/lib/auth-context";
 import type { EntityProperties } from "@/types/properties";
-import type { CardItem, CardComment } from "@/types/card";
+import type { CardItem, CardComment, TextCardRow } from "@/types/card";
 
 type ActionResult<T> = { data: T } | { error: string };
 
@@ -29,6 +29,7 @@ export interface CardItemView {
   assetCaption?: string | null;
   width?: "half" | "full";
   height?: "compact" | "tall";
+  textRows?: TextCardRow[];
   assigneeId?: string | null;
   assigneeName?: string | null;
   dueDate?: string | null;
@@ -58,7 +59,7 @@ export async function getCardsByBlock(
 
   const { data: cards, error } = await supabase
     .from("cards")
-    .select("id, title, notes, asset_file_id, asset_file_ids, asset_kind, asset_caption, width, height, assignee_id, due_date, start_date, display_order, tags, statuses, priorities, assignees, due_dates, created_at, updated_at")
+    .select("id, title, notes, asset_file_id, asset_file_ids, asset_kind, asset_caption, width, height, text_rows, assignee_id, due_date, start_date, display_order, tags, statuses, priorities, assignees, due_dates, created_at, updated_at")
     .eq("cards_block_id", cardsBlockId)
     .order("display_order", { ascending: true });
 
@@ -135,6 +136,7 @@ export async function getCardsByBlock(
     assetCaption: card.asset_caption,
     width: (card.width === "full" ? "full" : "half") as "full" | "half",
     height: (card.height === "compact" ? "compact" : "tall") as "compact" | "tall",
+    textRows: Array.isArray((card as any).text_rows) ? ((card as any).text_rows as TextCardRow[]) : [],
     assigneeId: card.assignee_id,
     assigneeName: card.assignee_id ? (profileMap.get(card.assignee_id) ?? null) : null,
     dueDate: card.due_date,

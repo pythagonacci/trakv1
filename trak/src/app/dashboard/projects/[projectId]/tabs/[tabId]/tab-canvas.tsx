@@ -523,13 +523,13 @@ export default function TabCanvas({
     if (contentOverride !== undefined) {
       const { initialCardCount: count, ...rest } = contentOverride as Record<string, unknown> & { initialCardCount?: number };
       initialCardCount = count ?? 0;
-      newContent = Object.keys(rest).length > 0 ? rest : { title: "Cards", viewMode: "grid" };
+      newContent = Object.keys(rest).length > 0 ? rest : { title: "Cards", viewMode: "grid", cardVariant: "asset" };
     } else if (newType === "text") {
       newContent = { text: "" };
     } else if (newType === "task") {
       newContent = { title: "New Task List", hideIcons: false, viewMode: "list", boardGroupBy: "status" };
     } else if (newType === "cards") {
-      newContent = { title: "Cards", viewMode: "grid" };
+      newContent = { title: "Cards", viewMode: "grid", cardVariant: "asset" };
     } else if (newType === "link") {
       newContent = { title: "", url: "" };
     } else if (newType === "divider") {
@@ -590,13 +590,22 @@ export default function TabCanvas({
 
     // For cards blocks: create initial cards if requested
     if (newType === "cards" && initialCardCount > 0 && result.data?.id) {
+      const cardVariant = ((result.data.content ?? {}) as Record<string, unknown>).cardVariant === "text" ? "text" : "asset";
       for (let i = 0; i < initialCardCount; i++) {
         const cardResult = await createCard({
           cardsBlockId: result.data.id,
           title: "Untitled card",
-          status: "todo",
+          ...(cardVariant === "asset" ? { status: "todo" as const } : {}),
           width: "half",
           height: "tall",
+          textRows:
+            cardVariant === "text"
+              ? [
+                  { id: crypto.randomUUID(), label: "", fieldType: "text", value: "" },
+                  { id: crypto.randomUUID(), label: "", fieldType: "text", value: "" },
+                  { id: crypto.randomUUID(), label: "", fieldType: "text", value: "" },
+                ]
+              : [],
           displayOrder: i,
         });
         if ("error" in cardResult) {
@@ -626,7 +635,7 @@ export default function TabCanvas({
       case "task":
         return { title: "New Task List", hideIcons: false, viewMode: "list", boardGroupBy: "status" };
       case "cards":
-        return { title: "New Cards Block", viewMode: "grid" };
+        return { title: "New Cards Block", viewMode: "grid", cardVariant: "asset" };
       case "link":
         return { title: null, url: null, caption: "" };
       case "divider":

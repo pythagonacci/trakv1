@@ -459,7 +459,7 @@ export async function createBlock(data: {
           content = { title: "New Task List", hideIcons: false, viewMode: "list", boardGroupBy: "status" };
           break;
         case "cards":
-          content = { title: "New Cards Block", viewMode: "grid" };
+          content = { title: "New Cards Block", viewMode: "grid", cardVariant: "asset" };
           break;
         case "link":
           content = { title: "", url: "", description: "" };

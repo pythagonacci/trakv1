@@ -1,6 +1,26 @@
 import type { Priority, DueDateRange } from "@/types/properties";
 
 export type CardAssetKind = "image" | "video" | "file" | null;
+export type CardVariant = "asset" | "text";
+export type TextCardFieldType = "text" | "date" | "status" | "priority" | "person";
+
+export type TextCardRowValue =
+  | string
+  | DueDateRange
+  | "todo"
+  | "in_progress"
+  | "blocked"
+  | "done"
+  | Priority
+  | string[]
+  | null;
+
+export interface TextCardRow {
+  id: string;
+  label: string;
+  fieldType: TextCardFieldType;
+  value: TextCardRowValue;
+}
 
 export interface CardPriorityField {
   field_name: string;
@@ -43,6 +63,7 @@ export interface CardItem {
   width?: CardWidth;
   /** Compact = shorter, tall = larger vertically. Defaults to 'tall' when absent. */
   height?: CardHeight;
+  text_rows?: TextCardRow[];
   assignee_id: string | null;
   due_date: string | null;
   start_date: string | null;
@@ -69,6 +90,7 @@ export interface CardComment {
 export interface CardsBlockContent {
   title: string;
   viewMode?: "grid" | "list";
+  cardVariant?: CardVariant;
   /** Resizable block height in pixels. */
   heightPx?: number;
 }

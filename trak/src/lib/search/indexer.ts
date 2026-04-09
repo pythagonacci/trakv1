@@ -242,7 +242,7 @@ export class ResourceIndexer {
             if (blockType === "cards") {
                 const { data: cards } = await this.supabase
                     .from("cards")
-                    .select("title, notes, tags, statuses, priorities")
+                    .select("title, notes, text_rows, tags, statuses, priorities")
                     .eq("cards_block_id", block.id)
                     .order("display_order", { ascending: true });
 
@@ -261,9 +261,27 @@ export class ResourceIndexer {
                                   .join(", ")
                             : "";
                         const tags = Array.isArray((card as any).tags) ? ((card as any).tags as string[]).join(", ") : "";
+                        const textRows = Array.isArray((card as any).text_rows)
+                            ? ((card as any).text_rows as Array<{ label?: string; fieldType?: string; value?: unknown }>)
+                                  .map((row) => {
+                                      const label = typeof row.label === "string" ? row.label.trim() : "";
+                                      const fieldType = typeof row.fieldType === "string" ? row.fieldType : "text";
+                                      const rawValue = row.value;
+                                      const value = Array.isArray(rawValue)
+                                          ? rawValue.join(", ")
+                                          : rawValue && typeof rawValue === "object"
+                                            ? JSON.stringify(rawValue)
+                                            : String(rawValue ?? "").trim();
+                                      if (!label && !value) return "";
+                                      return `${label || fieldType}: ${value}`.trim();
+                                  })
+                                  .filter(Boolean)
+                                  .join(", ")
+                            : "";
                         return [
                             `Card: ${card.title ?? "Untitled"}`,
                             card.notes ? `Notes: ${card.notes}` : "",
+                            textRows ? `Fields: ${textRows}` : "",
                             statuses ? `Statuses: ${statuses}` : "",
                             priorities ? `Priorities: ${priorities}` : "",
                             tags ? `Tags: ${tags}` : "",

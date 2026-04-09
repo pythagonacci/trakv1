@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { CardsBlockBundle } from "@/app/actions/cards/query-actions";
+import TextCardsBlock from "./text-cards-block";
 
 interface CardsBlockProps {
   block: Block;
@@ -92,6 +93,16 @@ function UploadPlaceholder({ large = false, onClick }: { large?: boolean; onClic
 }
 
 export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: CardsBlockProps) {
+  const blockContent = (block.content ?? {}) as Record<string, unknown>;
+  const cardVariant = blockContent.cardVariant === "text" ? "text" : "asset";
+  if (cardVariant === "text") {
+    return <TextCardsBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
+  }
+
+  return <AssetCardsBlock block={block} workspaceId={workspaceId} projectId={projectId} onUpdate={onUpdate} />;
+}
+
+function AssetCardsBlock({ block, workspaceId, projectId, onUpdate }: CardsBlockProps) {
   const cardsBlockId = block.id;
   const blockContent = (block.content ?? {}) as Record<string, unknown>;
   const viewMode = (blockContent.viewMode === "list" ? "list" : "grid") as ViewMode;

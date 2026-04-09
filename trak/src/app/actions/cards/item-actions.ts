@@ -5,7 +5,7 @@ import { requireCardAccess, requireCardsBlockAccess } from "./context";
 import { revalidateClientPages } from "@/app/actions/revalidate-client-page";
 import { setEntityProperties } from "@/app/actions/entity-properties";
 import type { AuthContext } from "@/lib/auth-context";
-import type { CardItem, CardAssetKind, CardWidth, CardHeight } from "@/types/card";
+import type { CardItem, CardAssetKind, CardWidth, CardHeight, TextCardRow } from "@/types/card";
 import type { DueDateRange, Priority, Status } from "@/types/properties";
 import { revalidateDashboardProjectTabPath } from "@/app/actions/dashboard-path-revalidation";
 
@@ -62,6 +62,7 @@ export async function createCard(
     displayOrder?: number;
     width?: CardWidth;
     height?: CardHeight;
+    textRows?: TextCardRow[];
   } & CardPropertyInput,
   opts?: { authContext?: AuthContext }
 ): Promise<ActionResult<CardItem>> {
@@ -97,6 +98,7 @@ export async function createCard(
       display_order: displayOrder,
       width: input.width ?? "half",
       height: input.height ?? "tall",
+      text_rows: input.textRows ?? [],
       created_by: userId,
       updated_by: userId,
     })
@@ -141,6 +143,7 @@ export async function updateCard(
     assetCaption: string | null;
     width: CardWidth;
     height: CardHeight;
+    textRows: TextCardRow[];
   }> &
     CardPropertyInput,
   opts?: { authContext?: AuthContext }
@@ -163,6 +166,7 @@ export async function updateCard(
   if (updates.assetCaption !== undefined) payload.asset_caption = updates.assetCaption ?? null;
   if (updates.width !== undefined) payload.width = updates.width;
   if (updates.height !== undefined) payload.height = updates.height;
+  if (updates.textRows !== undefined) payload.text_rows = updates.textRows ?? [];
 
   let updatedCard = card as CardItem;
   if (Object.keys(payload).length > 1) {

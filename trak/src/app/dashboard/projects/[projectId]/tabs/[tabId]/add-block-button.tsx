@@ -226,13 +226,22 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
         // For cards blocks: create initial cards if requested
         const cardCount = initialCardCount ?? 0;
         if (type === "cards" && cardCount > 0 && savedBlock.id) {
+          const cardVariant = (savedBlock.content as Record<string, unknown> | null)?.cardVariant === "text" ? "text" : "asset";
           for (let i = 0; i < cardCount; i++) {
             const cardResult = await createCard({
               cardsBlockId: savedBlock.id,
               title: "Untitled card",
-              status: "todo",
+              ...(cardVariant === "asset" ? { status: "todo" as const } : {}),
               width: "half",
               height: "tall",
+              textRows:
+                cardVariant === "text"
+                  ? [
+                      { id: crypto.randomUUID(), label: "", fieldType: "text", value: "" },
+                      { id: crypto.randomUUID(), label: "", fieldType: "text", value: "" },
+                      { id: crypto.randomUUID(), label: "", fieldType: "text", value: "" },
+                    ]
+                  : [],
               displayOrder: i,
             });
             if ("error" in cardResult) {
@@ -264,7 +273,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
         viewMode: "list",
         boardGroupBy: "status",
       };
-      case "cards": return { title: "Cards", viewMode: "grid" };
+      case "cards": return { title: "Cards", viewMode: "grid", cardVariant: "asset" };
       case "link": return { title: null, url: null, caption: "" };
       case "divider": return {};
       case "section_header": return { title: "New Section", subtitle: "" };
@@ -475,7 +484,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
               </div>
               <div className="flex-1">
                 <div className="font-medium text-[var(--foreground)]">Cards</div>
-                <div className="text-xs text-[var(--tertiary-foreground)]">Visual asset cards with structured metadata</div>
+                <div className="text-xs text-[var(--tertiary-foreground)]">Asset cards or structured text cards</div>
               </div>
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent className="w-52">
@@ -499,6 +508,13 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
               >
                 <span className="font-medium">Array (2×3)</span>
                 <span className="text-xs text-[var(--tertiary-foreground)]">6 cards in a 2×3 grid</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleCreateBlock("cards", { title: "Cards", viewMode: "grid", cardVariant: "text", initialCardCount: 1 })}
+                className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm"
+              >
+                <span className="font-medium">Text card</span>
+                <span className="text-xs text-[var(--tertiary-foreground)]">Structured single-record card with typed rows</span>
               </DropdownMenuItem>
             </DropdownMenuSubContent>
           </DropdownMenuSub>
