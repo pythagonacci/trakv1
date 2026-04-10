@@ -8,7 +8,6 @@ import { useEffect, useMemo, useState, useRef, useCallback, type CSSProperties }
 import { createPortal } from "react-dom";
 import { Plus, EyeOff } from "lucide-react";
 import {
-  useTable,
   useTableBootstrap,
   useTableRows,
   useInfiniteTableRows,
@@ -193,7 +192,6 @@ interface Props {
 export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
   const queryClient = useQueryClient();
   const { data: bootstrap, isLoading: bootstrapLoading } = useTableBootstrap(tableId);
-  const { data: tableDataFallback } = useTable(tableId);
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [commentsRowId, setCommentsRowId] = useState<string | null>(null);
   const [commentsAnchorRect, setCommentsAnchorRect] = useState<DOMRect | null>(null);
@@ -229,7 +227,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
   const hasInitializedSubtaskCollapse = useRef(false);
 
   const tableData: { table: Table; fields: TableField[] } | undefined =
-    bootstrap ? { table: bootstrap.table, fields: bootstrap.fields } : (tableDataFallback ?? undefined);
+    bootstrap ? { table: bootstrap.table, fields: bootstrap.fields } : undefined;
   const defaultViewId = bootstrap?.view?.id ?? null;
   const isDefaultView = activeViewId === null || activeViewId === defaultViewId;
   const rowDataFromQuery = useInfiniteTableRows(

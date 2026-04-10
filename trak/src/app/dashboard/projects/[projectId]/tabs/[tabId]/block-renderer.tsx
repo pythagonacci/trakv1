@@ -13,6 +13,9 @@ import TextBlock from "./text-block";
 import LinkBlock from "./link-block";
 import DividerBlock from "./divider-block";
 import SectionHeaderBlock from "./section-header-block";
+// TableBlock is static so it shares the chunk with block-renderer — eliminates
+// the loading spinner + skeleton cascade during client-side navigation.
+import TableBlock from "./table-block";
 
 // Loading placeholder for dynamically imported blocks
 function BlockLoadingState() {
@@ -42,10 +45,6 @@ const TimelineBlock = dynamic(() => import("./timeline-block"), {
   ssr: true,
 });
 
-const TableBlock = dynamic(() => import("./table-block"), {
-  loading: () => <BlockLoadingState />,
-  ssr: true,
-});
 
 const FileBlock = dynamic(() => import("./file-block"), {
   loading: () => <BlockLoadingState />,

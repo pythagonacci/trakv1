@@ -2,26 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { type Block, updateBlock } from "@/app/actions/block";
-import dynamic from "next/dynamic";
-import { useQueryClient } from "@tanstack/react-query";
-import { queryKeys } from "@/lib/react-query/query-client";
-
-function TableLoadingState() {
-  return (
-    <div className="space-y-2">
-      <div className="h-8 w-48 rounded-md border border-[var(--border)] bg-[var(--surface)]/60" />
-      <div className="h-40 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)]/40" />
-    </div>
-  );
-}
-
-const TableView = dynamic(
-  () => import("@/components/tables/table-view").then((mod) => mod.TableView),
-  {
-    loading: () => <TableLoadingState />,
-    ssr: true,
-  }
-);
+import { TableView } from "@/components/tables/table-view";
 
 interface TableBlockProps {
   block: Block;
@@ -30,7 +11,6 @@ interface TableBlockProps {
 }
 
 export default function TableBlock({ block, onUpdate, previewMode = false }: TableBlockProps) {
-  const queryClient = useQueryClient();
   const content = (block.content || {}) as Record<string, any>;
   const connectedTableId = content?.tableId;
   const initialHeightPx =
@@ -100,26 +80,9 @@ export default function TableBlock({ block, onUpdate, previewMode = false }: Tab
     document.addEventListener("mouseup", handleMouseUp);
   };
 
-  // Start loading table data as soon as we have tableId (runs in parallel with TableView chunk load)
-  useEffect(() => {
-    if (!connectedTableId) return;
-    queryClient.prefetchQuery({
-      queryKey: queryKeys.tableBootstrap(connectedTableId),
-      queryFn: async () => {
-        const response = await fetch(`/api/tables/bootstrap?tableId=${encodeURIComponent(connectedTableId)}`, {
-          credentials: "include",
-        });
-        const payload = await response.json();
-        if (!response.ok) {
-          throw new Error(payload?.error || "Failed to load table bootstrap");
-        }
-        return payload;
-      },
-      staleTime: 30_000,
-    });
-  }, [connectedTableId, queryClient]);
-
   // New Supabase-backed table path: render the dedicated table view.
+  // Bootstrap data is already in the React Query cache via HydrationBoundary
+  // (server-side prefetch in page.tsx) — no client-side prefetch needed.
   if (connectedTableId) {
     return (
       <div className="space-y-1">
@@ -136,5 +99,7 @@ export default function TableBlock({ block, onUpdate, previewMode = false }: Tab
     );
   }
 
-  return <TableLoadingState />;
+  // No tableId yet — should not happen since add-block-button seeds an optimistic
+  // tableId + bootstrap cache entry before rendering the optimistic block.
+  return null;
 }        

@@ -450,6 +450,9 @@ export async function createBlock(data: {
 
     // 7. Create default content based on block type if not provided
     let content = data.content;
+    // For table blocks: capture bootstrap data so the caller can seed the React Query cache
+    // and render the table instantly without a client-side fetch.
+    let tableBootstrapData: import("@/lib/tables/server-bootstrap").TableBootstrapData | undefined;
     if (!content) {
       switch (data.type) {
         case "text":
@@ -479,6 +482,15 @@ export async function createBlock(data: {
             return { error: tableResult.error };
           }
           content = { tableId: tableResult.data.table.id };
+          tableBootstrapData = {
+            table: tableResult.data.table,
+            fields: tableResult.data.fields,
+            view: tableResult.data.view,
+            rows: tableResult.data.rows,
+            totalRows: tableResult.data.rows.length,
+            hasMore: false,
+            nextOffset: null,
+          };
           break;
         }
         case "timeline":
@@ -530,6 +542,15 @@ export async function createBlock(data: {
         return { error: tableResult.error };
       }
       content = { tableId: tableResult.data.table.id };
+      tableBootstrapData = {
+        table: tableResult.data.table,
+        fields: tableResult.data.fields,
+        view: tableResult.data.view,
+        rows: tableResult.data.rows,
+        totalRows: tableResult.data.rows.length,
+        hasMore: false,
+        nextOffset: null,
+      };
     }
 
     // Task blocks: never persist tasks in content — they live in task_items only
@@ -596,7 +617,7 @@ export async function createBlock(data: {
       console.error("Failed to enqueue indexing job for block create", { blockId: block.id, error: err });
     }
 
-    return { data: block };
+    return tableBootstrapData ? { data: block, tableBootstrapData } : { data: block };
   } catch (error) {
     console.error("Create block exception:", error);
     return { error: error instanceof Error ? error.message : "Failed to create block" };

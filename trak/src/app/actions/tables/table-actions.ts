@@ -8,7 +8,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireTableAccess, requireWorkspaceAccessForTables } from "./context";
 import type { AuthContext } from "@/lib/auth-context";
-import type { Table, TableField } from "@/types/table";
+import type { Table, TableField, TableView, TableRow } from "@/types/table";
 
 type ActionResult<T> = { data: T } | { error: string };
 
@@ -22,7 +22,7 @@ interface CreateTableInput {
   authContext?: AuthContext;
 }
 
-export async function createTable(input: CreateTableInput): Promise<ActionResult<{ table: Table; primaryField: TableField }>> {
+export async function createTable(input: CreateTableInput): Promise<ActionResult<{ table: Table; primaryField: TableField; fields: TableField[]; rows: TableRow[]; view: TableView | null }>> {
   const { workspaceId, projectId = null, tabId = null, title = "Untitled Table", description = null, icon = null, authContext } = input;
   const access = await requireWorkspaceAccessForTables(workspaceId, { authContext });
   if ("error" in access) return { error: access.error ?? "Unknown error" };
@@ -85,26 +85,27 @@ export async function createTable(input: CreateTableInput): Promise<ActionResult
     updated_by: userId,
   }));
 
-  const { error: rowsError } = await supabase
+  const { data: createdRows, error: rowsError } = await supabase
     .from("table_rows")
-    .insert(rowsPayload);
+    .insert(rowsPayload)
+    .select("id, table_id, source_entity_type, source_entity_id, source_sync_mode, data, order, created_at, updated_at, created_by, updated_by");
 
   if (rowsError) {
     // Don't fail table creation if rows fail, just log it
     console.error("Failed to create default rows:", rowsError);
   }
 
-  // Seed a default view
-  await supabase.from("table_views").insert({
+  // Seed a default view and capture it for bootstrap data
+  const { data: createdView } = await supabase.from("table_views").insert({
     table_id: table.id,
     name: "Default view",
     type: "table",
     is_default: true,
     created_by: userId,
     config: {},
-  });
+  }).select("*").single();
 
-  return { data: { table, primaryField } };
+  return { data: { table, primaryField, fields: fields as TableField[], rows: (createdRows ?? []) as TableRow[], view: (createdView ?? null) as TableView | null } };
 }
 
 export async function getTable(tableId: string, opts?: { authContext?: AuthContext }): Promise<ActionResult<{ table: Table; fields: TableField[] }>> {

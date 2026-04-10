@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/react-query/query-client";
 import {
   Plus,
   FileText,
@@ -23,6 +25,7 @@ import {
 } from "lucide-react";
 import { createBlock, type Block, type BlockType } from "@/app/actions/block";
 import { createCard } from "@/app/actions/cards/item-actions";
+import { buildOptimisticTableBootstrap } from "@/lib/tables/server-bootstrap";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
@@ -150,6 +153,7 @@ function prefetchTableViewChunk() {
 
 export default function AddBlockButton({ tabId, projectId, variant = "default", parentBlockId, onBlockCreated, onBlockResolved, onBlockError, getNextPosition }: AddBlockButtonProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [isCreating, setIsCreating] = useState(false);
   const [docSelectorOpen, setDocSelectorOpen] = useState(false);
   const [blockReferenceSelectorOpen, setBlockReferenceSelectorOpen] = useState(false);
@@ -171,7 +175,22 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
     const nextPosition = getNextPosition?.() ?? 0;
     const rawContent = contentOverride ?? getDefaultContent(type);
     const { initialCardCount, ...content } = rawContent as Record<string, unknown> & { initialCardCount?: number };
-    const blockContent = Object.keys(content).length > 0 ? content : getDefaultContent(type);
+    let blockContent = Object.keys(content).length > 0 ? content : getDefaultContent(type);
+
+    // For table blocks: generate a temp tableId + seed React Query cache with
+    // an optimistic bootstrap so the REAL TableView renders instantly when the
+    // optimistic block mounts. When the server responds with the real tableId,
+    // we seed its cache entry and swap via onBlockResolved.
+    let tempTableId: string | null = null;
+    if (type === "table") {
+      tempTableId = `temp-table-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      const optimisticBootstrap = buildOptimisticTableBootstrap({
+        tempTableId,
+        projectId,
+      });
+      queryClient.setQueryData(queryKeys.tableBootstrap(tempTableId), optimisticBootstrap);
+      blockContent = { ...blockContent, tableId: tempTableId };
+    }
 
     // Create optimistic block IMMEDIATELY (before server call)
     const optimisticBlockId = `temp-${Date.now()}-${Math.random()}`;
@@ -197,18 +216,31 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
     
     setIsCreating(false);
 
-    // Now make server call in background
+    // Server call in background. For tables, strip the temp tableId we added for
+    // the optimistic cache so the server creates a fresh real table.
+    const serverContent =
+      type === "table" && tempTableId
+        ? (() => {
+            const { tableId: _tempId, ...rest } = blockContent as Record<string, unknown>;
+            return rest;
+          })()
+        : blockContent;
+
     try {
       const result = await createBlock({
         tabId,
         type,
-        content: blockContent,
+        content: serverContent,
         position: nextPosition,
         parentBlockId: parentBlockId || null,
       });
 
       if (result.error) {
         console.error("Failed to create block:", result.error);
+        // Drop the optimistic bootstrap cache entry on failure
+        if (tempTableId) {
+          queryClient.removeQueries({ queryKey: queryKeys.tableBootstrap(tempTableId) });
+        }
         // Mark block as failed instead of removing it immediately
         setFailedBlocks(prev => new Map(prev.set(optimisticBlockId, {
           id: optimisticBlockId,
@@ -223,6 +255,19 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
 
       if (result.data) {
         const savedBlock = result.data;
+        // For table blocks: seed React Query cache with the REAL bootstrap data
+        // under the real tableId so TableView renders instantly when the block
+        // swaps from temp to real ID. Then drop the temp cache entry.
+        const bootstrapData = (result as any).tableBootstrapData;
+        if (type === "table" && bootstrapData) {
+          const realTableId = (savedBlock.content as { tableId?: string })?.tableId;
+          if (realTableId) {
+            queryClient.setQueryData(queryKeys.tableBootstrap(realTableId), bootstrapData);
+          }
+          if (tempTableId) {
+            queryClient.removeQueries({ queryKey: queryKeys.tableBootstrap(tempTableId) });
+          }
+        }
         // For cards blocks: create initial cards if requested
         const cardCount = initialCardCount ?? 0;
         if (type === "cards" && cardCount > 0 && savedBlock.id) {
@@ -253,6 +298,10 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
       }
     } catch (error) {
       console.error("Create block exception:", error);
+      // Drop the optimistic bootstrap cache entry on exception
+      if (tempTableId) {
+        queryClient.removeQueries({ queryKey: queryKeys.tableBootstrap(tempTableId) });
+      }
       // Remove optimistic block on error using callback
       if (onBlockError) {
         onBlockError(optimisticBlockId);

@@ -22,6 +22,10 @@ import PlanLockedState from "@/components/billing/plan-locked-state";
 import type { Block } from "@/app/actions/block";
 import { getDefaultSubtabForEmptyParent } from "@/lib/tabs/default-subtab";
 import { createPerfNavigationId } from "@/lib/perf/perf-trace";
+import { QueryClient, dehydrate } from "@tanstack/react-query";
+import { HydrationBoundary } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/react-query/query-client";
+import { fetchTableBootstrapData } from "@/lib/tables/server-bootstrap";
 
 // 🔒 Force dynamic - user-specific data shouldn't be cached across users
 export const dynamic = "force-dynamic";
@@ -72,11 +76,13 @@ export default async function TabPage({
 
   // 🚀 STEP 2: Parallel queries with individual error handling
   // getProjectTabs and getTabBlocks have their own auth checks (cached)
+  // Run planLockState in the same parallel batch — it only needs workspaceId, not blocks.
   const [
     projectResult,
     tabResult,
     tabsResult,
     blocksResult,
+    planLockResult,
   ] = await Promise.allSettled([
     supabase
       .from("projects")
@@ -92,6 +98,7 @@ export default async function TabPage({
       .single(),
     getProjectTabs(projectId),
     getTabBlocks(tabId),
+    getWorkspacePlanLockState(workspaceId),
   ]);
 
   // Extract results with error handling
@@ -110,6 +117,10 @@ export default async function TabPage({
   const blocksData = blocksResult.status === 'fulfilled'
     ? blocksResult.value.data || []
     : [];
+
+  const planLockState = planLockResult.status === 'fulfilled'
+    ? planLockResult.value
+    : { lockedTabIds: [] as string[], lockedBlockIds: [] as string[] };
 
   // Validate critical results - project and tab are required
   if (!projectData) {
@@ -134,7 +145,6 @@ export default async function TabPage({
   const hierarchicalTabs = tabsData;
   const blocks = blocksData as Block[];
   const isWorkflowTab = Boolean(tab?.is_workflow_page);
-  const planLockState = await getWorkspacePlanLockState(workspaceId);
 
   const defaultSubtab = getDefaultSubtabForEmptyParent(tabId, hierarchicalTabs, blocks.length > 0);
   if (defaultSubtab) {
@@ -186,68 +196,71 @@ export default async function TabPage({
   }
 
   const blockIds = blocks.map((block) => String(block.id));
-  const blockPropertiesResult =
-    blockIds.length > 0
-      ? await getEntitiesProperties("block", blockIds, workspaceId)
-      : { data: {} };
-  const blockPropertiesById =
-    "data" in blockPropertiesResult ? blockPropertiesResult.data : {};
 
   // Extract all file IDs from all blocks for prefetching
   const fileIds: string[] = [];
-
-  // Extract file IDs from blocks that have fileId in content
   blocks.forEach(block => {
-    // Image blocks
     if (block.type === 'image' && block.content?.fileId) {
       fileIds.push(block.content.fileId as string);
     }
-
-    // Gallery blocks
     if (block.type === 'gallery' && Array.isArray(block.content?.items)) {
       block.content.items.forEach((item: any) => {
-        if (item?.fileId) {
-          fileIds.push(item.fileId as string);
-        }
+        if (item?.fileId) fileIds.push(item.fileId as string);
       });
     }
-    
-    // PDF blocks
     if (block.type === 'pdf' && block.content?.fileId) {
       fileIds.push(block.content.fileId as string);
     }
-    
-    // Video blocks
     if (block.type === 'video' && block.content?.fileId) {
       fileIds.push(block.content.fileId as string);
     }
   });
 
+  const tableIds = blocks
+    .filter((b) => b.type === "table" && b.content?.tableId)
+    .map((b) => String(b.content.tableId));
+
+  const fileBlockIds = blocks.filter(b => b.type === 'file').map(b => b.id);
+
   if (process.env.PERF_DEBUG === '1') {
     console.log(`[PERF] page.tsx allSettled ms=${Math.round(performance.now() - _tPage0)} blocks=${blocks.length} projectId=${projectId} tabId=${tabId}`);
   }
 
-  // 🚀 PHASE 1c: Run file_attachments + getBatchFileUrls concurrently (not serially)
-  // file_attachments fetches IDs for "file" type blocks (stored in join table, not content)
-  // These two are now parallel with each other instead of sequential
   const _tFilePrefetch = process.env.PERF_DEBUG === '1' ? performance.now() : 0;
 
-  const fileBlockIds = blocks.filter(b => b.type === 'file').map(b => b.id);
-
-  // Fetch file attachment IDs (for file blocks) concurrently with signing inline fileIds
-  const [fileAttachmentsResult, inlineFileUrlsResult] = await Promise.all([
-    // Leg A: fetch attachment IDs for 'file' type blocks (join table)
+  // 🚀 Run ALL post-block work in a single parallel batch:
+  // entity properties, table bootstrap, file attachments, and inline file URLs.
+  // Previously these ran sequentially — now they overlap completely.
+  const [
+    blockPropertiesSettled,
+    tableBootstrapSettled,
+    fileAttachmentsResult,
+    inlineFileUrlsResult,
+  ] = await Promise.all([
+    // Entity properties
+    blockIds.length > 0
+      ? getEntitiesProperties("block", blockIds, workspaceId)
+      : Promise.resolve({ data: {} }),
+    // Table bootstrap (server-side prefetch for HydrationBoundary)
+    tableIds.length > 0
+      ? Promise.all(tableIds.map((id) => fetchTableBootstrapData(supabase, id).catch(() => null)))
+      : Promise.resolve([] as (Awaited<ReturnType<typeof fetchTableBootstrapData>>)[]),
+    // File attachment IDs for 'file' type blocks (join table)
     fileBlockIds.length > 0
       ? supabase
           .from('file_attachments')
           .select('file:files(id)')
           .in('block_id', fileBlockIds)
       : Promise.resolve({ data: null }),
-    // Leg B: sign URLs for inline file IDs already extracted from block content (image/gallery/pdf/video)
+    // Sign URLs for inline file IDs (image/gallery/pdf/video)
     fileIds.length > 0
       ? getBatchFileUrls(fileIds)
       : Promise.resolve({ data: {} as Record<string, string> }),
   ]);
+
+  const blockPropertiesById =
+    "data" in blockPropertiesSettled ? blockPropertiesSettled.data : {};
+  const tableBootstrapResults = tableBootstrapSettled;
 
   // Collect any additional file IDs from file_attachments result
   const attachmentFileIds: string[] = [];
@@ -322,41 +335,53 @@ export default async function TabPage({
     }
   }
 
+  // Seed a server-side QueryClient so HydrationBoundary injects the data into the
+  // client cache before any component renders — zero loading states, instant table render.
+  const prefetchQueryClient = new QueryClient();
+  tableIds.forEach((id, i) => {
+    const data = tableBootstrapResults[i];
+    if (data) {
+      prefetchQueryClient.setQueryData(queryKeys.tableBootstrap(id), data);
+    }
+  });
+
   return (
-    <TabPageLayout
-      project={project}
-      tabId={tabId}
-      tabs={hierarchicalTabs}
-      isWorkflowTab={isWorkflowTab}
-      blocks={isWorkflowTab ? [] : blocks}
-      workspaceId={workspaceId}
-      subtabConfig={sidebarConfig}
-    >
-      {isWorkflowTab ? (
-        <WorkflowPageLayout
-          tabId={tabId}
-          projectId={projectId}
-          projectName={project.name}
-          workspaceId={workspaceId}
-          title={tab.name}
-          blocks={blocks}
-          initialFileUrls={initialFileUrls}
-          inProjectContext
-        />
-      ) : (
-        <TabCanvasWrapper
-          tabId={tabId}
-          projectId={projectId}
-          projectName={project.name}
-          workspaceId={workspaceId}
-          perfNavigationId={perfNavigationId}
-          blocks={blocks}
-          initialBlockPropertiesById={blockPropertiesById}
-          scrollToTaskId={taskId}
-          initialFileUrls={initialFileUrls}
-          lockedBlockIds={planLockState.lockedBlockIds}
-        />
-      )}
-    </TabPageLayout>
+    <HydrationBoundary state={dehydrate(prefetchQueryClient)}>
+      <TabPageLayout
+        project={project}
+        tabId={tabId}
+        tabs={hierarchicalTabs}
+        isWorkflowTab={isWorkflowTab}
+        blocks={isWorkflowTab ? [] : blocks}
+        workspaceId={workspaceId}
+        subtabConfig={sidebarConfig}
+      >
+        {isWorkflowTab ? (
+          <WorkflowPageLayout
+            tabId={tabId}
+            projectId={projectId}
+            projectName={project.name}
+            workspaceId={workspaceId}
+            title={tab.name}
+            blocks={blocks}
+            initialFileUrls={initialFileUrls}
+            inProjectContext
+          />
+        ) : (
+          <TabCanvasWrapper
+            tabId={tabId}
+            projectId={projectId}
+            projectName={project.name}
+            workspaceId={workspaceId}
+            perfNavigationId={perfNavigationId}
+            blocks={blocks}
+            initialBlockPropertiesById={blockPropertiesById}
+            scrollToTaskId={taskId}
+            initialFileUrls={initialFileUrls}
+            lockedBlockIds={planLockState.lockedBlockIds}
+          />
+        )}
+      </TabPageLayout>
+    </HydrationBoundary>
   );
 }
