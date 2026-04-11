@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { PostgrestFilterBuilder } from "@supabase/postgrest-js";
 import { requireTableAccess } from "@/app/actions/tables/context";
-import type { FilterCondition, SortCondition, TableRow, TableView } from "@/types/table";
+import { applyTableRowSorts, shouldSortRowsInMemory } from "@/lib/tables/row-sorting";
+import type { FilterCondition, SortCondition, TableField, TableRow, TableView } from "@/types/table";
 
 export const dynamic = "force-dynamic";
+
+type TableRowsQuery = PostgrestFilterBuilder<never, never, Record<string, unknown>, TableRow[]>;
 
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
@@ -59,52 +62,93 @@ export async function GET(request: NextRequest) {
 
   const filters = view?.config?.filters || [];
   const sorts = view?.config?.sorts || [];
+  const sortFieldIds = Array.from(new Set(sorts.map((sort) => sort.fieldId)));
+  const { data: sortFieldsData } = sortFieldIds.length > 0
+    ? await supabase
+        .from("table_fields")
+        .select("id, type, config")
+        .eq("table_id", tableId)
+        .in("id", sortFieldIds)
+    : { data: [] };
+  const sortFields = (sortFieldsData ?? []) as Pick<TableField, "id" | "type" | "config">[];
 
-  const baseQuery = supabase
-    .from("table_rows")
-    .select("id, table_id, source_entity_type, source_entity_id, source_sync_mode, data, order, created_at, updated_at, created_by, updated_by")
-    .eq("table_id", tableId);
-  const { query: filteredQuery, unsupportedFilters } = applyServerFilters(
-    baseQuery as unknown as PostgrestFilterBuilder<any, any, any, any>,
-    filters
-  );
-
-  const sortedQuery = applyServerSorts(filteredQuery, sorts);
-
-  const { data: rows, error, count } = await (sortedQuery as PostgrestFilterBuilder<any, any, any, any>)
-    .order("order", { ascending: true })
-    .range(offset, offset + limit - 1);
-
-  if (error || !rows) {
-    return NextResponse.json(
-      { error: "Failed to load rows" },
-      { status: 500 }
+  const buildFilteredQuery = () => {
+    const baseQuery = supabase
+      .from("table_rows")
+      .select("id, table_id, source_entity_type, source_entity_id, source_sync_mode, data, order, created_at, updated_at, created_by, updated_by", { count: "exact", head: false })
+      .eq("table_id", tableId);
+    return applyServerFilters(
+      baseQuery as unknown as TableRowsQuery,
+      filters
     );
+  };
+
+  const { query: filteredQuery, unsupportedFilters } = buildFilteredQuery();
+  const useInMemoryRows = unsupportedFilters.length > 0 || shouldSortRowsInMemory(sorts, sortFields);
+
+  let pageRows: TableRow[];
+  let total: number;
+
+  if (useInMemoryRows) {
+    const allRows: TableRow[] = [];
+    const pageSize = 1000;
+    for (let pageOffset = 0; ; pageOffset += pageSize) {
+      const { query } = buildFilteredQuery();
+      const { data: rowsPage, error } = await query
+        .order("order", { ascending: true })
+        .range(pageOffset, pageOffset + pageSize - 1);
+
+      if (error || !rowsPage) {
+        return NextResponse.json(
+          { error: "Failed to load rows" },
+          { status: 500 }
+        );
+      }
+
+      allRows.push(...(rowsPage as TableRow[]));
+      if (rowsPage.length < pageSize) break;
+    }
+
+    const filtered = unsupportedFilters.length > 0 ? applyFilters(allRows, unsupportedFilters) : allRows;
+    const sorted = applyTableRowSorts(filtered, sorts, sortFields);
+    total = sorted.length;
+    pageRows = sorted.slice(offset, offset + limit);
+  } else {
+    const sortedQuery = applyServerSorts(filteredQuery, sorts);
+    const { data: rows, error, count } = await sortedQuery
+      .order("order", { ascending: true })
+      .range(offset, offset + limit - 1);
+
+    if (error || !rows) {
+      return NextResponse.json(
+        { error: "Failed to load rows" },
+        { status: 500 }
+      );
+    }
+
+    pageRows = rows as TableRow[];
+    total = count ?? pageRows.length;
   }
 
-  const filtered = unsupportedFilters.length > 0 ? applyFilters(rows as TableRow[], unsupportedFilters) : (rows as TableRow[]);
-  const sorted = unsupportedFilters.length > 0 ? applySorts(filtered, sorts) : filtered;
-
-  const total = count ?? (rows as any[]).length;
-  const hasMore = offset + (rows as any[]).length < total;
-  const nextOffset = hasMore ? offset + (rows as any[]).length : null;
+  const hasMore = offset + pageRows.length < total;
+  const nextOffset = hasMore ? offset + pageRows.length : null;
 
   const ms = Math.round(Date.now() - t0);
   if (process.env.PERF_DEBUG === "1") {
     console.log(
-      `[PERF] route getTableData tableId=${tableId} viewId=${viewId ?? ""} limit=${limit} offset=${offset} ms=${ms} rows=${rows?.length ?? 0} total=${total}`
+      `[PERF] route getTableData tableId=${tableId} viewId=${viewId ?? ""} limit=${limit} offset=${offset} ms=${ms} rows=${pageRows.length} total=${total}`
     );
   }
 
   return NextResponse.json({
-    data: { rows: sorted, view, hasMore, nextOffset, total }
+    data: { rows: pageRows, view, hasMore, nextOffset, total }
   });
 }
 
 function applyServerFilters(
-  query: PostgrestFilterBuilder<any, any, any, any>,
+  query: TableRowsQuery,
   filters: FilterCondition[]
-): { query: PostgrestFilterBuilder<any, any, any, any>; unsupportedFilters: FilterCondition[] } {
+): { query: TableRowsQuery; unsupportedFilters: FilterCondition[] } {
   if (!filters || filters.length === 0) return { query, unsupportedFilters: [] };
 
   const unsupported: FilterCondition[] = [];
@@ -171,12 +215,12 @@ function applyServerFilters(
   return { query: working, unsupportedFilters: unsupported };
 }
 
-function applyServerSorts(query: PostgrestFilterBuilder<any, any, any, any>, sorts: SortCondition[]) {
+function applyServerSorts(query: TableRowsQuery, sorts: SortCondition[]) {
   if (!sorts || sorts.length === 0) return query;
   let working = query;
-  sorts.forEach((sort, idx) => {
-    const column = idx === 0 ? "order" : `data->>${sort.fieldId}`;
-    working = (working as any).order(column, { ascending: sort.direction === "asc", nullsFirst: false });
+  sorts.forEach((sort) => {
+    const column = `data->>${sort.fieldId}`;
+    working = working.order(column, { ascending: sort.direction === "asc", nullsFirst: false });
   });
   return working;
 }
@@ -245,22 +289,4 @@ function applyFilters(rows: TableRow[], filters: FilterCondition[]): TableRow[] 
       }
     });
   });
-}
-
-function applySorts(rows: TableRow[], sorts: SortCondition[]): TableRow[] {
-  if (!sorts || sorts.length === 0) return rows;
-  const sorted = [...rows];
-  sorted.sort((a, b) => {
-    for (const sort of sorts) {
-      const aValue = (a.data || {})[sort.fieldId];
-      const bValue = (b.data || {})[sort.fieldId];
-      if (aValue === bValue) continue;
-      if (aValue == null) return sort.direction === "asc" ? 1 : -1;
-      if (bValue == null) return sort.direction === "asc" ? -1 : 1;
-      if (aValue < bValue) return sort.direction === "asc" ? -1 : 1;
-      if (aValue > bValue) return sort.direction === "asc" ? 1 : -1;
-    }
-    return 0;
-  });
-  return sorted;
 }

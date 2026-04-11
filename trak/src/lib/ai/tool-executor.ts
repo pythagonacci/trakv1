@@ -2005,7 +2005,7 @@ export async function executeTool(
                   const blockResult = await createBlock({
                     tabId,
                     type: "task",
-                    content: { title: "Tasks", hideIcons: false, viewMode: "list", boardGroupBy: "status" },
+                    content: { title: "Tasks", hideIcons: false, viewMode: "table", boardGroupBy: "status" },
                     authContext: authContext ?? undefined,
                   });
                   if ("error" in blockResult) {
@@ -2637,7 +2637,7 @@ export async function executeTool(
             }
 
             const blockTitle = (args.title as string | undefined) || "Tasks";
-            const viewMode = (args.viewMode as string | undefined) || "list";
+            const viewMode = (args.viewMode as string | undefined) || "table";
             const boardGroupBy = (args.boardGroupBy as string | undefined) || "status";
 
             const createBlockResult = await createBlock({
@@ -5448,7 +5448,7 @@ async function resolveTaskBlockIdForCreateTask(
     const blockResult = await createBlock({
       tabId: context.currentTabId,
       type: "task",
-      content: { title: "Tasks", hideIcons: false, viewMode: "list", boardGroupBy: "status" },
+      content: { title: "Tasks", hideIcons: false, viewMode: "table", boardGroupBy: "status" },
       authContext: authContext ?? undefined,
     });
     if (!("error" in blockResult) && blockResult.data) {

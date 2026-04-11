@@ -248,16 +248,16 @@ const searchTools: ToolDefinition[] = [
   },
   {
     name: "searchTableRows",
-    description: "SEARCH for rows within a table (read-only). Use to FIND existing rows before updating. Returns: Array of row objects with row IDs and field data. Extract row IDs for update/delete operations.",
+    description: "SEARCH for rows within a table (read-only). Use to FIND existing rows before updating. Returns: Array of row objects with row IDs and field data. Extract row IDs for update/delete operations. IMPORTANT: When filtering by numeric conditions (e.g. \"50 or fewer employees\"), ALWAYS use fieldFilters with the appropriate operator instead of fetching all rows and filtering manually. This ensures accurate, complete results.",
     category: "search",
     parameters: {
       tableId: { type: "string", description: "The table ID to search in" },
       searchText: { type: "string", description: "Search text to find in any field" },
       fieldFilters: {
         type: "object",
-        description: "Field-specific filters as key-value pairs where key is field ID and value is the filter value",
+        description: "Field-specific filters. Key is the field NAME (as shown in schema). Value is either a simple string (legacy contains-match) or an object { op, value } with op: \"eq\" (exact match), \"contains\" (fuzzy text match), \"lte\" (less than or equal — for numbers/dates), \"gte\" (greater than or equal — for numbers/dates). Examples: { \"Employee ct\": { \"op\": \"lte\", \"value\": 50 } } or { \"Status\": { \"op\": \"eq\", \"value\": \"active\" } }. Multiple field filters are ANDed together.",
       },
-      limit: { type: "number", description: "Maximum number of results" },
+      limit: { type: "number", description: "Maximum number of results (default 50). Set higher (e.g. 200) when you need all matching rows." },
     },
     requiredParams: ["tableId"],
   },
@@ -726,8 +726,8 @@ const taskActionTools: ToolDefinition[] = [
     name: "createTaskBoardFromTasks",
     description:
       "CREATE a new TASK BLOCK from existing tasks. This creates a NEW task block in a tab and duplicates the provided tasks into it (leaving originals untouched).\n\n" +
-      "Default behavior: renders as a LIST. Duplicated tasks are snapshot copies. Users can toggle live sync in the task block UI when they want edits to write back to source tasks.\n\n" +
-      "⚠️ Do NOT pass viewMode unless the user explicitly asks for a board or grouped view. Default is list view.\n\n" +
+      "Default behavior: renders as a TABLE. Duplicated tasks are snapshot copies. Users can toggle live sync in the task block UI when they want edits to write back to source tasks.\n\n" +
+      "⚠️ Do NOT pass viewMode unless the user explicitly asks for list, board, or another grouped view. Default is table view.\n\n" +
       "Workflow: searchTasks → createTaskBoardFromTasks, OR pass assigneeId/assigneeName to auto-include ALL matching tasks.",
     category: "task",
     parameters: {
@@ -739,7 +739,7 @@ const taskActionTools: ToolDefinition[] = [
       sourceProjectId: { type: "string", description: "Optional project scope for source tasks" },
       sourceTabId: { type: "string", description: "Optional tab scope for source tasks" },
       limit: { type: "number", description: "Max tasks to include when using assignee filters (default 500)" },
-      viewMode: { type: "string", enum: ["board", "list"], description: "OMIT for list view (default). Only pass 'board' if user explicitly requests a board or grouped view." },
+      viewMode: { type: "string", enum: ["board", "list", "table"], description: "OMIT for table view (default). Pass 'board' or 'list' only when the user explicitly requests that layout." },
       boardGroupBy: {
         type: "string",
         enum: ["status", "priority", "assignee", "dueDate", "tags"],

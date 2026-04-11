@@ -18,6 +18,8 @@ import {
   CheckSquare,
   Paperclip,
   MessageSquare,
+  Maximize2,
+  Minimize2,
   ChevronRight,
   Eye,
   EyeOff,
@@ -872,7 +874,7 @@ export default function TaskBlock({
     return map;
   }, [tasks]);
   const initialGlobalHideIcons = content.hideIcons || false;
-  const initialViewMode = content.viewMode || "list";
+  const initialViewMode = content.viewMode || "table";
   const initialBoardGroupBy = content.boardGroupBy || "status";
   const initialShowRollup = content.showRollup || false;
   const initialTableHiddenColumns = (content.tableHiddenColumns || []) as HideableTableColumnKey[];
@@ -959,6 +961,7 @@ export default function TaskBlock({
   const initialHeightPx =
     typeof content.heightPx === "number" && content.heightPx > 0 ? content.heightPx : null;
   const [listHeightPx, setListHeightPx] = useState<number | null>(initialHeightPx);
+  const [isHeightExpanded, setIsHeightExpanded] = useState(false);
   const listHeightRef = useRef<number | null>(initialHeightPx);
 
   const openPropertiesFromElement = (
@@ -1067,6 +1070,10 @@ export default function TaskBlock({
     if (typeof content.heightPx === "number" && content.heightPx > 0) {
       setListHeightPx(content.heightPx);
       listHeightRef.current = content.heightPx;
+    } else {
+      setListHeightPx(null);
+      listHeightRef.current = null;
+      setIsHeightExpanded(false);
     }
   }, [content.heightPx]);
 
@@ -1190,6 +1197,7 @@ export default function TaskBlock({
 
       setListHeightPx(clamped);
       listHeightRef.current = clamped;
+      setIsHeightExpanded(false);
 
       if (!block.id.startsWith("temp-")) {
         const result = await updateBlock({
@@ -1212,6 +1220,40 @@ export default function TaskBlock({
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
   };
+
+  const hasAdjustedHeight = Boolean(listHeightPx && listHeightPx > 0);
+  const constrainedHeightStyle = hasAdjustedHeight && !isHeightExpanded
+    ? {
+        maxHeight: `${listHeightPx}px`,
+        height: `${listHeightPx}px`,
+      }
+    : {};
+  const expandableMaxHeightStyle = hasAdjustedHeight && !isHeightExpanded
+    ? {
+        maxHeight: `${listHeightPx}px`,
+        height: `${listHeightPx}px`,
+      }
+    : hasAdjustedHeight
+      ? {}
+      : {
+        maxHeight: "70vh",
+      };
+  const heightToggle = hasAdjustedHeight ? (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        setIsHeightExpanded((value) => !value);
+      }}
+      onMouseDown={(e) => e.stopPropagation()}
+      className="inline-flex items-center gap-1 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+      title={isHeightExpanded ? "Return to adjusted height" : "Show all content"}
+      aria-pressed={isHeightExpanded}
+    >
+      {isHeightExpanded ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
+      <span>{isHeightExpanded ? "Shrink" : "Expand"}</span>
+    </button>
+  ) : null;
 
   const statusFromLegacy = (status?: string): Status => {
     if (status === "in-progress") return "in_progress";
@@ -1495,7 +1537,7 @@ export default function TaskBlock({
 
   // Stay in sync if view mode changes externally
   useEffect(() => {
-    setViewMode(content.viewMode || "list");
+    setViewMode(content.viewMode || "table");
   }, [content.viewMode]);
 
   // Stay in sync if board grouping changes externally
@@ -2081,7 +2123,7 @@ export default function TaskBlock({
     await persistBlockContent(updatedContent);
     if (!isTempBlock) {
       // If server update fails, keep local state (same pattern as title edits)
-      setViewMode(updatedContent.viewMode || "list");
+      setViewMode(updatedContent.viewMode || "table");
     }
   };
 
@@ -3386,6 +3428,7 @@ export default function TaskBlock({
               />
             </div>
           )}
+          {heightToggle}
         </div>
       </div>
       {hasSourceLinkedCopies && (
@@ -3397,11 +3440,10 @@ export default function TaskBlock({
         <>
         <div
           ref={taskListScrollRef}
-          className="space-y-0 overflow-y-auto"
+          className={cn("space-y-0", isHeightExpanded ? "overflow-visible" : "overflow-y-auto")}
           style={{
             contain: "layout style",
-            maxHeight: listHeightPx ? `${listHeightPx}px` : "70vh",
-            height: listHeightPx ? `${listHeightPx}px` : undefined,
+            ...expandableMaxHeightStyle,
           }}
         >
           <div style={{ height: `${taskVirtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }}>
@@ -4648,11 +4690,10 @@ export default function TaskBlock({
           onDragEnd={handleBoardDragEnd}
         >
           <div
-            className="overflow-auto"
+            className={isHeightExpanded ? "overflow-visible" : "overflow-auto"}
             style={{
               contain: "layout style",
-              maxHeight: listHeightPx ? `${listHeightPx}px` : "70vh",
-              height: listHeightPx ? `${listHeightPx}px` : undefined,
+              ...expandableMaxHeightStyle,
             }}
           >
             <div className="flex w-full min-w-max rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-3">
@@ -5335,11 +5376,10 @@ export default function TaskBlock({
       ) : (
         <div className="space-y-2 min-h-0">
           <div
-            className="min-h-0 overflow-auto"
+            className={cn("min-h-0", isHeightExpanded ? "overflow-visible" : "overflow-auto")}
             style={{
               contain: "layout style",
-              maxHeight: listHeightPx ? `${listHeightPx}px` : "70vh",
-              height: listHeightPx ? `${listHeightPx}px` : "70vh",
+              ...(hasAdjustedHeight ? constrainedHeightStyle : { maxHeight: "70vh", height: "70vh" }),
             }}
           >
             <div className="overflow-x-auto min-h-0">

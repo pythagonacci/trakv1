@@ -603,8 +603,8 @@ function applyServerFilters(
 function applyServerSorts(query: PostgrestFilterBuilder<any, any, any, any>, sorts: SortCondition[]) {
   if (!sorts || sorts.length === 0) return query;
   let working = query;
-  sorts.forEach((sort, idx) => {
-    const column = idx === 0 ? "order" : `data->>${sort.fieldId}`;
+  sorts.forEach((sort) => {
+    const column = `data->>${sort.fieldId}`;
     working = (working as any).order(column, { ascending: sort.direction === "asc", nullsFirst: false });
   });
   return working;

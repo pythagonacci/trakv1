@@ -176,7 +176,7 @@ export default function SectionBlock({ block, workspaceId, projectId, tabId, pro
       case "text":
         return { text: "" };
       case "task":
-        return { title: "New Task List", hideIcons: false, viewMode: "list", boardGroupBy: "status" };
+        return { title: "New Task List", hideIcons: false, viewMode: "table", boardGroupBy: "status" };
       case "link":
         return { title: null, url: null, caption: "" };
       case "divider":

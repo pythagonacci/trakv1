@@ -3289,10 +3289,32 @@ export async function searchTableRows(params: {
 
     // Filter by specific field values if provided
     if (params.fieldFilters) {
+      // Row data stores values keyed by field IDs (UUIDs), but callers typically
+      // pass field names. Resolve names → IDs so lookups succeed.
+      let fieldNameToId: Map<string, string> | null = null;
+      const firstTableId = tableFilter?.[0] ?? (results[0] as Record<string, unknown> | undefined)?.table_id as string | undefined;
+      if (firstTableId) {
+        const { data: tableFields } = await supabase
+          .from("table_fields")
+          .select("id, name")
+          .eq("table_id", firstTableId);
+        if (tableFields && tableFields.length > 0) {
+          fieldNameToId = new Map(
+            (tableFields as Array<{ id: string; name: string }>).map((f) => [f.name.trim().toLowerCase(), f.id])
+          );
+        }
+      }
+
       results = results.filter((r: Record<string, unknown>) => {
         const rowData = r.data as Record<string, unknown>;
-        for (const [fieldId, filter] of Object.entries(params.fieldFilters!)) {
-          const actualValue = rowData[fieldId];
+        for (const [filterKey, filter] of Object.entries(params.fieldFilters!)) {
+          // Resolve filter key: try as-is first (field ID), then resolve name → ID
+          let resolvedKey = filterKey;
+          if (!(filterKey in rowData) && fieldNameToId) {
+            const mapped = fieldNameToId.get(filterKey.trim().toLowerCase());
+            if (mapped) resolvedKey = mapped;
+          }
+          const actualValue = rowData[resolvedKey];
 
           // Normalize filter to { op, value } format
           const normalizedFilter: FieldFilter =
@@ -3340,10 +3362,11 @@ export async function searchTableRows(params: {
 
             case "gte": {
               // Greater than or equal (numeric/date comparison)
-              if (typeof actualValue === "number" && typeof value === "number") {
-                if (actualValue < value) return false;
+              const gteActual = typeof actualValue === "string" ? Number(actualValue) : actualValue;
+              const gteTarget = typeof value === "string" ? Number(value) : value;
+              if (typeof gteActual === "number" && typeof gteTarget === "number" && !isNaN(gteActual) && !isNaN(gteTarget)) {
+                if (gteActual < gteTarget) return false;
               } else if (typeof actualValue === "string") {
-                // String comparison works for ISO date strings
                 if (actualValue < String(value)) return false;
               } else {
                 return false;
@@ -3353,8 +3376,10 @@ export async function searchTableRows(params: {
 
             case "lte": {
               // Less than or equal (numeric/date comparison)
-              if (typeof actualValue === "number" && typeof value === "number") {
-                if (actualValue > value) return false;
+              const lteActual = typeof actualValue === "string" ? Number(actualValue) : actualValue;
+              const lteTarget = typeof value === "string" ? Number(value) : value;
+              if (typeof lteActual === "number" && typeof lteTarget === "number" && !isNaN(lteActual) && !isNaN(lteTarget)) {
+                if (lteActual > lteTarget) return false;
               } else if (typeof actualValue === "string") {
                 if (actualValue > String(value)) return false;
               } else {

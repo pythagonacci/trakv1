@@ -527,7 +527,7 @@ export default function TabCanvas({
     } else if (newType === "text") {
       newContent = { text: "" };
     } else if (newType === "task") {
-      newContent = { title: "New Task List", hideIcons: false, viewMode: "list", boardGroupBy: "status" };
+      newContent = { title: "New Task List", hideIcons: false, viewMode: "table", boardGroupBy: "status" };
     } else if (newType === "cards") {
       newContent = { title: "Cards", viewMode: "grid", cardVariant: "asset" };
     } else if (newType === "link") {
@@ -633,7 +633,7 @@ export default function TabCanvas({
       case "text":
         return { text: "" };
       case "task":
-        return { title: "New Task List", hideIcons: false, viewMode: "list", boardGroupBy: "status" };
+        return { title: "New Task List", hideIcons: false, viewMode: "table", boardGroupBy: "status" };
       case "cards":
         return { title: "New Cards Block", viewMode: "grid", cardVariant: "asset" };
       case "link":

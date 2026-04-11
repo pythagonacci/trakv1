@@ -189,6 +189,7 @@ const RECOVERED_TEXT_BLOCK_MAX_CHARS = Math.max(
 );
 const FINAL_RESPONSE_MAX_TOKENS = Number(process.env.AI_FINAL_MAX_TOKENS ?? 1024);
 const TOOL_RESULT_MAX_ITEMS = Number(process.env.AI_TOOL_RESULT_MAX_ITEMS ?? 25);
+const TOOL_RESULT_MAX_ITEMS_TABLE_ROWS = Number(process.env.AI_TOOL_RESULT_MAX_ITEMS_TABLE_ROWS ?? 150);
 const TOOL_RESULT_MAX_STRING_CHARS = Number(process.env.AI_TOOL_RESULT_MAX_STRING_CHARS ?? 2000);
 const TOOL_RESULT_MAX_OBJECT_KEYS = Number(process.env.AI_TOOL_RESULT_MAX_OBJECT_KEYS ?? 50);
 const TOOL_RESULT_MAX_DEPTH = Number(process.env.AI_TOOL_RESULT_MAX_DEPTH ?? 4);
@@ -862,7 +863,7 @@ function shouldTruncateString(value: string) {
   return value.length > TOOL_RESULT_MAX_STRING_CHARS;
 }
 
-function compactValue(value: unknown, depth: number): unknown {
+function compactValue(value: unknown, depth: number, maxItems = TOOL_RESULT_MAX_ITEMS): unknown {
   if (value === null || value === undefined) return value;
   if (typeof value === "string") {
     return shouldTruncateString(value)
@@ -872,11 +873,11 @@ function compactValue(value: unknown, depth: number): unknown {
   if (typeof value !== "object") return value;
 
   if (Array.isArray(value)) {
-    const limited = value.slice(0, TOOL_RESULT_MAX_ITEMS).map((item) =>
-      compactValue(item, depth + 1)
+    const limited = value.slice(0, maxItems).map((item) =>
+      compactValue(item, depth + 1, maxItems)
     );
-    if (value.length > TOOL_RESULT_MAX_ITEMS) {
-      limited.push({ __truncated_items: value.length - TOOL_RESULT_MAX_ITEMS });
+    if (value.length > maxItems) {
+      limited.push({ __truncated_items: value.length - maxItems });
     }
     return limited;
   }
@@ -889,7 +890,7 @@ function compactValue(value: unknown, depth: number): unknown {
   const limitedEntries = entries.slice(0, TOOL_RESULT_MAX_OBJECT_KEYS);
   const compacted: Record<string, unknown> = {};
   for (const [key, entryValue] of limitedEntries) {
-    compacted[key] = compactValue(entryValue, depth + 1);
+    compacted[key] = compactValue(entryValue, depth + 1, maxItems);
   }
   if (entries.length > TOOL_RESULT_MAX_OBJECT_KEYS) {
     compacted.__truncated_keys = entries.length - TOOL_RESULT_MAX_OBJECT_KEYS;
@@ -897,10 +898,15 @@ function compactValue(value: unknown, depth: number): unknown {
   return compacted;
 }
 
-function compactToolResult(result: ToolCallResult): ToolCallResult {
+function getMaxItemsForTool(toolName?: string): number {
+  if (toolName === "searchTableRows") return TOOL_RESULT_MAX_ITEMS_TABLE_ROWS;
+  return TOOL_RESULT_MAX_ITEMS;
+}
+
+function compactToolResult(result: ToolCallResult, toolName?: string): ToolCallResult {
   return {
     ...result,
-    data: compactValue(result.data, 0),
+    data: compactValue(result.data, 0, getMaxItemsForTool(toolName)),
   };
 }
 
@@ -2064,7 +2070,7 @@ export async function executeAICommand(
             resultForModel = { ...result, data: injectedData };
             searchToolsUsed.add(toolName);
           }
-          const compactedForMetrics = compactToolResult(resultForModel);
+          const compactedForMetrics = compactToolResult(resultForModel, toolName);
           const toolResultForModel = COMPACT_TOOL_RESULTS ? compactedForMetrics : resultForModel;
           let toolMessageContent = JSON.stringify(toolResultForModel);
 
@@ -3508,7 +3514,7 @@ export async function* executeAICommandStream(
             streamResultForModel = { ...result, data: injectedData };
             searchToolsUsedStream.add(toolName);
           }
-          const compactedResult = COMPACT_TOOL_RESULTS ? compactToolResult(streamResultForModel) : streamResultForModel;
+          const compactedResult = COMPACT_TOOL_RESULTS ? compactToolResult(streamResultForModel, toolName) : streamResultForModel;
           let streamToolMessageContent = JSON.stringify(compactedResult);
 
           // Inject strict source tracking reminder for search tools (streaming path)

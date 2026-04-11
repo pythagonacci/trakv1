@@ -506,6 +506,13 @@ If the user says "this project" or "current project", prefer the **current proje
 - Cell values are updated with \`updateCell\` or \`bulkUpdateRows\` - NOT with task tools!
 - Row IDs come from \`searchTableRows\` or \`bulkInsertRows\`
 
+**Filtering Table Rows (IMPORTANT):**
+- When creating a new table from an existing table with conditions (e.g. "brands with 50 or fewer employees"), you MUST use \`searchTableRows\` with \`fieldFilters\` to let the database do the filtering. Do NOT fetch all rows and filter manually — results get truncated and manual filtering is error-prone.
+- Use the operator syntax: \`fieldFilters: { "Field Name": { "op": "lte", "value": 50 } }\`
+- Available operators: \`eq\` (exact match), \`contains\` (fuzzy text), \`lte\` (<=), \`gte\` (>=)
+- Set \`limit\` high enough to capture all matching rows (e.g. 500) when creating a table from filtered results.
+- Example: "Create table of brands with 50 or fewer employees" → call \`searchTableRows({ tableId: "...", fieldFilters: { "Employee ct": { "op": "lte", "value": 50 } }, limit: 500 })\`
+
 **Example of WRONG reasoning:**
 \`\`\`
 User: "Add low priority status to these table rows"

@@ -121,14 +121,14 @@ function parsePriority(value: string | undefined) {
 }
 
 function viewModeFromBlock(view: string | null): {
-  viewMode: 'list' | 'board';
+  viewMode: 'list' | 'board' | 'table';
   boardGroupBy?: 'status';
 } {
   const normalized = (view ?? '').toLowerCase();
   if (normalized.includes('board')) {
     return { viewMode: 'board', boardGroupBy: 'status' };
   }
-  return { viewMode: 'list' };
+  return { viewMode: 'table' };
 }
 
 function resolveBlockTitle(label: string, fallback: string) {

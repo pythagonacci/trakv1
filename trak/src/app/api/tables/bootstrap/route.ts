@@ -2,9 +2,12 @@ import { NextResponse } from "next/server";
 import { requireTableAccess } from "@/app/actions/tables/context";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { applyTableRowSorts, shouldSortRowsInMemory } from "@/lib/tables/row-sorting";
 import type { FilterCondition, SortCondition, TableField, TableRow, TableView, Table } from "@/types/table";
 import type { PostgrestFilterBuilder } from "@supabase/postgrest-js";
 import { formatPerfContext, getPerfRequestContext } from "@/lib/perf/perf-trace";
+
+type TableRowsQuery = PostgrestFilterBuilder<never, never, Record<string, unknown>, TableRow[]>;
 
 export async function GET(request: Request) {
   const t0 = process.env.PERF_DEBUG === "1" ? performance.now() : 0;
@@ -86,46 +89,76 @@ export async function GET(request: Request) {
 
   const PAGE_LIMIT = 100;
 
-  const baseQuery = supabase
-    .from("table_rows")
-    .select(
-      "id, table_id, source_entity_type, source_entity_id, source_sync_mode, data, order, created_at, updated_at, created_by, updated_by",
-      { count: "exact", head: false }
-    )
-    .eq("table_id", tableId);
-  const { query: filteredQuery, unsupportedFilters } = applyServerFilters(
-    baseQuery as unknown as PostgrestFilterBuilder<any, any, any, any>,
-    filters
-  );
-  const sortedQuery = applyServerSorts(filteredQuery, sorts);
+  const buildFilteredQuery = () => {
+    const baseQuery = supabase
+      .from("table_rows")
+      .select(
+        "id, table_id, source_entity_type, source_entity_id, source_sync_mode, data, order, created_at, updated_at, created_by, updated_by",
+        { count: "exact", head: false }
+      )
+      .eq("table_id", tableId);
+    return applyServerFilters(
+      baseQuery as unknown as TableRowsQuery,
+      filters
+    );
+  };
+
+  const { query: filteredQuery, unsupportedFilters } = buildFilteredQuery();
+  const useInMemoryRows = unsupportedFilters.length > 0 || shouldSortRowsInMemory(sorts, fields);
   const tRows0 = process.env.PERF_DEBUG === "1" ? performance.now() : 0;
-  const { data: rows, error: rowsError, count } = await (sortedQuery as PostgrestFilterBuilder<any, any, any, any>)
-    .order("order", { ascending: true })
-    .limit(PAGE_LIMIT);
 
-  if (rowsError || !rows) {
-    return NextResponse.json({ error: "Failed to load rows" }, { status: 500 });
+  let rows: TableRow[];
+  let totalRows: number;
+
+  if (useInMemoryRows) {
+    const allRows: TableRow[] = [];
+    const pageSize = 1000;
+    for (let offset = 0; ; offset += pageSize) {
+      const { query } = buildFilteredQuery();
+      const { data: rowsPage, error: rowsError } = await query
+        .order("order", { ascending: true })
+        .range(offset, offset + pageSize - 1);
+
+      if (rowsError || !rowsPage) {
+        return NextResponse.json({ error: "Failed to load rows" }, { status: 500 });
+      }
+
+      allRows.push(...(rowsPage as TableRow[]));
+      if (rowsPage.length < pageSize) break;
+    }
+
+    const filtered =
+      unsupportedFilters.length > 0 ? applyFilters(allRows, unsupportedFilters) : allRows;
+    const sorted = applyTableRowSorts(filtered, sorts, fields);
+    totalRows = sorted.length;
+    rows = sorted.slice(0, PAGE_LIMIT);
+  } else {
+    const sortedQuery = applyServerSorts(filteredQuery, sorts);
+    const { data: rowsData, error: rowsError, count } = await sortedQuery
+      .order("order", { ascending: true })
+      .limit(PAGE_LIMIT);
+
+    if (rowsError || !rowsData) {
+      return NextResponse.json({ error: "Failed to load rows" }, { status: 500 });
+    }
+
+    rows = rowsData as TableRow[];
+    totalRows = count ?? rows.length;
   }
-
-  const totalRows = count ?? rows.length;
-
-  const filtered =
-    unsupportedFilters.length > 0 ? applyFilters(rows as TableRow[], unsupportedFilters) : (rows as TableRow[]);
-  const sorted = unsupportedFilters.length > 0 ? applySorts(filtered, sorts) : filtered;
 
   if (process.env.PERF_DEBUG === "1") {
     const payload = {
       table,
       fields,
       view,
-      rows: sorted,
+      rows,
       totalRows,
       hasMore: totalRows > PAGE_LIMIT,
       nextOffset: totalRows > PAGE_LIMIT ? PAGE_LIMIT : null,
     };
     const payloadBytes = Buffer.byteLength(JSON.stringify(payload), "utf8");
     console.log(
-      `[PERF] route getTableBootstrap tableId=${tableId} authMs=${Math.round(tMeta0 - tAuth0)} metaMs=${Math.round(tRows0 - tMeta0)} rowsMs=${Math.round(performance.now() - tRows0)} fields=${fields.length} rows=${sorted.length} totalRows=${totalRows} unsupportedFilters=${unsupportedFilters.length} payloadBytes=${payloadBytes} totalMs=${Math.round(performance.now() - t0)}${formatPerfContext(perfContext)}`
+      `[PERF] route getTableBootstrap tableId=${tableId} authMs=${Math.round(tMeta0 - tAuth0)} metaMs=${Math.round(tRows0 - tMeta0)} rowsMs=${Math.round(performance.now() - tRows0)} fields=${fields.length} rows=${rows.length} totalRows=${totalRows} unsupportedFilters=${unsupportedFilters.length} payloadBytes=${payloadBytes} totalMs=${Math.round(performance.now() - t0)}${formatPerfContext(perfContext)}`
     );
   }
 
@@ -133,7 +166,7 @@ export async function GET(request: Request) {
     table,
     fields,
     view,
-    rows: sorted,
+    rows,
     totalRows,
     hasMore: totalRows > PAGE_LIMIT,
     nextOffset: totalRows > PAGE_LIMIT ? PAGE_LIMIT : null,
@@ -146,9 +179,9 @@ export async function GET(request: Request) {
 // ---------------------------------------------------------------------------
 
 function applyServerFilters(
-  query: PostgrestFilterBuilder<any, any, any, any>,
+  query: TableRowsQuery,
   filters: FilterCondition[]
-): { query: PostgrestFilterBuilder<any, any, any, any>; unsupportedFilters: FilterCondition[] } {
+): { query: TableRowsQuery; unsupportedFilters: FilterCondition[] } {
   if (!filters || filters.length === 0) return { query, unsupportedFilters: [] };
 
   const unsupported: FilterCondition[] = [];
@@ -215,12 +248,12 @@ function applyServerFilters(
   return { query: working, unsupportedFilters: unsupported };
 }
 
-function applyServerSorts(query: PostgrestFilterBuilder<any, any, any, any>, sorts: SortCondition[]) {
+function applyServerSorts(query: TableRowsQuery, sorts: SortCondition[]) {
   if (!sorts || sorts.length === 0) return query;
   let working = query;
-  sorts.forEach((sort, idx) => {
-    const column = idx === 0 ? "order" : `data->>${sort.fieldId}`;
-    working = (working as any).order(column, { ascending: sort.direction === "asc", nullsFirst: false });
+  sorts.forEach((sort) => {
+    const column = `data->>${sort.fieldId}`;
+    working = working.order(column, { ascending: sort.direction === "asc", nullsFirst: false });
   });
   return working;
 }
@@ -288,22 +321,5 @@ function applyFilters(rows: TableRow[], filters: FilterCondition[]): TableRow[] 
           return true;
       }
     });
-  });
-}
-
-function applySorts(rows: TableRow[], sorts: SortCondition[]): TableRow[] {
-  if (!sorts || sorts.length === 0) return rows;
-
-  return [...rows].sort((a, b) => {
-    for (const sort of sorts) {
-      const aValue = (a.data || {})[sort.fieldId];
-      const bValue = (b.data || {})[sort.fieldId];
-      if (aValue === bValue) continue;
-      if (aValue == null) return sort.direction === "asc" ? 1 : -1;
-      if (bValue == null) return sort.direction === "asc" ? -1 : 1;
-      if (aValue < bValue) return sort.direction === "asc" ? -1 : 1;
-      if (aValue > bValue) return sort.direction === "asc" ? 1 : -1;
-    }
-    return 0;
   });
 }

@@ -7,6 +7,8 @@ import {
   Underline,
   Highlighter,
   Type,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
@@ -168,6 +170,7 @@ export default function TextBlock({
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [isBorderless, setIsBorderless] = useState(Boolean(blockContent.borderless));
   const [minHeightPx, setMinHeightPx] = useState<number | null>(initialHeightPx);
+  const [isHeightExpanded, setIsHeightExpanded] = useState(false);
   const [activeFormatting, setActiveFormatting] = useState({ bold: false, italic: false, underline: false });
   const [activeHighlightColor, setActiveHighlightColor] = useState<HighlightColor | null>(null);
   const textareaRef = useRef<HTMLDivElement>(null);
@@ -208,6 +211,9 @@ export default function TextBlock({
         : null;
     minHeightRef.current = next;
     setMinHeightPx((current) => (current === next ? current : next));
+    if (!next) {
+      setIsHeightExpanded(false);
+    }
   }, [block.content]);
 
   const editingRef = useRef(false);
@@ -250,7 +256,10 @@ export default function TextBlock({
 
     const resizeEditable = () => {
       editableDiv.style.height = "auto";
-      const newHeight = Math.max(20, minHeightRef.current ?? 0, editableDiv.scrollHeight);
+      const savedHeight = minHeightRef.current;
+      const newHeight = savedHeight && !isHeightExpanded
+        ? Math.max(20, savedHeight)
+        : Math.max(20, savedHeight ?? 0, editableDiv.scrollHeight);
       editableDiv.style.height = `${newHeight}px`;
     };
 
@@ -266,7 +275,7 @@ export default function TextBlock({
       observer.disconnect();
       editableDiv.removeEventListener("input", resizeEditable);
     };
-  }, [isEditing, content]);
+  }, [isEditing, content, isHeightExpanded]);
 
   const saveContent = useCallback(
     async (textToSave: string) => {
@@ -324,6 +333,7 @@ export default function TextBlock({
         const finalHeight = Math.max(20, Math.round(minHeightRef.current ?? resizeStateRef.current?.startHeight ?? 20));
         minHeightRef.current = finalHeight;
         setMinHeightPx(finalHeight);
+        setIsHeightExpanded(false);
         resizeStateRef.current = null;
 
         if (!block.id.startsWith("temp-")) {
@@ -1447,9 +1457,27 @@ export default function TextBlock({
   }
 
   const formatted = formatText(content);
+  const hasAdjustedHeight = Boolean(minHeightPx && minHeightPx > 0);
+  const heightToggle = hasAdjustedHeight ? (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        setIsHeightExpanded((value) => !value);
+      }}
+      onMouseDown={(e) => e.stopPropagation()}
+      className="inline-flex items-center gap-1 rounded-[4px] border border-[var(--border)] bg-[var(--surface)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+      title={isHeightExpanded ? "Return to adjusted height" : "Show all content"}
+      aria-pressed={isHeightExpanded}
+    >
+      {isHeightExpanded ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
+      <span>{isHeightExpanded ? "Shrink" : "Expand"}</span>
+    </button>
+  ) : null;
 
   return (
     <div className="space-y-2">
+      {heightToggle && <div className="flex justify-end">{heightToggle}</div>}
       <div
         ref={displayRef}
         onClick={(e) => {
@@ -1462,9 +1490,16 @@ export default function TextBlock({
         }}
         className={cn(
           "text-sm leading-normal text-[var(--foreground)]",
-          readOnly ? "" : "cursor-text"
+          readOnly ? "" : "cursor-text",
+          hasAdjustedHeight && !isHeightExpanded && "overflow-y-auto"
         )}
-        style={minHeightPx ? { minHeight: `${minHeightPx}px` } : undefined}
+        style={
+          hasAdjustedHeight
+            ? isHeightExpanded
+              ? { minHeight: `${minHeightPx}px` }
+              : { height: `${minHeightPx}px`, maxHeight: `${minHeightPx}px` }
+            : undefined
+        }
         dangerouslySetInnerHTML={{ __html: formatted }}
       />
       {workspaceId && projectId && <AttachedFilesList blockId={block.id} onUpdate={onUpdate} />}

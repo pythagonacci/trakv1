@@ -1,4 +1,5 @@
 import type { FilterCondition, SortCondition, TableField, TableView, TableRow, Table } from "@/types/table";
+import { applyTableRowSorts, shouldSortRowsInMemory } from "@/lib/tables/row-sorting";
 
 const PAGE_LIMIT = 100;
 
@@ -137,65 +138,92 @@ export async function fetchTableBootstrapData(
     const filters: FilterCondition[] = view?.config?.filters ?? [];
     const sorts: SortCondition[] = view?.config?.sorts ?? [];
 
-    let rowQuery = supabase
-      .from("table_rows")
-      .select(
-        "id, table_id, source_entity_type, source_entity_id, source_sync_mode, data, order, created_at, updated_at, created_by, updated_by",
-        { count: "exact", head: false }
-      )
-      .eq("table_id", tableId);
+    const buildRowQuery = () => {
+      let rowQuery = supabase
+        .from("table_rows")
+        .select(
+          "id, table_id, source_entity_type, source_entity_id, source_sync_mode, data, order, created_at, updated_at, created_by, updated_by",
+          { count: "exact", head: false }
+        )
+        .eq("table_id", tableId);
 
-    // Apply server-side filters (mirrors bootstrap API route logic)
-    for (const filter of filters) {
-      const col = `data->>${filter.fieldId}`;
-      switch (filter.operator) {
-        case "equals":           rowQuery = rowQuery.filter(col, "eq", filter.value ?? null); break;
-        case "not_equals":       rowQuery = rowQuery.not(col, "eq", filter.value ?? null); break;
-        case "contains":         rowQuery = rowQuery.filter(col, "ilike", `%${filter.value ?? ""}%`); break;
-        case "not_contains":     rowQuery = rowQuery.not(col, "ilike", `%${filter.value ?? ""}%`); break;
-        case "is_empty":         rowQuery = rowQuery.or(`${col}.is.null,${col}.eq.`); break;
-        case "is_not_empty":     rowQuery = rowQuery.not(col, "is", null).not(col, "eq", ""); break;
-        case "greater_than":     rowQuery = rowQuery.filter(col, "gt", filter.value); break;
-        case "less_than":        rowQuery = rowQuery.filter(col, "lt", filter.value); break;
-        case "greater_or_equal": rowQuery = rowQuery.filter(col, "gte", filter.value); break;
-        case "less_or_equal":    rowQuery = rowQuery.filter(col, "lte", filter.value); break;
-        case "is_before":
-          if (typeof filter.value === "string") rowQuery = rowQuery.filter(col, "lt", filter.value);
-          break;
-        case "is_after":
-          if (typeof filter.value === "string") rowQuery = rowQuery.filter(col, "gt", filter.value);
-          break;
-        case "is_on_or_before":
-          if (typeof filter.value === "string") rowQuery = rowQuery.filter(col, "lte", filter.value);
-          break;
-        case "is_on_or_after":
-          if (typeof filter.value === "string") rowQuery = rowQuery.filter(col, "gte", filter.value);
-          break;
-        default: break;
+      // Apply server-side filters (mirrors bootstrap API route logic)
+      for (const filter of filters) {
+        const col = `data->>${filter.fieldId}`;
+        switch (filter.operator) {
+          case "equals":           rowQuery = rowQuery.filter(col, "eq", filter.value ?? null); break;
+          case "not_equals":       rowQuery = rowQuery.not(col, "eq", filter.value ?? null); break;
+          case "contains":         rowQuery = rowQuery.filter(col, "ilike", `%${filter.value ?? ""}%`); break;
+          case "not_contains":     rowQuery = rowQuery.not(col, "ilike", `%${filter.value ?? ""}%`); break;
+          case "is_empty":         rowQuery = rowQuery.or(`${col}.is.null,${col}.eq.`); break;
+          case "is_not_empty":     rowQuery = rowQuery.not(col, "is", null).not(col, "eq", ""); break;
+          case "greater_than":     rowQuery = rowQuery.filter(col, "gt", filter.value); break;
+          case "less_than":        rowQuery = rowQuery.filter(col, "lt", filter.value); break;
+          case "greater_or_equal": rowQuery = rowQuery.filter(col, "gte", filter.value); break;
+          case "less_or_equal":    rowQuery = rowQuery.filter(col, "lte", filter.value); break;
+          case "is_before":
+            if (typeof filter.value === "string") rowQuery = rowQuery.filter(col, "lt", filter.value);
+            break;
+          case "is_after":
+            if (typeof filter.value === "string") rowQuery = rowQuery.filter(col, "gt", filter.value);
+            break;
+          case "is_on_or_before":
+            if (typeof filter.value === "string") rowQuery = rowQuery.filter(col, "lte", filter.value);
+            break;
+          case "is_on_or_after":
+            if (typeof filter.value === "string") rowQuery = rowQuery.filter(col, "gte", filter.value);
+            break;
+          default: break;
+        }
       }
+
+      return rowQuery;
+    };
+
+    let rows: TableRow[];
+    let totalRows: number;
+
+    if (shouldSortRowsInMemory(sorts, fields)) {
+      const allRows: TableRow[] = [];
+      const pageSize = 1000;
+      for (let offset = 0; ; offset += pageSize) {
+        const { data: rowsPage, error: rowsError } = await buildRowQuery()
+          .order("order", { ascending: true })
+          .range(offset, offset + pageSize - 1);
+
+        if (rowsError || !rowsPage) return null;
+
+        allRows.push(...(rowsPage as TableRow[]));
+        if (rowsPage.length < pageSize) break;
+      }
+
+      const sorted = applyTableRowSorts(allRows, sorts, fields);
+      totalRows = sorted.length;
+      rows = sorted.slice(0, PAGE_LIMIT);
+    } else {
+      let rowQuery = buildRowQuery();
+      if (sorts.length > 0) {
+        sorts.forEach((sort) => {
+          const col = `data->>${sort.fieldId}`;
+          rowQuery = rowQuery.order(col, { ascending: sort.direction === "asc", nullsFirst: false });
+        });
+      }
+
+      const { data: rowsData, error: rowsError, count } = await rowQuery
+        .order("order", { ascending: true })
+        .limit(PAGE_LIMIT);
+
+      if (rowsError || !rowsData) return null;
+
+      rows = rowsData as TableRow[];
+      totalRows = count ?? rows.length;
     }
-
-    // Apply server-side sorts (first key is row order, subsequent are data fields)
-    if (sorts.length > 0) {
-      sorts.forEach((sort, idx) => {
-        const col = idx === 0 ? "order" : `data->>${sort.fieldId}`;
-        rowQuery = rowQuery.order(col, { ascending: sort.direction === "asc", nullsFirst: false });
-      });
-    }
-
-    const { data: rows, error: rowsError, count } = await rowQuery
-      .order("order", { ascending: true })
-      .limit(PAGE_LIMIT);
-
-    if (rowsError || !rows) return null;
-
-    const totalRows = count ?? rows.length;
 
     return {
       table,
       fields,
       view,
-      rows: rows as TableRow[],
+      rows,
       totalRows,
       hasMore: totalRows > PAGE_LIMIT,
       nextOffset: totalRows > PAGE_LIMIT ? PAGE_LIMIT : null,

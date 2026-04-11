@@ -319,7 +319,7 @@ export default function AddBlockButton({ tabId, projectId, variant = "default", 
       case "task": return {
         title: "New Task List",
         hideIcons: false,
-        viewMode: "list",
+        viewMode: "table",
         boardGroupBy: "status",
       };
       case "cards": return { title: "Cards", viewMode: "grid", cardVariant: "asset" };
