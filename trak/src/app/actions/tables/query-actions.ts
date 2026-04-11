@@ -8,9 +8,13 @@ import { requireTableAccess } from "./context";
 import type { AuthContext } from "@/lib/auth-context";
 import { buildProjectTabPath } from "@/lib/dashboard-routes";
 import type { FilterCondition, SortCondition, TableRow, TableView, Table, TableField } from "@/types/table";
-import type { PostgrestFilterBuilder, PostgrestSingleResponse } from "@supabase/postgrest-js";
+import type { PostgrestFilterBuilder } from "@supabase/postgrest-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 type ActionResult<T> = { data: T } | { error: string };
+
+const TABLE_ROW_SELECT =
+  "id, table_id, source_entity_type, source_entity_id, source_sync_mode, data, order, created_at, updated_at, created_by, updated_by, edited";
 
 interface GetTableDataInput {
   tableId: string;
@@ -109,23 +113,127 @@ export async function searchTableRows(tableId: string, query: string): Promise<A
   if (process.env.PERF_DEBUG === "1") console.log(`[PERF] searchTableRows tableId=${tableId}`);
   const access = await requireTableAccess(tableId);
   if ("error" in access) return { error: access.error ?? "Unknown error" };
-  const { supabase } = access;
+  const { supabase, table } = access;
+  const searchText = query.trim();
+  if (!searchText) return { data: [] };
 
-  // Server-side search: cast JSONB data to text and use ILIKE for matching.
-  // Stabilization fix — still seq scans on large tables; future: GIN/FTS indexes.
-  const { data: rows, error } = await supabase
-    .from("table_rows")
-    .select("id, table_id, source_entity_type, source_entity_id, source_sync_mode, data, order, created_at, updated_at, created_by, updated_by")
-    .eq("table_id", tableId)
-    .filter("data::text", "ilike", `%${query}%`)
-    .limit(50);
+  const rpcRows = await searchRowsWithFuzzyRpc(supabase, table.workspace_id, tableId, searchText);
+  if (rpcRows && rpcRows.length > 0) {
+    const rowIds = rpcRows.map((row) => String(row.id)).filter(Boolean);
+    const rows = await getRowsByIdsInSearchOrder(supabase, tableId, rowIds);
+    if (rows) {
+      if (process.env.PERF_DEBUG === "1") console.log(`[PERF] searchTableRows tableId=${tableId} count=${rows.length} rpc=1 ms=${Math.round(performance.now() - _t0)}`);
+      return { data: rows };
+    }
+  }
 
-  if (error || !rows) {
+  const fallbackRows = await searchRowsInMemory(supabase, tableId, searchText, 50);
+  if (!fallbackRows) {
     if (process.env.PERF_DEBUG === "1") console.log(`[PERF] searchTableRows tableId=${tableId} error ms=${Math.round(performance.now() - _t0)}`);
     return { error: "Failed to search rows" };
   }
-  if (process.env.PERF_DEBUG === "1") console.log(`[PERF] searchTableRows tableId=${tableId} count=${(rows as any[]).length} ms=${Math.round(performance.now() - _t0)}`);
-  return { data: rows as TableRow[] };
+
+  if (process.env.PERF_DEBUG === "1") console.log(`[PERF] searchTableRows tableId=${tableId} count=${fallbackRows.length} rpc=0 ms=${Math.round(performance.now() - _t0)}`);
+  return { data: fallbackRows };
+}
+
+async function searchRowsWithFuzzyRpc(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  tableId: string,
+  searchText: string
+): Promise<Array<{ id: string }> | null> {
+  const { data, error } = await supabase.rpc("search_table_rows_fuzzy", {
+    filter_workspace_id: workspaceId,
+    search_text: searchText,
+    filter_table_ids: [tableId],
+    filter_project_ids: null,
+    filter_row_ids: null,
+    result_limit: 50,
+  });
+
+  if (error) {
+    console.warn("searchTableRows fuzzy rpc error; falling back to row scan:", error.message);
+    return null;
+  }
+
+  return Array.isArray(data) ? (data as Array<{ id: string }>) : [];
+}
+
+async function getRowsByIdsInSearchOrder(
+  supabase: SupabaseClient,
+  tableId: string,
+  rowIds: string[]
+): Promise<TableRow[] | null> {
+  if (rowIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("table_rows")
+    .select(TABLE_ROW_SELECT)
+    .eq("table_id", tableId)
+    .in("id", rowIds);
+
+  if (error || !data) return null;
+
+  const orderMap = new Map(rowIds.map((id, index) => [id, index]));
+  return (data as TableRow[]).sort(
+    (a, b) => (orderMap.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (orderMap.get(b.id) ?? Number.MAX_SAFE_INTEGER)
+  );
+}
+
+async function searchRowsInMemory(
+  supabase: SupabaseClient,
+  tableId: string,
+  searchText: string,
+  resultLimit: number
+): Promise<TableRow[] | null> {
+  const matches: TableRow[] = [];
+  const pageSize = 500;
+  const maxRowsToScan = 5000;
+
+  for (let offset = 0; offset < maxRowsToScan && matches.length < resultLimit; offset += pageSize) {
+    const { data, error } = await supabase
+      .from("table_rows")
+      .select(TABLE_ROW_SELECT)
+      .eq("table_id", tableId)
+      .order("order", { ascending: true })
+      .range(offset, offset + pageSize - 1);
+
+    if (error || !data) return null;
+
+    for (const row of data as TableRow[]) {
+      if (rowMatchesSearchText(row, searchText)) matches.push(row);
+      if (matches.length >= resultLimit) break;
+    }
+
+    if (data.length < pageSize) break;
+  }
+
+  return matches;
+}
+
+function rowMatchesSearchText(row: TableRow, searchText: string): boolean {
+  const haystack = normalizeSearchText(toSearchableRowText(row.data));
+  const needle = normalizeSearchText(searchText);
+  if (!needle) return true;
+  if (haystack.includes(needle)) return true;
+
+  const tokens = needle.split(/\s+/).filter(Boolean);
+  return tokens.length > 0 && tokens.every((token) => haystack.includes(token));
+}
+
+function toSearchableRowText(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) return value.map(toSearchableRowText).join(" ");
+  if (typeof value === "object") return Object.values(value as Record<string, unknown>).map(toSearchableRowText).join(" ");
+  return "";
+}
+
+function normalizeSearchText(value: string): string {
+  return value.toLowerCase().trim().replace(/\s+/g, " ");
 }
 
 export async function getFilteredRows(tableId: string, filters: FilterCondition[], opts?: { authContext?: AuthContext }): Promise<ActionResult<TableRow[]>> {

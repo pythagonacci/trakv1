@@ -73,6 +73,8 @@ import {
   normalizeHeaderName,
 } from "@/lib/table-import";
 import {
+  getCanonicalPriorityOption,
+  getCanonicalStatusOption,
   normalizeCanonicalPriorityValue,
   normalizeCanonicalStatusValue,
 } from "@/lib/tables/universal-property";
@@ -179,6 +181,116 @@ function buildSubtaskPresentation(
   });
 
   return { rowMeta, parentIds, visibleRows };
+}
+
+function normalizeTableSearchText(value: string) {
+  return value.toLowerCase().trim().replace(/\s+/g, " ");
+}
+
+function appendRawSearchParts(value: unknown, parts: string[]) {
+  if (value === null || value === undefined) return;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    parts.push(String(value));
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item) => appendRawSearchParts(item, parts));
+    return;
+  }
+  if (typeof value === "object") {
+    Object.values(value as Record<string, unknown>).forEach((item) => appendRawSearchParts(item, parts));
+  }
+}
+
+function addConfiguredOptionLabels(field: TableField, value: unknown, parts: string[]) {
+  const values = new Set(
+    (Array.isArray(value) ? value : [value])
+      .filter((item): item is string | number | boolean => ["string", "number", "boolean"].includes(typeof item))
+      .map((item) => String(item).trim().toLowerCase())
+      .filter(Boolean)
+  );
+  if (values.size === 0) return;
+
+  const config = (field.config ?? {}) as {
+    options?: Array<{ id?: string; label?: string; name?: string }>;
+    levels?: Array<{ id?: string; label?: string; name?: string }>;
+  };
+  const options = config.options ?? config.levels ?? [];
+  options.forEach((option) => {
+    const id = option.id?.trim().toLowerCase();
+    const label = option.label?.trim().toLowerCase();
+    const name = option.name?.trim().toLowerCase();
+    if ((id && values.has(id)) || (label && values.has(label)) || (name && values.has(name))) {
+      parts.push(option.label ?? option.name ?? option.id ?? "");
+    }
+  });
+}
+
+function addPersonLabels(
+  value: unknown,
+  workspaceMembers: Array<{ id: string; name?: string; email?: string }> | undefined,
+  parts: string[]
+) {
+  const ids = new Set<string>();
+  const collectIds = (item: unknown) => {
+    if (!item) return;
+    if (typeof item === "string") {
+      ids.add(item);
+      return;
+    }
+    if (Array.isArray(item)) {
+      item.forEach(collectIds);
+      return;
+    }
+    if (typeof item === "object") {
+      const record = item as Record<string, unknown>;
+      const id = record.id ?? record.userId ?? record.value;
+      if (typeof id === "string") ids.add(id);
+    }
+  };
+
+  collectIds(value);
+  workspaceMembers?.forEach((member) => {
+    if (!ids.has(member.id)) return;
+    if (member.name) parts.push(member.name);
+    if (member.email) parts.push(member.email);
+  });
+}
+
+function tableRowMatchesSearch(
+  row: TableRowType,
+  fields: TableField[],
+  workspaceMembers: Array<{ id: string; name?: string; email?: string }> | undefined,
+  searchText: string
+) {
+  const needle = normalizeTableSearchText(searchText);
+  if (!needle) return true;
+
+  const parts: string[] = [];
+  fields.forEach((field) => {
+    const value = row.data?.[field.id];
+    appendRawSearchParts(value, parts);
+    if (["select", "multi_select", "tags", "status", "priority"].includes(field.type)) {
+      addConfiguredOptionLabels(field, value, parts);
+    }
+    if (field.type === "status") {
+      const option = getCanonicalStatusOption(value);
+      if (option) parts.push(option.label);
+    }
+    if (field.type === "priority") {
+      const option = getCanonicalPriorityOption(value);
+      if (option) parts.push(option.label);
+    }
+    if (field.type === "person") {
+      addPersonLabels(value, workspaceMembers, parts);
+    }
+  });
+
+  const haystack = normalizeTableSearchText(parts.join(" "));
+  if (haystack.includes(needle)) return true;
+
+  const tokens = needle.split(/\s+/).filter(Boolean);
+  return tokens.length > 0 && tokens.every((token) => haystack.includes(token));
 }
 
 interface Props {
@@ -333,7 +445,8 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
   const deleteField = useDeleteField(tableId);
   const reorderFields = useReorderFields(tableId);
   const [search, setSearch] = useState("");
-  const searchResult = useSearchTableRows(tableId, search);
+  const activeSearch = search.trim();
+  const searchResult = useSearchTableRows(tableId, activeSearch);
   const { data: views } = useTableViews(tableId);
   const createView = useCreateView(tableId);
   const deleteView = useDeleteView(tableId);
@@ -411,9 +524,26 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
     return selectionWidth + fieldsWidth + 40;
   }, [fields, widthMap, selectionWidth]);
 
-  const rows: TableRowType[] = search
-    ? ((searchResult.data ?? []) as TableRowType[])
-    : (rowData?.rows ?? []);
+  const loadedSearchRows = useMemo<TableRowType[]>(
+    () =>
+      activeSearch
+        ? queryRows.filter((row) => tableRowMatchesSearch(row, allFields, workspaceMembers, activeSearch))
+        : [],
+    [activeSearch, allFields, queryRows, workspaceMembers]
+  );
+  const rows = useMemo<TableRowType[]>(
+    () => {
+      if (!activeSearch) return queryRows;
+
+      const merged = new Map<string, TableRowType>();
+      ((searchResult.data ?? []) as TableRowType[]).forEach((row) => merged.set(row.id, row));
+      loadedSearchRows.forEach((row) => {
+        if (!merged.has(row.id)) merged.set(row.id, row);
+      });
+      return Array.from(merged.values());
+    },
+    [activeSearch, loadedSearchRows, queryRows, searchResult.data]
+  );
 
   const [sorts, setSorts] = useState<SortCondition[]>(view?.config?.sorts || []);
   const [filters, setFilters] = useState<FilterCondition[]>(view?.config?.filters || []);
@@ -511,7 +641,38 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
   }, [scrollToFieldId, fields]);
 
   // Rows arrive filtered/sorted from the server based on view config
-  const sortedRows = rows || [];
+  const sortedRows = rows;
+  const createClientTableRowId = useCallback(() => {
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+      return crypto.randomUUID();
+    }
+    return undefined;
+  }, []);
+  const getNextCreateRowOrder = useCallback(() => {
+    const numericOrders = sortedRows
+      .map((row) => Number.parseFloat(String(row.order ?? "")))
+      .filter((order) => Number.isFinite(order));
+    if (numericOrders.length === 0) return 1;
+    const maxLoadedOrder = Math.max(...numericOrders);
+    return maxLoadedOrder + (rowDataFromQuery.hasNextPage ? 0.5 : 1);
+  }, [rowDataFromQuery.hasNextPage, sortedRows]);
+  const handleCreateRow = useCallback(
+    (input?: { data?: Record<string, unknown>; order?: number | string | null }) => {
+      setError(null);
+      const rowId = createClientTableRowId();
+      createRow.mutate(
+        {
+          ...(rowId ? { id: rowId } : {}),
+          data: input?.data,
+          order: input?.order ?? getNextCreateRowOrder(),
+        },
+        {
+          onError: (err) => setError(err instanceof Error ? err.message : "Failed to create row"),
+        }
+      );
+    },
+    [createClientTableRowId, createRow, getNextCreateRowOrder]
+  );
   const subtaskPresentation = useMemo(
     () => buildSubtaskPresentation(sortedRows, subtaskField?.id ?? null, collapsedSubtasks),
     [sortedRows, subtaskField?.id, collapsedSubtasks]
@@ -1367,10 +1528,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
     const targetOrder = typeof targetRow.order === 'number' ? targetRow.order : parseFloat(String(targetRow.order || 0));
     const newOrder = targetOrder - 0.5;
 
-    setError(null);
-    createRow.mutate({ data: {}, order: newOrder }, {
-      onError: (err) => setError(err instanceof Error ? err.message : "Failed to add row"),
-    });
+    handleCreateRow({ data: {}, order: newOrder });
     setContextMenu(null);
   };
 
@@ -1383,10 +1541,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
     const targetOrder = typeof targetRow.order === 'number' ? targetRow.order : parseFloat(String(targetRow.order || 0));
     const newOrder = targetOrder + 0.5;
 
-    setError(null);
-    createRow.mutate({ data: {}, order: newOrder }, {
-      onError: (err) => setError(err instanceof Error ? err.message : "Failed to add row"),
-    });
+    handleCreateRow({ data: {}, order: newOrder });
     setContextMenu(null);
   };
 
@@ -1551,10 +1706,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
       // Cmd/Ctrl + Enter => add row
       if (e.key === "Enter") {
         e.preventDefault();
-        setError(null);
-        createRow.mutate(undefined, {
-          onError: (err) => setError(err instanceof Error ? err.message : "Failed to create row"),
-        });
+        handleCreateRow();
         return;
       }
 
@@ -1574,7 +1726,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
     };
     el.addEventListener("keydown", handler);
     return () => el.removeEventListener("keydown", handler);
-  }, [createRow, handleAddField]);
+  }, [handleCreateRow, handleAddField]);
 
   const focusCell = useCallback((rowIndex: number, colIndex: number) => {
     const row = visibleRows[rowIndex];
@@ -2180,7 +2332,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
                     ))
                   )}
 
-                  {rowDataFromQuery.hasNextPage && (
+                  {!activeSearch && rowDataFromQuery.hasNextPage && (
                     <div ref={loadMoreRef} className="h-8 flex items-center justify-center p-2 text-sm text-neutral-600 border-t border-neutral-200 w-full">
                       {rowDataFromQuery.isFetchingNextPage ? "Loading more rows..." : "Scroll to load more"}
                     </div>
@@ -2189,18 +2341,28 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
 
                 {sortedRows.length === 0 && (
                   <div className="p-6 text-sm text-neutral-600 flex flex-col gap-2 items-center">
-                    <div>No rows yet.</div>
-                    <button
-                      onClick={() => {
-                        setError(null);
-                        createRow.mutate(undefined, {
-                          onError: (err) => setError(err instanceof Error ? err.message : "Failed to create row"),
-                        });
-                      }}
-                      className="inline-flex items-center gap-1 rounded-[6px] border border-dashed border-neutral-200 px-2.5 py-1 text-xs font-medium text-neutral-600 transition-colors hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
-                    >
-                      Add your first row
-                    </button>
+                    <div>
+                      {activeSearch
+                        ? searchResult.isFetching
+                          ? "Searching rows..."
+                          : searchResult.isError
+                            ? "Search failed."
+                            : "No rows match your search."
+                        : "No rows yet."}
+                    </div>
+                    {searchResult.isError && activeSearch && (
+                      <div className="text-xs text-[var(--error)]">
+                        {searchResult.error instanceof Error ? searchResult.error.message : "Failed to search rows"}
+                      </div>
+                    )}
+                    {!activeSearch && (
+                      <button
+                        onClick={() => handleCreateRow()}
+                        className="inline-flex items-center gap-1 rounded-[6px] border border-dashed border-neutral-200 px-2.5 py-1 text-xs font-medium text-neutral-600 transition-colors hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
+                      >
+                        Add your first row
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -2211,12 +2373,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
           {/* Add row button - always visible at bottom */}
           <div className="sticky bottom-0 left-0 right-0 bg-white border-t border-neutral-200 px-2 py-2 z-10 flex items-center justify-start">
             <button
-              onClick={() => {
-                setError(null);
-                createRow.mutate(undefined, {
-                  onError: (err) => setError(err instanceof Error ? err.message : "Failed to create row"),
-                });
-              }}
+              onClick={() => handleCreateRow()}
               className="inline-flex items-center gap-1 rounded-[6px] border border-dashed border-neutral-200 px-2.5 py-1 text-xs font-medium text-neutral-600 transition-colors hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
             >
               <Plus className="h-3 w-3" />
@@ -2237,10 +2394,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
             onSelectRow={handleSelectRow}
             onUpdateCell={handleCellChange}
             onCreateRow={(data) => {
-              setError(null);
-              createRow.mutate({ data }, {
-                onError: (err) => setError(err instanceof Error ? err.message : "Failed to create row"),
-              });
+              handleCreateRow({ data });
             }}
             onContextMenu={handleCellContextMenu}
           />
@@ -2279,10 +2433,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
             onSelectRow={handleSelectRow}
             onUpdateCell={handleCellChange}
             onCreateRow={(data) => {
-              setError(null);
-              createRow.mutate({ data }, {
-                onError: (err) => setError(err instanceof Error ? err.message : "Failed to create row"),
-              });
+              handleCreateRow({ data });
             }}
             onContextMenu={handleCellContextMenu}
             onOpenRow={(rowId) => {

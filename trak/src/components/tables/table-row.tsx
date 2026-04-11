@@ -111,7 +111,7 @@ export const TableRow = memo(function TableRow({
 
   return (
     <div
-      className="grid border-b border-l border-neutral-200 row-hover-teal transition-colors duration-150 bg-white w-full last:border-b-0"
+      className="relative grid border-l border-neutral-200 row-hover-teal transition-colors duration-150 bg-white w-full after:pointer-events-none after:absolute after:bottom-0 after:left-0 after:right-0 after:z-30 after:h-px after:bg-[rgba(28,25,22,0.28)]"
       style={{ gridTemplateColumns: template }}
       onContextMenu={(e) => {
         e.preventDefault();
@@ -193,7 +193,7 @@ export const TableRow = memo(function TableRow({
           </div>
         );
       })}
-      <div className="px-2 py-2 border-l border-neutral-200 sticky right-0 z-10 bg-white flex items-center justify-center">
+      <div className="px-2 py-2 border-l border-[var(--border-strong)] sticky right-0 z-10 bg-white flex items-center justify-center">
         <button
           type="button"
           onClick={(e) => {

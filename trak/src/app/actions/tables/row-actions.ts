@@ -36,6 +36,7 @@ import { deriveTaskSeedFromTableRowData } from "@/lib/tasks/table-row-task-deriv
 type ActionResult<T> = { data: T } | { error: string };
 
 interface CreateRowInput {
+  id?: string;
   tableId: string;
   data?: Record<string, unknown>;
   order?: string | number | null;
@@ -122,6 +123,7 @@ export async function createRow(input: CreateRowInput): Promise<ActionResult<Tab
   const sourceEntityId = isUuidString(input.sourceEntityId) ? input.sourceEntityId : null;
   const sourceEntityType = sourceEntityId ? input.sourceEntityType ?? null : null;
   const sourceSyncMode = sourceEntityId ? (input.sourceSyncMode ?? "live") : null;
+  const rowId = isUuidString(input.id) ? input.id : undefined;
   const { data: fields } = await supabase
     .from("table_fields")
     .select("id, name, type, config")
@@ -141,6 +143,7 @@ export async function createRow(input: CreateRowInput): Promise<ActionResult<Tab
   const { data, error } = await supabase
     .from("table_rows")
     .insert({
+      ...(rowId ? { id: rowId } : {}),
       table_id: input.tableId,
       data: normalizedInput.data,
       order: input.order ?? null,
@@ -157,8 +160,18 @@ export async function createRow(input: CreateRowInput): Promise<ActionResult<Tab
     return { error: "Failed to create row" };
   }
 
-  await recomputeFormulasForRow(input.tableId, data.id);
-  await recomputeRollupsForRow(input.tableId, data.id);
+  const hasFormulaFields = (fields ?? []).some((field) => field.type === "formula");
+  const hasRollupFields = (fields ?? []).some((field) => field.type === "rollup");
+  if (!hasFormulaFields && !hasRollupFields) {
+    return { data: data as TableRow };
+  }
+
+  if (hasFormulaFields) {
+    await recomputeFormulasForRow(input.tableId, data.id);
+  }
+  if (hasRollupFields) {
+    await recomputeRollupsForRow(input.tableId, data.id);
+  }
 
   const { data: refreshed } = await supabase
     .from("table_rows")

@@ -258,18 +258,199 @@ export function useConfigureRelationField(tableId: string) {
 // Rows
 // ---------------------------------------------------------------------------
 
+type CreateRowMutationInput =
+  | Record<string, unknown>
+  | { id?: string; data?: Record<string, unknown>; order?: number | string | null }
+  | undefined;
+
+type ParsedCreateRowMutationInput = {
+  id?: string;
+  data?: Record<string, unknown>;
+  order?: number | string | null;
+};
+
+type CachedRowsPage = {
+  rows?: TableRow[];
+  total?: number;
+  [key: string]: unknown;
+};
+
+function isCreateRowOptions(input: CreateRowMutationInput): input is ParsedCreateRowMutationInput {
+  return Boolean(
+    input &&
+      typeof input === "object" &&
+      ("id" in input || "data" in input || "order" in input)
+  );
+}
+
+function parseCreateRowInput(input: CreateRowMutationInput): ParsedCreateRowMutationInput {
+  if (isCreateRowOptions(input)) {
+    return {
+      id: typeof input.id === "string" ? input.id : undefined,
+      data: input.data,
+      order: input.order,
+    };
+  }
+  return { data: input as Record<string, unknown> | undefined };
+}
+
+function createClientRowId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `optimistic-row-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function getRowOrderValue(order: unknown) {
+  const numeric = typeof order === "number" ? order : Number.parseFloat(String(order ?? ""));
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function sortRowsByOrder(rows: TableRow[]) {
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => {
+      const diff = getRowOrderValue(a.row.order) - getRowOrderValue(b.row.order);
+      return diff === 0 ? a.index - b.index : diff;
+    })
+    .map(({ row }) => row);
+}
+
+function collectRowsFromCache(data: unknown): TableRow[] {
+  if (!data || typeof data !== "object") return [];
+  if ("pages" in (data as Record<string, unknown>)) {
+    const inf = data as { pages?: CachedRowsPage[] };
+    return (inf.pages ?? []).flatMap((page) => page.rows ?? []);
+  }
+  if ("rows" in (data as Record<string, unknown>)) {
+    const reg = data as { rows?: TableRow[] };
+    return reg.rows ?? [];
+  }
+  return [];
+}
+
+function inferNextRowOrder(cachedRows: TableRow[]) {
+  if (cachedRows.length === 0) return 1;
+  return Math.max(...cachedRows.map((row) => getRowOrderValue(row.order))) + 1;
+}
+
+function withAdjustedRowCount<T extends Record<string, unknown>>(input: T, delta: number): T {
+  const next: Record<string, unknown> = { ...input };
+  if (typeof next.total === "number") next.total += delta;
+  if (typeof next.totalRows === "number") next.totalRows += delta;
+  return next as T;
+}
+
+function upsertRowArray(rows: TableRow[], row: TableRow, matchId?: string) {
+  const matchIds = new Set([row.id, matchId].filter((id): id is string => Boolean(id)));
+  let replaced = false;
+  const nextRows: TableRow[] = [];
+
+  for (const existing of rows) {
+    if (matchIds.has(existing.id)) {
+      if (!replaced) nextRows.push(row);
+      replaced = true;
+    } else {
+      nextRows.push(existing);
+    }
+  }
+
+  if (!replaced) nextRows.push(row);
+  return { rows: sortRowsByOrder(nextRows), inserted: !replaced };
+}
+
+function upsertRowInCache(data: unknown, row: TableRow, matchId?: string): unknown {
+  if (!data || typeof data !== "object") return data;
+  if ("pages" in (data as Record<string, unknown>)) {
+    const inf = data as { pages: CachedRowsPage[]; pageParams: unknown[]; [key: string]: unknown };
+    if (inf.pages.length === 0) {
+      return { ...inf, pages: [{ rows: [row], total: 1, hasMore: false }], pageParams: [0] };
+    }
+
+    let replaced = false;
+    const pages = inf.pages.map((page) => {
+      const result = upsertRowArray(page.rows ?? [], row, matchId);
+      if (!result.inserted) replaced = true;
+      return result.inserted ? page : { ...page, rows: result.rows };
+    });
+
+    if (!replaced) {
+      const lastPageIndex = pages.length - 1;
+      const lastPage = pages[lastPageIndex];
+      const result = upsertRowArray(lastPage.rows ?? [], row, matchId);
+      pages[lastPageIndex] = withAdjustedRowCount({ ...lastPage, rows: result.rows }, 1);
+    }
+
+    return { ...inf, pages };
+  }
+  if ("rows" in (data as Record<string, unknown>)) {
+    const reg = data as { rows: TableRow[]; [key: string]: unknown };
+    const result = upsertRowArray(reg.rows ?? [], row, matchId);
+    const next = { ...reg, rows: result.rows };
+    return result.inserted ? withAdjustedRowCount(next, 1) : next;
+  }
+  return data;
+}
+
+function removeRowFromCache(data: unknown, rowId: string): unknown {
+  if (!data || typeof data !== "object") return data;
+  if ("pages" in (data as Record<string, unknown>)) {
+    const inf = data as { pages: CachedRowsPage[]; pageParams: unknown[]; [key: string]: unknown };
+    let removedCount = 0;
+    const pages = inf.pages.map((page) => {
+      const rows = page.rows ?? [];
+      const nextRows = rows.filter((row) => row.id !== rowId);
+      const pageRemovedCount = rows.length - nextRows.length;
+      removedCount += pageRemovedCount;
+      return pageRemovedCount === 0
+        ? page
+        : withAdjustedRowCount({ ...page, rows: nextRows }, -pageRemovedCount);
+    });
+    return removedCount > 0 ? { ...inf, pages } : data;
+  }
+  if ("rows" in (data as Record<string, unknown>)) {
+    const reg = data as { rows: TableRow[]; [key: string]: unknown };
+    const nextRows = (reg.rows ?? []).filter((row) => row.id !== rowId);
+    const removedCount = (reg.rows ?? []).length - nextRows.length;
+    return removedCount > 0 ? withAdjustedRowCount({ ...reg, rows: nextRows }, -removedCount) : data;
+  }
+  return data;
+}
+
+function buildOptimisticRow(
+  tableId: string,
+  input: ParsedCreateRowMutationInput,
+  cachedRows: TableRow[]
+): TableRow {
+  const now = new Date().toISOString();
+  const order = input.order ?? inferNextRowOrder(cachedRows);
+  return {
+    id: input.id ?? createClientRowId(),
+    table_id: tableId,
+    source_entity_type: null,
+    source_entity_id: null,
+    source_sync_mode: null as unknown as TableRow["source_sync_mode"],
+    data: input.data ?? {},
+    order: String(order),
+    created_at: now,
+    updated_at: now,
+    created_by: null,
+    updated_by: null,
+    edited: false,
+  };
+}
+
 export function useCreateRow(tableId: string, _viewId?: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data?: Record<string, unknown> | { data?: Record<string, unknown>; order?: number | string | null }) => {
-      const result =
-        data && typeof data === "object" && ("data" in data || "order" in data)
-          ? await createRow({
-              tableId,
-              data: (data as { data?: Record<string, unknown> }).data,
-              order: (data as { order?: number | string | null }).order,
-            })
-          : await createRow({ tableId, data: data as Record<string, unknown> | undefined });
+    mutationFn: async (data?: CreateRowMutationInput) => {
+      const parsed = parseCreateRowInput(data);
+      const result = await createRow({
+        tableId,
+        id: parsed.id,
+        data: parsed.data,
+        order: parsed.order,
+      });
 
       if ("error" in result) {
         throw new Error(result.error || "Failed to create row");
@@ -277,35 +458,55 @@ export function useCreateRow(tableId: string, _viewId?: string | null) {
 
       return result;
     },
-    onSuccess: (res) => {
-      // Append the new row to all cached datasets for this table
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: ["tableRows", tableId] });
+      await qc.cancelQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
+
+      const parsed = parseCreateRowInput(input);
+      const rowCaches = qc.getQueriesData({ queryKey: ["tableRows", tableId] });
+      const bootstrap = qc.getQueryData(queryKeys.tableBootstrap(tableId));
+      const cachedRows = [
+        ...rowCaches.flatMap(([, data]) => collectRowsFromCache(data)),
+        ...collectRowsFromCache(bootstrap),
+      ];
+      const optimisticRow = buildOptimisticRow(tableId, parsed, cachedRows);
+
+      qc.setQueriesData(
+        { queryKey: ["tableRows", tableId] },
+        (old: unknown) => upsertRowInCache(old, optimisticRow)
+      );
+      qc.setQueryData(
+        queryKeys.tableBootstrap(tableId),
+        (old: unknown) => upsertRowInCache(old, optimisticRow)
+      );
+
+      return {
+        optimisticRowId: optimisticRow.id,
+      };
+    },
+    onError: (_err, _input, context) => {
+      if (!context?.optimisticRowId) return;
+      qc.setQueriesData(
+        { queryKey: ["tableRows", tableId] },
+        (old: unknown) => removeRowFromCache(old, context.optimisticRowId)
+      );
+      qc.setQueryData(
+        queryKeys.tableBootstrap(tableId),
+        (old: unknown) => removeRowFromCache(old, context.optimisticRowId)
+      );
+    },
+    onSuccess: (res, _input, context) => {
       if ("data" in res && res.data) {
         const newRow = res.data as TableRow;
         qc.setQueriesData(
           { queryKey: ["tableRows", tableId] },
-          (old: unknown) => {
-            if (!old || typeof old !== "object") return old;
-            if ("pages" in (old as Record<string, unknown>)) {
-              const inf = old as { pages: Array<{ rows: TableRow[]; [k: string]: unknown }>; pageParams: unknown[] };
-              // Append to last page
-              const pages = inf.pages.map((page, i) =>
-                i === inf.pages.length - 1
-                  ? { ...page, rows: [...(page.rows ?? []), newRow] }
-                  : page
-              );
-              return { ...inf, pages };
-            }
-            if ("rows" in (old as Record<string, unknown>)) {
-              const reg = old as { rows: TableRow[]; [k: string]: unknown };
-              return { ...reg, rows: [...(reg.rows ?? []), newRow] };
-            }
-            return old;
-          }
+          (old: unknown) => upsertRowInCache(old, newRow, context?.optimisticRowId)
+        );
+        qc.setQueryData(
+          queryKeys.tableBootstrap(tableId),
+          (old: unknown) => upsertRowInCache(old, newRow, context?.optimisticRowId)
         );
       }
-      // Invalidate all tableRows queries for this table to ensure fresh data
-      qc.invalidateQueries({ queryKey: ["tableRows", tableId], refetchType: "active" });
-      qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
     },
   });
 }
@@ -572,15 +773,16 @@ export function useAllTableRows(tableId?: string) {
 }
 
 export function useSearchTableRows(tableId: string, search: string) {
+  const trimmedSearch = search.trim();
   return useQuery({
-    queryKey: ['tableSearch', tableId, search],
+    queryKey: ['tableSearch', tableId, trimmedSearch],
     queryFn: async () => {
-      if (!search) return [];
-      const result = await searchTableRows(tableId, search);
+      if (!trimmedSearch) return [];
+      const result = await searchTableRows(tableId, trimmedSearch);
       if ("error" in result) throw new Error(result.error);
       return result.data;
     },
-    enabled: Boolean(search),
+    enabled: Boolean(tableId && trimmedSearch),
   });
 }
 
