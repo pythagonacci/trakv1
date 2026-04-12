@@ -11,7 +11,7 @@ import { createClient } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 
 interface PageProps {
-  searchParams: Promise<{ error?: string; flow?: string }>;
+  searchParams: Promise<{ error?: string; flow?: string; billingPlan?: string }>;
 }
 
 export default async function SignupPage({ searchParams }: PageProps) {
@@ -28,13 +28,19 @@ export default async function SignupPage({ searchParams }: PageProps) {
 
   const params = await searchParams;
   const isFreeTrialFlow = params.flow === "free_trial";
+  const billingPlan = params.billingPlan === "standard" || params.billingPlan === "business"
+    ? params.billingPlan
+    : null;
+  const billingPlanLabel = billingPlan === "business" ? "Business" : billingPlan === "standard" ? "Standard" : null;
 
   return (
     <AuthShell
-      title={isFreeTrialFlow ? "Start free trial" : "Create account"}
+      title={isFreeTrialFlow ? "Start free trial" : billingPlanLabel ? `Start ${billingPlanLabel}` : "Create account"}
       subtitle={
         isFreeTrialFlow
           ? "Enter your email to verify your account and launch your Standard trial."
+          : billingPlanLabel
+            ? `Enter your email to create your workspace and continue to ${billingPlanLabel} checkout.`
           : "Enter your email to get started."
       }
     >
@@ -45,6 +51,7 @@ export default async function SignupPage({ searchParams }: PageProps) {
       )}
       <form action={sendSignupOtp} className="space-y-5">
         {isFreeTrialFlow && <input type="hidden" name="flow" value="free_trial" />}
+        {billingPlan && <input type="hidden" name="billingPlan" value={billingPlan} />}
         <div>
           <Label htmlFor="email">Email</Label>
           <div className="relative">

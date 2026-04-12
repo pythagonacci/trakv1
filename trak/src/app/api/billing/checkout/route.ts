@@ -23,7 +23,8 @@ export async function POST(request: NextRequest) {
     const workspaceId = typeof body.workspaceId === "string" ? body.workspaceId : "";
     const requestedPlan = normalizePlanKey(body.planKey);
     const requestedSeatQuantity = body.seatQuantity;
-    console.log("[billing/checkout] request:parsed", { workspaceId, requestedPlan });
+    const skipTrial = body.skipTrial === true;
+    console.log("[billing/checkout] request:parsed", { workspaceId, requestedPlan, skipTrial });
 
     if (!workspaceId) {
       return NextResponse.json({ error: "Missing workspaceId" }, { status: 400 });
@@ -50,6 +51,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (
+      !skipTrial &&
       requestedPlan === "standard"
       && billing.plan_key === "free"
       && billing.billing_status === "free"

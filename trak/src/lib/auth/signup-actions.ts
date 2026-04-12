@@ -19,6 +19,11 @@ import { ensureWorkspaceBillingRow, startAppManagedStandardTrial } from '@/lib/b
  */
 
 type SignupFlow = 'default' | 'free_trial'
+type SignupBillingPlan = 'standard' | 'business'
+
+function normalizeSignupBillingPlan(value: unknown): SignupBillingPlan | null {
+  return value === 'standard' || value === 'business' ? value : null
+}
 
 function getFlowBasePath(flow: SignupFlow | null | undefined) {
   return flow === 'free_trial' ? '/start-free-trial' : '/signup'
@@ -51,6 +56,29 @@ async function clearSignupFlow() {
   cookieStore.delete('signup_first_name')
   cookieStore.delete('signup_last_name')
   cookieStore.delete('signup_workspace_name')
+  cookieStore.delete('signup_billing_plan')
+}
+
+async function setSignupBillingPlan(plan: SignupBillingPlan | null) {
+  const cookieStore = await cookies()
+
+  if (!plan) {
+    cookieStore.delete('signup_billing_plan')
+    return
+  }
+
+  cookieStore.set('signup_billing_plan', plan, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 2 * 60 * 60,
+    path: '/',
+  })
+}
+
+async function getSignupBillingPlan() {
+  const cookieStore = await cookies()
+  return normalizeSignupBillingPlan(cookieStore.get('signup_billing_plan')?.value)
 }
 
 async function setFreeTrialPrefill(values: { firstName: string; lastName: string; workspaceName: string }) {
@@ -85,6 +113,7 @@ export async function getSignupPrefill() {
     lastName: cookieStore.get('signup_last_name')?.value ?? '',
     workspaceName: cookieStore.get('signup_workspace_name')?.value ?? '',
     flow: (cookieStore.get('signup_flow')?.value === 'free_trial' ? 'free_trial' : 'default') as SignupFlow,
+    billingPlan: normalizeSignupBillingPlan(cookieStore.get('signup_billing_plan')?.value),
   }
 }
 
@@ -97,8 +126,13 @@ export async function sendSignupOtp(formData: FormData) {
   if (requestedFlow === 'free_trial') {
     await setSignupFlow('free_trial')
   }
+  const requestedBillingPlan = normalizeSignupBillingPlan(formData.get('billingPlan'))
+  if (requestedBillingPlan) {
+    await setSignupBillingPlan(requestedBillingPlan)
+  }
 
   const basePath = await getSignupBasePath()
+  const billingPlan = requestedBillingPlan ?? await getSignupBillingPlan()
   const email = (formData.get('email') as string)?.toLowerCase()?.trim()
   if (!email) {
     redirect(basePath + '?error=' + encodeURIComponent('Email is required.'))
@@ -118,11 +152,13 @@ export async function sendSignupOtp(formData: FormData) {
 
     if (!stage || stage === 'complete') {
       // Fully completed user — send them to login
+      const billingRedirect = billingPlan ? `/billing/start?plan=${billingPlan}` : ''
       redirect(
         '/login?message=' +
           encodeURIComponent('An account with this email already exists. Please sign in.') +
           '&email=' +
-          encodeURIComponent(email),
+          encodeURIComponent(email) +
+          (billingRedirect ? '&redirectedFrom=' + encodeURIComponent(billingRedirect) : ''),
       )
     }
     // Incomplete signup — fall through to resend OTP so they can continue
@@ -277,6 +313,7 @@ export async function setSignupPassword(formData: FormData) {
 export async function completeAccountSetup(formData: FormData) {
   const basePath = await getSignupBasePath()
   const flow = await getSignupFlow()
+  const billingPlan = await getSignupBillingPlan()
   const firstName = (formData.get('firstName') as string)?.trim()
   const lastName = (formData.get('lastName') as string)?.trim()
   const workspaceName = (formData.get('workspaceName') as string)?.trim()
@@ -342,6 +379,10 @@ export async function completeAccountSetup(formData: FormData) {
   cookieStore.delete('signup_email')
   await clearSignupFlow()
   await claimSharedClientPagesForUser({ userId: user.id, email: user.email })
+
+  if (billingPlan) {
+    redirect(`/billing/checkout?plan=${billingPlan}&workspaceId=${workspace.id}`)
+  }
 
   redirect('/dashboard')
 }
