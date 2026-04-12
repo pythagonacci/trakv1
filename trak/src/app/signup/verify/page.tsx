@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getSignupPrefill } from "@/lib/auth/signup-actions";
 import VerifyForm from "./verify-form";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +31,20 @@ export default async function VerifyPage({ searchParams }: PageProps) {
   }
 
   const params = await searchParams;
+  const prefill = await getSignupPrefill();
+  const planLabel = prefill.billingPlan === "business" ? "Business" : prefill.billingPlan === "standard" ? "Standard" : null;
+
+  if (planLabel) {
+    return (
+      <VerifyForm
+        email={email}
+        error={params.error}
+        message={params.message}
+        title="Verify your work email"
+        subtitle={`Enter the 6-digit code we sent to continue into ${planLabel} setup.`}
+      />
+    );
+  }
 
   return <VerifyForm email={email} error={params.error} message={params.message} />;
 }

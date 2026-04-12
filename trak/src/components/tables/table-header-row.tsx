@@ -653,24 +653,35 @@ function FieldHeader({
         <div
           className="absolute right-0 top-0 h-full w-4 cursor-col-resize select-none bg-transparent group/resize z-10"
           draggable={false}
+          style={{ touchAction: "none" }}
           title="Drag to resize · Double-click to reset"
           onPointerDown={(e) => {
             e.preventDefault();
             e.stopPropagation();
+            e.currentTarget.setPointerCapture(e.pointerId);
             const startX = e.clientX;
             const startWidth = currentWidth ?? field.width ?? DEFAULT_COL_WIDTH;
-            const onMove = (ev: PointerEvent) => {
-              const delta = ev.clientX - startX;
-              const next = Math.max(120, startWidth + delta);
-              onResize(field.id, next, false);
-            };
-            const onUp = (ev: PointerEvent) => {
-              const delta = ev.clientX - startX;
-              const next = Math.max(120, startWidth + delta);
-              onResize(field.id, next, true);
+            const previousCursor = document.body.style.cursor;
+            const previousUserSelect = document.body.style.userSelect;
+            document.body.style.cursor = "col-resize";
+            document.body.style.userSelect = "none";
+            let latestWidth = startWidth;
+            const cleanup = () => {
+              document.body.style.cursor = previousCursor;
+              document.body.style.userSelect = previousUserSelect;
               window.removeEventListener("pointermove", onMove);
               window.removeEventListener("pointerup", onUp);
               window.removeEventListener("pointercancel", onUp);
+            };
+            const onMove = (ev: PointerEvent) => {
+              const delta = ev.clientX - startX;
+              const next = Math.max(120, startWidth + delta);
+              latestWidth = next;
+              onResize(field.id, next, false);
+            };
+            const onUp = () => {
+              onResize(field.id, latestWidth, true);
+              cleanup();
             };
             window.addEventListener("pointermove", onMove);
             window.addEventListener("pointerup", onUp);

@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
   } = await supabase.auth.getSession();
 
   if (!session) {
-    return NextResponse.redirect(buildAppUrl(request, `/signup?billingPlan=${plan}`));
+    return NextResponse.redirect(buildAppUrl(request, `/billing/signup?plan=${plan}`));
   }
 
   const stage = session.user?.user_metadata?.signup_stage;

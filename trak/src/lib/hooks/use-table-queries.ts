@@ -183,34 +183,54 @@ export function useReorderFields(tableId: string) {
     mutationFn: (orders: Array<{ fieldId: string; order: number }>) => reorderFields(tableId, orders),
     onMutate: async (orders) => {
       // Cancel outgoing refetches
-      await qc.cancelQueries({ queryKey: queryKeys.table(tableId) });
+      await Promise.all([
+        qc.cancelQueries({ queryKey: queryKeys.table(tableId) }),
+        qc.cancelQueries({ queryKey: queryKeys.tableBootstrap(tableId) }),
+      ]);
 
       // Snapshot previous value
       const previous = qc.getQueryData<{ table: Table; fields: TableField[] }>(
         queryKeys.table(tableId)
       );
+      const previousBootstrap = qc.getQueryData<{ fields?: TableField[] }>(
+        queryKeys.tableBootstrap(tableId)
+      );
+      const orderMap = new Map(orders.map(o => [o.fieldId, o.order]));
+      const reorderCachedFields = (fields: TableField[]) =>
+        fields
+          .map((field) => {
+            const nextOrder = orderMap.get(field.id);
+            return nextOrder === undefined ? field : { ...field, order: nextOrder };
+          })
+          .sort((a, b) => {
+            const orderA = a.order ?? 0;
+            const orderB = b.order ?? 0;
+            return orderA - orderB;
+          });
 
       // Optimistically update field order
       if (previous) {
-        const orderMap = new Map(orders.map(o => [o.fieldId, o.order]));
-        const reorderedFields = [...previous.fields].sort((a, b) => {
-          const orderA = orderMap.get(a.id) ?? a.order;
-          const orderB = orderMap.get(b.id) ?? b.order;
-          return orderA - orderB;
-        });
-
         qc.setQueryData(queryKeys.table(tableId), {
           ...previous,
-          fields: reorderedFields,
+          fields: reorderCachedFields(previous.fields),
+        });
+      }
+      if (previousBootstrap?.fields) {
+        qc.setQueryData(queryKeys.tableBootstrap(tableId), {
+          ...previousBootstrap,
+          fields: reorderCachedFields(previousBootstrap.fields),
         });
       }
 
-      return { previous };
+      return { previous, previousBootstrap };
     },
     onError: (err, orders, context) => {
       // Rollback on error
       if (context?.previous) {
         qc.setQueryData(queryKeys.table(tableId), context.previous);
+      }
+      if (context?.previousBootstrap) {
+        qc.setQueryData(queryKeys.tableBootstrap(tableId), context.previousBootstrap);
       }
       console.error("Failed to reorder fields:", err);
     },
@@ -225,10 +245,19 @@ export function useReorderFields(tableId: string) {
             fields: result.data,
           });
         }
+        const bootstrapKey = queryKeys.tableBootstrap(tableId);
+        const existingBootstrap = qc.getQueryData<{ fields?: TableField[] }>(bootstrapKey);
+        if (existingBootstrap) {
+          qc.setQueryData(bootstrapKey, {
+            ...existingBootstrap,
+            fields: result.data,
+          });
+        }
       }
       // Invalidate to ensure consistency
       qc.invalidateQueries({ queryKey: queryKeys.tableFields(tableId) });
       qc.invalidateQueries({ queryKey: queryKeys.table(tableId) });
+      qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
     },
   });
 }

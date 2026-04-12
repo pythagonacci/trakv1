@@ -502,11 +502,11 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
 
   const columnTemplate = useMemo(() => {
     if (!fields.length) return `${selectionWidth}px 1fr 40px`;
-    // Use minmax to allow columns to fill available space while respecting minimum widths
-    // Subtask columns get a fixed narrow width, not minmax
+    // Column resize should control the actual rendered track, not just a min width.
+    // Keeping these tracks fixed also keeps header/body/footer columns aligned while dragging.
     const base = fields.map((f) => {
       const width = getWidthForField(f.id);
-      return f.type === "subtask" ? `${width}px` : `minmax(${width}px, 1fr)`;
+      return `${width}px`;
     }).join(" ");
     return `${selectionWidth}px ${base} 40px`;
   }, [fields, selectionWidth, getWidthForField]);

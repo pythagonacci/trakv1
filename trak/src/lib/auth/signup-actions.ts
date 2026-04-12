@@ -413,3 +413,38 @@ export async function beginFreeTrialSignup(formData: FormData) {
 
   await sendSignupOtp(nextFormData)
 }
+
+export async function beginPaidPlanSignup(formData: FormData) {
+  const plan = normalizeSignupBillingPlan(formData.get('billingPlan'))
+  const firstName = (formData.get('firstName') as string)?.trim()
+  const lastName = (formData.get('lastName') as string)?.trim()
+  const email = (formData.get('email') as string)?.toLowerCase()?.trim()
+  const workspaceName = (formData.get('workspaceName') as string)?.trim()
+  const redirectPath = plan ? `/billing/signup?plan=${plan}` : '/signup'
+
+  if (!plan) {
+    redirect('/signup?error=' + encodeURIComponent('Choose Standard or Business to continue.'))
+  }
+
+  if (!firstName || !lastName) {
+    redirect(redirectPath + '&error=' + encodeURIComponent('First and last name are required.'))
+  }
+
+  if (!email) {
+    redirect(redirectPath + '&error=' + encodeURIComponent('Email is required.'))
+  }
+
+  if (!workspaceName) {
+    redirect(redirectPath + '&error=' + encodeURIComponent('Workspace name is required.'))
+  }
+
+  await setSignupFlow('default')
+  await setSignupBillingPlan(plan)
+  await setFreeTrialPrefill({ firstName, lastName, workspaceName })
+
+  const nextFormData = new FormData()
+  nextFormData.set('email', email)
+  nextFormData.set('billingPlan', plan)
+
+  await sendSignupOtp(nextFormData)
+}
