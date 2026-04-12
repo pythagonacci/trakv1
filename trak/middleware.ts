@@ -7,6 +7,9 @@ import { getSupabaseEnv } from "@/lib/supabase/env";
 const PUBLIC_PATHS = new Set([
   "/login",
   "/signup",
+  "/billing/start",
+  "/billing/signup",
+  "/billing/checkout",
   "/start-free-trial",
   "/auth/callback",
   "/favicon.ico",

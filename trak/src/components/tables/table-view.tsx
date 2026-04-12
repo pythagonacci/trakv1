@@ -315,6 +315,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
   const columnRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [pendingWidths, setPendingWidths] = useState<Record<string, number>>({});
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [tableBlockWidth, setTableBlockWidth] = useState(0);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [openSearchTick, setOpenSearchTick] = useState(0);
   const cellRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -488,41 +489,81 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
     return [...pinned, ...unpinned, ...subtaskFields];
   }, [allFields, pinnedFields, hiddenFields]);
 
-  const getWidthForField = useCallback(
-    (fieldId: string) => {
-      if (pendingWidths[fieldId]) return pendingWidths[fieldId];
-      const f = allFields.find((fld) => fld.id === fieldId);
-      if (f?.type === "subtask") return 32;
-      return f?.width || 180;
-    },
-    [pendingWidths, allFields]
-  );
-
   const selectionWidth = 36;
+  const addColumnWidth = 40;
 
-  const columnTemplate = useMemo(() => {
-    if (!fields.length) return `${selectionWidth}px 1fr 40px`;
-    // Column resize should control the actual rendered track, not just a min width.
-    // Keeping these tracks fixed also keeps header/body/footer columns aligned while dragging.
-    const base = fields.map((f) => {
-      const width = getWidthForField(f.id);
-      return `${width}px`;
-    }).join(" ");
-    return `${selectionWidth}px ${base} 40px`;
-  }, [fields, selectionWidth, getWidthForField]);
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+
+    const updateWidth = (width: number) => {
+      const next = Math.floor(width);
+      setTableBlockWidth((current) => (current === next ? current : next));
+    };
+
+    updateWidth(element.getBoundingClientRect().width);
+    const observer = new ResizeObserver((entries) => {
+      updateWidth(entries[0]?.contentRect.width ?? element.getBoundingClientRect().width);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [metaLoading, rowsLoading, viewType]);
 
   const widthMap = useMemo(() => {
     const acc: Record<string, number> = {};
-    fields.forEach((f) => {
-      acc[f.id] = getWidthForField(f.id);
+    const unsizedFields: TableField[] = [];
+    let fixedWidth = 0;
+
+    fields.forEach((field) => {
+      const pendingWidth = pendingWidths[field.id];
+      if (typeof pendingWidth === "number") {
+        acc[field.id] = pendingWidth;
+        fixedWidth += pendingWidth;
+        return;
+      }
+
+      if (field.type === "subtask") {
+        acc[field.id] = 32;
+        fixedWidth += 32;
+        return;
+      }
+
+      if (typeof field.width === "number" && field.width > 0) {
+        acc[field.id] = field.width;
+        fixedWidth += field.width;
+        return;
+      }
+
+      unsizedFields.push(field);
     });
+
+    const availableFieldWidth = Math.max(0, tableBlockWidth - selectionWidth - addColumnWidth);
+    const unsizedWidth = Math.max(
+      180,
+      unsizedFields.length > 0 ? (availableFieldWidth - fixedWidth) / unsizedFields.length : 180
+    );
+    unsizedFields.forEach((field) => {
+      acc[field.id] = unsizedWidth;
+    });
+
     return acc;
-  }, [fields, getWidthForField]);
+  }, [addColumnWidth, fields, pendingWidths, selectionWidth, tableBlockWidth]);
+
+  const columnTemplate = useMemo(() => {
+    if (!fields.length) return `${selectionWidth}px minmax(0, 1fr) ${addColumnWidth}px`;
+    const lastIdx = fields.length - 1;
+    const base = fields.map((f, idx) => {
+      const width = widthMap[f.id] ?? 180;
+      // Last data column stretches to fill remaining space so no blank spacer appears
+      return idx === lastIdx ? `minmax(${width}px, 1fr)` : `${width}px`;
+    }).join(" ");
+    return `${selectionWidth}px ${base} 0px ${addColumnWidth}px`;
+  }, [addColumnWidth, fields, selectionWidth, widthMap]);
 
   const totalTableWidthPx = useMemo(() => {
     const fieldsWidth = fields.reduce((sum, f) => sum + (widthMap[f.id] ?? f.width ?? 180), 0);
-    return selectionWidth + fieldsWidth + 40;
-  }, [fields, widthMap, selectionWidth]);
+    return selectionWidth + fieldsWidth + addColumnWidth;
+  }, [addColumnWidth, fields, widthMap, selectionWidth]);
 
   const loadedSearchRows = useMemo<TableRowType[]>(
     () =>
@@ -1448,10 +1489,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
       const nextOrder = [...ordered];
       nextOrder.splice(insertIndex, 0, newField);
       const payload = nextOrder.map((f, i) => ({ fieldId: f.id, order: i + 1 }));
-      const reorderResult = await reorderFields.mutateAsync(payload);
-      if ("error" in reorderResult) {
-        throw new Error(reorderResult.error);
-      }
+      await reorderFields.mutateAsync(payload);
       queryClient.invalidateQueries({ queryKey: queryKeys.table(tableId) });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add field");
@@ -1479,7 +1517,10 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
   };
 
   const handleResizeWidth = useCallback((fieldId: string, width: number, persist: boolean) => {
-    setPendingWidths((prev) => ({ ...prev, [fieldId]: width }));
+    setPendingWidths((prev) => ({
+      ...(Object.keys(prev).length > 0 ? prev : widthMap),
+      [fieldId]: width,
+    }));
     if (persist) {
       const target = allFields.find((f) => f.id === fieldId);
       if (!target || target.width === width) return;
@@ -1487,7 +1528,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
         onError: (err) => setError(err instanceof Error ? err.message : "Failed to resize column"),
       });
     }
-  }, [allFields, updateField]);
+  }, [allFields, updateField, widthMap]);
 
   const handleHideField = (fieldId: string) => {
     if (!view?.id) return;

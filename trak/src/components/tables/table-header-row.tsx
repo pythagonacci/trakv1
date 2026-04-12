@@ -195,11 +195,14 @@ export function TableHeaderRow({
 }: Props) {
   const template = useMemo(() => {
     if (columnTemplate) return columnTemplate;
-    // Default template: selection column + fields + add column
-    const fieldsTemplate = Array(fields.length).fill("minmax(180px,1fr)").join(" ");
+    // Default template: selection column + fields (last one fills space) + add column
+    const lastIdx = fields.length - 1;
+    const fieldsTemplate = fields.map((_, idx) =>
+      idx === lastIdx ? "minmax(180px,1fr)" : "180px"
+    ).join(" ");
     const selectionCol = selectionWidth || 36;
-    return `${selectionCol}px ${fieldsTemplate} 40px`;
-  }, [columnTemplate, fields.length, selectionWidth]);
+    return `${selectionCol}px ${fieldsTemplate} 0px 40px`;
+  }, [columnTemplate, fields, selectionWidth]);
 
   const pinnedOffsets = useMemo(() => {
     let acc = selectionWidth;
@@ -266,15 +269,17 @@ export function TableHeaderRow({
                 onConfigureField={onConfigureField}
                 onHideField={onHideField}
                 onUpdateFieldConfig={onUpdateFieldConfig}
-            onResize={onResize}
-            currentWidth={widths?.[field.id]}
-            calculations={calculations}
-            rows={rows}
-            onUpdateCalculation={onUpdateCalculation}
-          />
+                onResize={onResize}
+                currentWidth={widths?.[field.id]}
+                prevFieldId={idx > 0 ? fields[idx - 1].id : undefined}
+                calculations={calculations}
+                rows={rows}
+                onUpdateCalculation={onUpdateCalculation}
+              />
         </div>
       );
     })}
+        <div className="min-w-0 bg-[var(--primary-pale)]" aria-hidden="true" />
         <div className="flex items-center justify-center border-l border-[var(--border)] bg-[var(--primary-pale)] min-w-[40px] sticky right-0 z-50 shadow-[-4px_0_8px_rgba(0,0,0,0.06)]">
           <button
             onClick={onAddField}
@@ -309,6 +314,7 @@ interface FieldHeaderProps {
   onHideField?: (fieldId: string) => void;
   onResize?: (fieldId: string, width: number, persist: boolean) => void;
   currentWidth?: number;
+  prevFieldId?: string;
   onUpdateFieldConfig?: (fieldId: string, config: any) => void;
   calculations?: Record<string, CalculationType | undefined>;
   rows?: TableRowType[];
@@ -358,6 +364,7 @@ function FieldHeader({
   onHideField,
   onResize,
   currentWidth,
+  prevFieldId,
   calculations = {},
   rows = [],
   onUpdateCalculation,
@@ -391,6 +398,82 @@ function FieldHeader({
     } else {
       setDraftName(field.name);
     }
+  };
+
+  const startResize = (e: React.PointerEvent<HTMLDivElement>, edge: "left" | "right") => {
+    if (!onResize) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const startX = e.clientX;
+    const MIN_WIDTH = 120;
+
+    // Read the actual rendered width from the grid cell (parent of FieldHeader root).
+    // Critical for the last column which stretches via minmax().
+    const gridCell = e.currentTarget.parentElement?.parentElement as HTMLElement | null;
+    const renderedWidth = gridCell ? Math.round(gridCell.getBoundingClientRect().width) : 0;
+    const startWidth = renderedWidth > 0 ? renderedWidth : (currentWidth ?? field.width ?? DEFAULT_COL_WIDTH);
+
+    // For left-edge drag: also capture the previous column's rendered width so we can
+    // redistribute width between the two columns (splitter behaviour).
+    const prevGridCell = edge === "left" ? (gridCell?.previousElementSibling as HTMLElement | null) : null;
+    const prevStartWidth = prevGridCell ? Math.round(prevGridCell.getBoundingClientRect().width) : 0;
+
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    let latestWidth = startWidth;
+    let latestPrevWidth = prevStartWidth;
+
+    const cleanup = () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+
+    const onMove = (ev: PointerEvent) => {
+      const delta = ev.clientX - startX;
+      if (edge === "right") {
+        // Right handle: resize only this column.
+        const next = Math.max(MIN_WIDTH, startWidth + delta);
+        latestWidth = next;
+        onResize(field.id, next, false);
+      } else {
+        // Left handle (= border between prev and current column).
+        // Drag left  (delta < 0): current column widens, prev column narrows.
+        // Drag right (delta > 0): current column narrows, prev column widens.
+        if (prevFieldId && prevStartWidth > 0) {
+          const maxDelta = prevStartWidth - MIN_WIDTH; // how far right before prev hits min
+          const minDelta = -(startWidth - MIN_WIDTH);  // how far left before current hits min
+          const clampedDelta = Math.max(minDelta, Math.min(maxDelta, delta));
+          latestWidth = startWidth - clampedDelta;
+          latestPrevWidth = prevStartWidth + clampedDelta;
+          onResize(field.id, latestWidth, false);
+          onResize(prevFieldId, latestPrevWidth, false);
+        } else {
+          // Fallback: no prev column info, just resize this column.
+          const next = Math.max(MIN_WIDTH, startWidth - delta);
+          latestWidth = next;
+          onResize(field.id, next, false);
+        }
+      }
+    };
+
+    const onUp = () => {
+      onResize(field.id, latestWidth, true);
+      if (edge === "left" && prevFieldId && latestPrevWidth !== prevStartWidth) {
+        onResize(prevFieldId, latestPrevWidth, true);
+      }
+      cleanup();
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   };
 
   return (
@@ -649,44 +732,27 @@ function FieldHeader({
         </DropdownMenuContent>
       </DropdownMenu>
 
+      {onResize && !isFirst && (
+        <div
+          className="absolute -left-2 top-0 h-full w-4 cursor-col-resize select-none bg-transparent z-20"
+          draggable={false}
+          style={{ touchAction: "none" }}
+          title="Drag to resize · Double-click to reset"
+          onPointerDown={(e) => startResize(e, "left")}
+          onDoubleClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onResize(field.id, DEFAULT_COL_WIDTH, true);
+          }}
+        />
+      )}
       {onResize && (
         <div
           className="absolute right-0 top-0 h-full w-4 cursor-col-resize select-none bg-transparent group/resize z-10"
           draggable={false}
           style={{ touchAction: "none" }}
           title="Drag to resize · Double-click to reset"
-          onPointerDown={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            e.currentTarget.setPointerCapture(e.pointerId);
-            const startX = e.clientX;
-            const startWidth = currentWidth ?? field.width ?? DEFAULT_COL_WIDTH;
-            const previousCursor = document.body.style.cursor;
-            const previousUserSelect = document.body.style.userSelect;
-            document.body.style.cursor = "col-resize";
-            document.body.style.userSelect = "none";
-            let latestWidth = startWidth;
-            const cleanup = () => {
-              document.body.style.cursor = previousCursor;
-              document.body.style.userSelect = previousUserSelect;
-              window.removeEventListener("pointermove", onMove);
-              window.removeEventListener("pointerup", onUp);
-              window.removeEventListener("pointercancel", onUp);
-            };
-            const onMove = (ev: PointerEvent) => {
-              const delta = ev.clientX - startX;
-              const next = Math.max(120, startWidth + delta);
-              latestWidth = next;
-              onResize(field.id, next, false);
-            };
-            const onUp = () => {
-              onResize(field.id, latestWidth, true);
-              cleanup();
-            };
-            window.addEventListener("pointermove", onMove);
-            window.addEventListener("pointerup", onUp);
-            window.addEventListener("pointercancel", onUp);
-          }}
+          onPointerDown={(e) => startResize(e, "right")}
           onDoubleClick={(e) => {
             e.preventDefault();
             e.stopPropagation();

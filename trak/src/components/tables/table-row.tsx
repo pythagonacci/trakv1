@@ -94,10 +94,15 @@ export const TableRow = memo(function TableRow({
   const primaryFieldId = useMemo(() => fields.find((field) => field.is_primary)?.id ?? fields[0]?.id, [fields]);
   const template = useMemo(() => {
     if (columnTemplate) return columnTemplate;
-    // Default template: selection column + fields + add column
-    const fieldsTemplate = Array(fields.length).fill("minmax(180px,1fr)").join(" ");
-    return showSelection ? `${selectionWidth || 36}px ${fieldsTemplate} 40px` : `${fieldsTemplate} 40px`;
-  }, [columnTemplate, fields.length, showSelection, selectionWidth]);
+    // Default template: selection column + fields (last one fills space) + add column
+    const lastIdx = fields.length - 1;
+    const fieldsTemplate = fields.map((_, idx) =>
+      idx === lastIdx ? "minmax(180px,1fr)" : "180px"
+    ).join(" ");
+    return showSelection
+      ? `${selectionWidth || 36}px ${fieldsTemplate} 0px 40px`
+      : `${fieldsTemplate} 0px 40px`;
+  }, [columnTemplate, fields, showSelection, selectionWidth]);
 
   const pinnedOffsets = useMemo(() => {
     let acc = showSelection ? selectionWidth : 0;
@@ -193,6 +198,7 @@ export const TableRow = memo(function TableRow({
           </div>
         );
       })}
+      <div className="min-w-0 bg-white" aria-hidden="true" />
       <div className="px-2 py-2 border-l border-[var(--border-strong)] sticky right-0 z-10 bg-white flex items-center justify-center">
         <button
           type="button"

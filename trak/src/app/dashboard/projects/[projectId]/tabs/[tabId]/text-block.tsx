@@ -30,7 +30,7 @@ interface TextBlockProps {
   block: Block;
   workspaceId?: string;
   projectId?: string;
-  onUpdate?: () => void;
+  onUpdate?: (updatedBlock?: Block) => void;
   autoFocus?: boolean;
   readOnly?: boolean;
 }
@@ -281,7 +281,7 @@ export default function TextBlock({
     async (textToSave: string) => {
       setSaveStatus("saving");
       try {
-        await updateBlock({
+        const result = await updateBlock({
           blockId: block.id,
           content: {
             ...(block.content as Record<string, unknown> | undefined),
@@ -290,8 +290,11 @@ export default function TextBlock({
             heightPx: minHeightRef.current,
           },
         });
+        if ("error" in result) {
+          throw new Error(result.error);
+        }
         setSaveStatus("saved");
-        onUpdate?.();
+        onUpdate?.("data" in result ? result.data : undefined);
         setTimeout(() => setSaveStatus("idle"), 1000);
       } catch (error) {
         console.error("Failed to update text block:", error);
@@ -349,7 +352,7 @@ export default function TextBlock({
             });
 
             if ("data" in result && result.data) {
-              onUpdate?.();
+              onUpdate?.(result.data);
             } else if ("error" in result && result.error) {
               console.error("Failed to update text block height:", result.error);
             } else {

@@ -30,18 +30,9 @@ import { useCardCountContext } from "./card-count-context";
 import { cn } from "@/lib/utils";
 import { TAB_THEMES } from "./tab-themes";
 import { queryKeys } from "@/lib/react-query/query-client";
-import { Undo2, FileText, CheckSquare, LayoutGrid, Link2, Minus, Table, Calendar, Paperclip, Video, Image, Images, Maximize2, Layout, Heading, BarChart2, BookOpen, ShoppingBag } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { FileText, CheckSquare, LayoutGrid, Link2, Minus, Table, Calendar, Paperclip, Video, Image, Images, Maximize2, Layout, Heading, BarChart2, BookOpen, ShoppingBag } from "lucide-react";
 import type { EntityProperties } from "@/types/properties";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-
-const UNDO_STACK_MAX = 10;
-type UndoEntry = { type: string; block: Block; index: number };
+import { useProjectUndo } from "../../project-undo-context";
 
 // Create context for file URLs
 export const FileUrlContext = createContext<Record<string, string>>({});
@@ -60,7 +51,7 @@ interface TabCanvasProps {
   currentTheme?: string;
   initialFileUrls?: Record<string, string>;
   initialBlockPropertiesById?: Record<string, EntityProperties>;
-  /** When true (e.g. workflow page with AI chat), hide the page Undo button so undo is only in the AI chat */
+  /** Deprecated: project actions now use the project header undo/redo context. */
   hidePageUndoButton?: boolean;
   lockedBlockIds?: string[];
 }
@@ -95,11 +86,11 @@ export default function TabCanvas({
   currentTheme: propTheme,
   initialFileUrls = {},
   initialBlockPropertiesById = {},
-  hidePageUndoButton = false,
   lockedBlockIds = [],
 }: TabCanvasProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const projectUndo = useProjectUndo();
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks);
   const [isDragging, setIsDragging] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
@@ -110,8 +101,6 @@ export default function TabCanvas({
   const [openDocId, setOpenDocId] = useState<string | null>(null);
   const [newBlockIds, setNewBlockIds] = useState<Set<string>>(new Set());
   const [tabTheme, setTabTheme] = useState<string>(propTheme || "default");
-  const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
-  const [isUndoing, setIsUndoing] = useState(false);
   const tabContents = useTabContents();
   const tocExpanded = tabContents?.tocExpanded ?? false;
   const setTocExpanded = tabContents?.setTocExpanded ?? (() => { });
@@ -132,7 +121,6 @@ export default function TabCanvas({
     if (prevTabIdRef.current !== tabId) {
       prevTabIdRef.current = tabId;
       setBlocks(initialBlocks);
-      setUndoStack([]);
       justDraggedRef.current = false;
       lastDragTimeRef.current = 0;
     }
@@ -368,32 +356,166 @@ export default function TabCanvas({
 
   const handleUpdate = (updatedBlock?: Block) => {
     if (updatedBlock) {
-      const updateBlockList = (prevBlocks?: Block[]) => {
-        if (!prevBlocks || prevBlocks.length === 0) return [updatedBlock];
+      const previousBlock = blocks.find((block) => block.id === updatedBlock.id);
+      const replaceBlockInList = (replacement: Block, prevBlocks?: Block[]) => {
+        if (!prevBlocks || prevBlocks.length === 0) return [replacement];
         let found = false;
         const next = prevBlocks.map((block) => {
-          if (block.id === updatedBlock.id) {
+          if (block.id === replacement.id) {
             found = true;
-            return updatedBlock;
+            return replacement;
           }
           return block;
         });
-        return found ? next : [...next, updatedBlock];
+        return found ? next : [...next, replacement];
       };
 
       // Update local state with the updated block (no router.refresh for inline edits)
-      setBlocks((prev) => updateBlockList(prev));
+      setBlocks((prev) => replaceBlockInList(updatedBlock, prev));
       // Keep React Query cache in sync so file URL queries can update.
-      queryClient.setQueryData(queryKeys.tabBlocks(tabId), (prev) => updateBlockList(prev as Block[] | undefined));
+      queryClient.setQueryData(queryKeys.tabBlocks(tabId), (prev) => replaceBlockInList(updatedBlock, prev as Block[] | undefined));
       // Invalidate so TabCanvasWrapper's useTabBlocks refetches and fileIds (from blocks) update;
       // otherwise wrapper can keep showing fileIds: 0 and useBatchFileUrls stays disabled.
       queryClient.invalidateQueries({ queryKey: queryKeys.tabBlocks(tabId) });
+
+      if (previousBlock && !updatedBlock.id.startsWith("temp-") && !projectUndo.isApplyingUndo) {
+        const applyBlockSnapshot = async (snapshot: Block) => {
+          const result = await updateBlock({
+            blockId: snapshot.id,
+            type: snapshot.type,
+            content: snapshot.content,
+            position: snapshot.position,
+            column: snapshot.column,
+          });
+          if (result.error) throw new Error(result.error);
+          const blockToApply = result.data ?? snapshot;
+          setBlocks((prev) => replaceBlockInList(blockToApply, prev));
+          queryClient.setQueryData(queryKeys.tabBlocks(tabId), (old: Block[] | undefined) =>
+            replaceBlockInList(blockToApply, old)
+          );
+          queryClient.invalidateQueries({ queryKey: queryKeys.tabBlocks(tabId) });
+        };
+
+        projectUndo.registerAction({
+          id: `block-update-${updatedBlock.id}-${Date.now()}`,
+          label: "block update",
+          undo: () => applyBlockSnapshot(previousBlock),
+          redo: () => applyBlockSnapshot(updatedBlock),
+        });
+      }
       return;
     }
 
     // Fallback: refetch blocks via targeted cache invalidation (no full page refresh).
     queryClient.invalidateQueries({ queryKey: queryKeys.tabBlocks(tabId) });
   };
+
+  const insertBlockAtIndex = useCallback((block: Block, index: number) => {
+    const insert = (prevBlocks?: Block[]) => {
+      const current = prevBlocks ?? [];
+      if (current.some((existingBlock) => existingBlock.id === block.id)) return current;
+      const next = [...current];
+      next.splice(Math.min(index, next.length), 0, block);
+      return next;
+    };
+
+    setBlocks((prev) => insert(prev));
+    queryClient.setQueryData(queryKeys.tabBlocks(tabId), (old: Block[] | undefined) => insert(old));
+  }, [queryClient, tabId]);
+
+  const restoreDeletedBlock = useCallback(async (block: Block, index: number) => {
+    const content = block.type === "table" ? undefined : block.content;
+    const position = typeof block.position === "number" ? block.position : index;
+    const column = block.column !== undefined && block.column >= 0 && block.column <= 2 ? block.column : 0;
+
+    const result = await createBlock({
+      tabId,
+      type: block.type,
+      content,
+      position,
+      column,
+    });
+    if (result.error) throw new Error(result.error);
+    if (!result.data) throw new Error("Failed to restore block");
+
+    const restoredBlock = { ...block, ...result.data };
+    insertBlockAtIndex(restoredBlock, index);
+    setNewBlockIds((prev) => new Set(prev).add(restoredBlock.id));
+    queryClient.invalidateQueries({ queryKey: queryKeys.tabBlocks(tabId) });
+    return restoredBlock;
+  }, [insertBlockAtIndex, queryClient, tabId]);
+
+  const deleteBlockForRedo = useCallback(async (blockId: string) => {
+    const snapshotIndex = blocks.findIndex((block) => block.id === blockId);
+    const snapshot = snapshotIndex >= 0 ? blocks[snapshotIndex] : undefined;
+
+    setBlocks((prevBlocks) => prevBlocks.filter((block) => block.id !== blockId));
+    queryClient.setQueryData(queryKeys.tabBlocks(tabId), (old: Block[] | undefined) =>
+      old?.filter((block) => block.id !== blockId)
+    );
+
+    const result = await deleteBlock(blockId);
+    if (result.error && !/block not found/i.test(result.error)) {
+      if (snapshot) insertBlockAtIndex(snapshot, snapshotIndex);
+      throw new Error(result.error);
+    }
+    queryClient.invalidateQueries({ queryKey: queryKeys.tabBlocks(tabId) });
+  }, [blocks, insertBlockAtIndex, queryClient, tabId]);
+
+  const applyBlockLayout = useCallback(async (snapshots: Array<Pick<Block, "id" | "position" | "column">>) => {
+    if (snapshots.length === 0) return;
+    await Promise.all(
+      snapshots
+        .filter((snapshot) => snapshot.id && !snapshot.id.startsWith("temp-"))
+        .map((snapshot) =>
+          updateBlock({
+            blockId: snapshot.id.trim(),
+            position: Math.floor(snapshot.position),
+            column:
+              snapshot.column !== undefined &&
+                snapshot.column >= 0 &&
+                snapshot.column <= 2
+                ? snapshot.column
+                : 0,
+          }),
+        ),
+    );
+
+    const byId = new Map(snapshots.map((snapshot) => [snapshot.id, snapshot]));
+    const apply = (old: Block[] | undefined) =>
+      old?.map((block) => {
+        const snapshot = byId.get(block.id);
+        return snapshot ? { ...block, position: snapshot.position, column: snapshot.column } : block;
+      });
+
+    setBlocks((prev) => apply(prev) ?? prev);
+    queryClient.setQueryData(queryKeys.tabBlocks(tabId), (old: Block[] | undefined) => apply(old));
+    queryClient.invalidateQueries({ queryKey: queryKeys.tabBlocks(tabId) });
+  }, [queryClient, tabId]);
+
+  const registerBlockLayoutUndo = useCallback((previous: Block[], next: Block[]) => {
+    if (projectUndo.isApplyingUndo) return;
+    const previousById = new Map(previous.map((block) => [block.id, block]));
+    const changedNext = next.filter((block) => {
+      const oldBlock = previousById.get(block.id);
+      if (!oldBlock || block.id.startsWith("temp-")) return false;
+      return oldBlock.column !== block.column || Math.floor(oldBlock.position) !== Math.floor(block.position);
+    });
+    if (changedNext.length === 0) return;
+
+    const previousSnapshots = changedNext
+      .map((block) => previousById.get(block.id))
+      .filter((block): block is Block => Boolean(block))
+      .map((block) => ({ id: block.id, position: block.position, column: block.column }));
+    const nextSnapshots = changedNext.map((block) => ({ id: block.id, position: block.position, column: block.column }));
+
+    projectUndo.registerAction({
+      id: `block-layout-${Date.now()}`,
+      label: "block move",
+      undo: () => applyBlockLayout(previousSnapshots),
+      redo: () => applyBlockLayout(nextSnapshots),
+    });
+  }, [applyBlockLayout, projectUndo]);
 
   const handleDelete = async (blockId: string) => {
     const blockIndex = blocks.findIndex((block) => block.id === blockId);
@@ -418,11 +540,18 @@ export default function TabCanvas({
       if (result.error) {
         throw new Error(result.error);
       }
-      // Push to undo stack for "undo delete"
       if (blockSnapshot) {
-        setUndoStack((prev) => {
-          const next = [...prev, { type: "delete_block", block: blockSnapshot, index: blockIndex }];
-          return next.slice(-UNDO_STACK_MAX);
+        let restoredBlockId: string | null = null;
+        projectUndo.registerAction({
+          id: `block-delete-${blockId}-${Date.now()}`,
+          label: "block delete",
+          undo: async () => {
+            const restoredBlock = await restoreDeletedBlock(blockSnapshot, blockIndex);
+            restoredBlockId = restoredBlock.id;
+          },
+          redo: async () => {
+            await deleteBlockForRedo(restoredBlockId ?? blockId);
+          },
         });
       }
       // Invalidate tab blocks cache so useTabBlocks refetches; prevents deleted block reappearing from stale cache
@@ -454,68 +583,6 @@ export default function TabCanvas({
       }
     }
   };
-
-  const handleUndo = useCallback(async () => {
-    const entry = undoStack[undoStack.length - 1];
-    if (!entry || isUndoing) return;
-    if (entry.type !== "delete_block") return;
-
-    setIsUndoing(true);
-    setUndoStack((prev) => prev.slice(0, -1));
-
-    const { block, index } = entry;
-    // Table blocks: don't pass content (creates fresh table; original table was deleted)
-    const content = block.type === "table" ? undefined : block.content;
-    const position = typeof block.position === "number" ? block.position : index;
-    const column = block.column !== undefined && block.column >= 0 && block.column <= 2 ? block.column : 0;
-
-    try {
-      const result = await createBlock({
-        tabId,
-        type: block.type,
-        content,
-        position,
-        column,
-      });
-      if (result.error) throw new Error(result.error);
-      if (result.data) {
-        const newBlock = { ...block, ...result.data };
-        setBlocks((prev) => {
-          const next = [...prev];
-          const insertionIndex = Math.min(index, next.length);
-          next.splice(insertionIndex, 0, newBlock);
-          return next;
-        });
-        setNewBlockIds((prev) => new Set(prev).add(newBlock.id));
-        queryClient.setQueryData(queryKeys.tabBlocks(tabId), (old: Block[] | undefined) => {
-          if (!old) return old;
-          const next = [...old];
-          const insertionIndex = Math.min(index, next.length);
-          next.splice(insertionIndex, 0, newBlock);
-          return next;
-        });
-      }
-    } catch (error) {
-      console.error("Undo failed:", error);
-      alert(error instanceof Error ? error.message : "Undo failed");
-      setUndoStack((prev) => [...prev, entry]);
-    } finally {
-      setIsUndoing(false);
-    }
-  }, [undoStack, isUndoing, tabId, queryClient, router]);
-
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey) {
-        const target = e.target as HTMLElement;
-        if (target.isContentEditable || target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
-        e.preventDefault();
-        if (undoStack.length > 0 && !isUndoing) handleUndo();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [undoStack.length, isUndoing, handleUndo]);
 
   const handleConvert = async (blockId: string, newType: BlockType, contentOverride?: Record<string, unknown>) => {
     let newContent: Record<string, unknown>;
@@ -910,11 +977,13 @@ export default function TabCanvas({
 
         if (!draggedBlock.id.startsWith("temp-")) {
           try {
-            await updateBlock({
+            const result = await updateBlock({
               blockId: draggedBlock.id.trim(),
               column: newCol,
               position: newPosition,
             });
+            if (result.error) throw new Error(result.error);
+            registerBlockLayoutUndo(blocks, updatedBlocks);
           } catch (error) {
             console.error("Failed to update block position:", error);
             setBlocks(blocks); // revert
@@ -973,7 +1042,7 @@ export default function TabCanvas({
           );
 
           if (persistentBlocks.length > 0) {
-            await Promise.all(
+            const results = await Promise.all(
               persistentBlocks.map((block) =>
                 updateBlock({
                   blockId: block.id.trim(),
@@ -987,6 +1056,11 @@ export default function TabCanvas({
                 }),
               ),
             );
+            const failed = results.filter((result) => result?.error);
+            if (failed.length > 0) {
+              throw new Error(failed.map((result) => result.error).join(", "));
+            }
+            registerBlockLayoutUndo(blocks, updatedBlocks);
           }
         } catch (error) {
           console.error("Error updating block for vertical drop:", error);
@@ -1127,6 +1201,8 @@ export default function TabCanvas({
               "Some block updates failed:",
               failed.map((f) => f.error).join(", "),
             );
+          } else {
+            registerBlockLayoutUndo(blocks, updatedBlocks);
           }
         }
       } catch (error) {
@@ -1247,7 +1323,24 @@ export default function TabCanvas({
       }
       return next;
     });
-  }, [getNextPosition]);
+
+    if (!projectUndo.isApplyingUndo && !tempId.startsWith("undo-")) {
+      const creationIndex = blocks.findIndex((block) => block.id === tempId);
+      const insertionIndex = creationIndex >= 0 ? creationIndex : blocks.length;
+      let currentBlockId = savedBlock.id;
+      projectUndo.registerAction({
+        id: `block-create-${savedBlock.id}-${Date.now()}`,
+        label: "block create",
+        undo: async () => {
+          await deleteBlockForRedo(currentBlockId);
+        },
+        redo: async () => {
+          const restoredBlock = await restoreDeletedBlock(savedBlock, insertionIndex);
+          currentBlockId = restoredBlock.id;
+        },
+      });
+    }
+  }, [blocks, deleteBlockForRedo, getNextPosition, projectUndo, restoreDeletedBlock]);
 
   // Handle optimistic block creation
   const handleBlockCreated = (newBlock: Block) => {
@@ -1436,32 +1529,6 @@ export default function TabCanvas({
               )}
               style={currentTheme.containerBg ? { background: currentTheme.containerBg } : undefined}
             >
-              {!hidePageUndoButton && undoStack.length > 0 && (
-                <div className="absolute top-3 right-10 z-10">
-                  <TooltipProvider delayDuration={300}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 gap-1.5 px-2.5 text-xs shadow-sm"
-                          onClick={handleUndo}
-                          disabled={isUndoing}
-                        >
-                          <Undo2 className="h-3.5 w-3.5" />
-                          Undo
-                          {undoStack.length > 1 && (
-                            <span className="text-[10px] opacity-70">({undoStack.length})</span>
-                          )}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom" className="text-xs">
-                        Undo last action (⌘Z)
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
-              )}
               {!isMounted ? (
                 <div className="space-y-5">
                   {blockRows.map((row, rowIdx) => (

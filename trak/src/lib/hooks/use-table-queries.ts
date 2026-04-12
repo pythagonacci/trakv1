@@ -6,6 +6,7 @@
 
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/react-query/query-client";
+import { useProjectUndo } from "@/app/dashboard/projects/[projectId]/project-undo-context";
 import { createTable, getTable, updateTable, deleteTable, duplicateTable, listWorkspaceTables } from "@/app/actions/tables/table-actions";
 import { createField, updateField, deleteField, reorderFields, updateFieldConfig } from "@/app/actions/tables/field-actions";
 import {
@@ -141,10 +142,30 @@ export function useDuplicateTable(tableId: string) {
 
 export function useCreateField(tableId: string) {
   const qc = useQueryClient();
+  const projectUndo = useProjectUndo();
   return useMutation({
     mutationFn: (input: Omit<Parameters<typeof createField>[0], "tableId">) =>
       createField({ ...input, tableId }),
-    onSuccess: () => {
+    onSuccess: (result, input) => {
+      if ("data" in result && result.data) {
+        const field = result.data;
+        let currentFieldId = field.id;
+        projectUndo.registerAction({
+          id: `table-field-create-${field.id}-${Date.now()}`,
+          label: "column create",
+          undo: async () => {
+            const deleteResult = await deleteField(currentFieldId);
+            if ("error" in deleteResult) throw new Error(deleteResult.error);
+            qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
+          },
+          redo: async () => {
+            const createResult = await createField({ ...input, tableId, order: field.order, width: field.width });
+            if ("error" in createResult) throw new Error(createResult.error);
+            currentFieldId = createResult.data.id;
+            qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
+          },
+        });
+      }
       qc.invalidateQueries({ queryKey: queryKeys.tableFields(tableId) });
       qc.invalidateQueries({ queryKey: queryKeys.table(tableId) });
       qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
@@ -154,9 +175,45 @@ export function useCreateField(tableId: string) {
 
 export function useUpdateField(tableId: string) {
   const qc = useQueryClient();
+  const projectUndo = useProjectUndo();
   return useMutation({
     mutationFn: (args: { id: string; updates: Partial<TableField> }) => updateField(args.id, args.updates),
-    onSuccess: () => {
+    onMutate: (args) => {
+      const previous = qc.getQueryData<{ fields?: TableField[] }>(queryKeys.tableBootstrap(tableId))
+        ?.fields?.find((field) => field.id === args.id);
+      return { previous };
+    },
+    onSuccess: (result, args, context) => {
+      if ("data" in result && result.data && context?.previous) {
+        const previous = context.previous;
+        const next = result.data;
+        projectUndo.registerAction({
+          id: `table-field-update-${args.id}-${Date.now()}`,
+          label: "column update",
+          undo: async () => {
+            const undoResult = await updateField(args.id, {
+              name: previous.name,
+              type: previous.type,
+              config: previous.config,
+              is_primary: previous.is_primary,
+              width: previous.width,
+            });
+            if ("error" in undoResult) throw new Error(undoResult.error);
+            qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
+          },
+          redo: async () => {
+            const redoResult = await updateField(args.id, {
+              name: next.name,
+              type: next.type,
+              config: next.config,
+              is_primary: next.is_primary,
+              width: next.width,
+            });
+            if ("error" in redoResult) throw new Error(redoResult.error);
+            qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
+          },
+        });
+      }
       qc.invalidateQueries({ queryKey: queryKeys.tableFields(tableId) });
       qc.invalidateQueries({ queryKey: queryKeys.table(tableId) });
       qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
@@ -167,9 +224,43 @@ export function useUpdateField(tableId: string) {
 
 export function useDeleteField(tableId: string) {
   const qc = useQueryClient();
+  const projectUndo = useProjectUndo();
   return useMutation({
     mutationFn: (fieldId: string) => deleteField(fieldId),
-    onSuccess: () => {
+    onMutate: (fieldId) => {
+      const previous = qc.getQueryData<{ fields?: TableField[] }>(queryKeys.tableBootstrap(tableId))
+        ?.fields?.find((field) => field.id === fieldId);
+      return { previous };
+    },
+    onSuccess: (result, _fieldId, context) => {
+      if ("error" in result) return;
+      if (context?.previous) {
+        const field = context.previous;
+        let currentFieldId = field.id;
+        projectUndo.registerAction({
+          id: `table-field-delete-${field.id}-${Date.now()}`,
+          label: "column delete",
+          undo: async () => {
+            const result = await createField({
+              tableId,
+              name: field.name,
+              type: field.type,
+              config: field.config ? (field.config as Record<string, unknown>) : undefined,
+              order: field.order,
+              isPrimary: field.is_primary,
+              width: field.width,
+            });
+            if ("error" in result) throw new Error(result.error);
+            currentFieldId = result.data.id;
+            qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
+          },
+          redo: async () => {
+            const result = await deleteField(currentFieldId);
+            if ("error" in result && result.error !== "Field not found") throw new Error(result.error);
+            qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
+          },
+        });
+      }
       qc.invalidateQueries({ queryKey: queryKeys.tableFields(tableId) });
       qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
       qc.invalidateQueries({ queryKey: queryKeys.table(tableId) });
@@ -179,8 +270,47 @@ export function useDeleteField(tableId: string) {
 
 export function useReorderFields(tableId: string) {
   const qc = useQueryClient();
+  const projectUndo = useProjectUndo();
+
+  const setCachedFieldOrder = (orderedFields: TableField[]) => {
+    const tableKey = queryKeys.table(tableId);
+    const existing = qc.getQueryData<{ table: Table; fields: TableField[] }>(tableKey);
+    if (existing) {
+      qc.setQueryData(tableKey, {
+        ...existing,
+        fields: orderedFields,
+      });
+    }
+
+    const bootstrapKey = queryKeys.tableBootstrap(tableId);
+    const existingBootstrap = qc.getQueryData<{ fields?: TableField[] }>(bootstrapKey);
+    if (existingBootstrap) {
+      qc.setQueryData(bootstrapKey, {
+        ...existingBootstrap,
+        fields: orderedFields,
+      });
+    }
+  };
+
+  const applyFieldOrder = async (orders: Array<{ fieldId: string; order: number }>) => {
+    const result = await reorderFields(tableId, orders);
+    if ("error" in result) throw new Error(result.error);
+    if (result.data) {
+      setCachedFieldOrder(result.data);
+    }
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: queryKeys.tableFields(tableId) }),
+      qc.invalidateQueries({ queryKey: queryKeys.table(tableId) }),
+      qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) }),
+    ]);
+  };
+
   return useMutation({
-    mutationFn: (orders: Array<{ fieldId: string; order: number }>) => reorderFields(tableId, orders),
+    mutationFn: async (orders: Array<{ fieldId: string; order: number }>) => {
+      const result = await reorderFields(tableId, orders);
+      if ("error" in result) throw new Error(result.error);
+      return result;
+    },
     onMutate: async (orders) => {
       // Cancel outgoing refetches
       await Promise.all([
@@ -195,6 +325,7 @@ export function useReorderFields(tableId: string) {
       const previousBootstrap = qc.getQueryData<{ fields?: TableField[] }>(
         queryKeys.tableBootstrap(tableId)
       );
+      const previousFields = previousBootstrap?.fields ?? previous?.fields ?? [];
       const orderMap = new Map(orders.map(o => [o.fieldId, o.order]));
       const reorderCachedFields = (fields: TableField[]) =>
         fields
@@ -221,8 +352,10 @@ export function useReorderFields(tableId: string) {
           fields: reorderCachedFields(previousBootstrap.fields),
         });
       }
+      const previousOrders = previousFields.map((field) => ({ fieldId: field.id, order: field.order ?? 0 }));
+      const nextOrders = orders.map((order) => ({ ...order }));
 
-      return { previous, previousBootstrap };
+      return { previous, previousBootstrap, previousOrders, nextOrders };
     },
     onError: (err, orders, context) => {
       // Rollback on error
@@ -234,23 +367,16 @@ export function useReorderFields(tableId: string) {
       }
       console.error("Failed to reorder fields:", err);
     },
-    onSuccess: (result) => {
+    onSuccess: (result, _orders, context) => {
       // Update with server response if available
       if ("data" in result && result.data) {
-        const key = queryKeys.table(tableId);
-        const existing = qc.getQueryData<{ table: Table; fields: TableField[] }>(key);
-        if (existing) {
-          qc.setQueryData(key, {
-            ...existing,
-            fields: result.data,
-          });
-        }
-        const bootstrapKey = queryKeys.tableBootstrap(tableId);
-        const existingBootstrap = qc.getQueryData<{ fields?: TableField[] }>(bootstrapKey);
-        if (existingBootstrap) {
-          qc.setQueryData(bootstrapKey, {
-            ...existingBootstrap,
-            fields: result.data,
+        setCachedFieldOrder(result.data);
+        if (context?.previousOrders.length && context.previousOrders.length === context.nextOrders.length) {
+          projectUndo.registerAction({
+            id: `table-column-reorder-${tableId}-${Date.now()}`,
+            label: "column move",
+            undo: () => applyFieldOrder(context.previousOrders),
+            redo: () => applyFieldOrder(context.nextOrders),
           });
         }
       }
@@ -471,6 +597,7 @@ function buildOptimisticRow(
 
 export function useCreateRow(tableId: string, _viewId?: string | null) {
   const qc = useQueryClient();
+  const projectUndo = useProjectUndo();
   return useMutation({
     mutationFn: async (data?: CreateRowMutationInput) => {
       const parsed = parseCreateRowInput(data);
@@ -535,6 +662,27 @@ export function useCreateRow(tableId: string, _viewId?: string | null) {
           queryKeys.tableBootstrap(tableId),
           (old: unknown) => upsertRowInCache(old, newRow, context?.optimisticRowId)
         );
+        projectUndo.registerAction({
+          id: `table-row-create-${newRow.id}-${Date.now()}`,
+          label: "row create",
+          undo: async () => {
+            const result = await deleteRow(newRow.id);
+            if ("error" in result) throw new Error(result.error);
+            qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
+            qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
+          },
+          redo: async () => {
+            const result = await createRow({
+              tableId,
+              id: newRow.id,
+              data: newRow.data,
+              order: newRow.order,
+            });
+            if ("error" in result) throw new Error(result.error);
+            qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
+            qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
+          },
+        });
       }
     },
   });
@@ -542,9 +690,34 @@ export function useCreateRow(tableId: string, _viewId?: string | null) {
 
 export function useUpdateRow(tableId: string, viewId?: string | null) {
   const qc = useQueryClient();
+  const projectUndo = useProjectUndo();
   return useMutation({
     mutationFn: (args: { rowId: string; data: Record<string, unknown> }) => updateRow(args.rowId, { data: args.data }),
-    onSuccess: () => {
+    onMutate: (args) => {
+      const previousRows = qc.getQueriesData({ queryKey: ["tableRows", tableId] })
+        .flatMap(([, data]) => collectRowsFromCache(data));
+      const previous = previousRows.find((row) => row.id === args.rowId);
+      return { previous };
+    },
+    onSuccess: (result, args, context) => {
+      if ("data" in result && result.data && context?.previous) {
+        const next = result.data as TableRow;
+        const previous = context.previous;
+        projectUndo.registerAction({
+          id: `table-row-update-${args.rowId}-${Date.now()}`,
+          label: "row update",
+          undo: async () => {
+            const undoResult = await updateRow(args.rowId, { data: previous.data });
+            if ("error" in undoResult) throw new Error(undoResult.error);
+            qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
+          },
+          redo: async () => {
+            const redoResult = await updateRow(args.rowId, { data: next.data });
+            if ("error" in redoResult) throw new Error(redoResult.error);
+            qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
+          },
+        });
+      }
       qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId, viewId) });
     },
   });
@@ -602,6 +775,7 @@ function filterRowsInCache(data: unknown, predicate: (row: TableRow) => boolean)
 
 export function useUpdateCell(tableId: string, viewId?: string | null) {
   const qc = useQueryClient();
+  const projectUndo = useProjectUndo();
   return useMutation({
     mutationFn: async (args: { rowId: string; fieldId: string; value: unknown }) => {
       const result = await updateCell(args.rowId, args.fieldId, args.value);
@@ -619,6 +793,9 @@ export function useUpdateCell(tableId: string, viewId?: string | null) {
       // effectiveViewId resolves to the actual view UUID). Broad prefix catches both.
       await qc.cancelQueries({ queryKey: ["tableRows", tableId] });
       const previous = qc.getQueriesData({ queryKey: ["tableRows", tableId] });
+      const previousRows = previous.flatMap(([, data]) => collectRowsFromCache(data));
+      const previousRow = previousRows.find((row) => row.id === args.rowId);
+      const previousValue = previousRow?.data?.[args.fieldId];
 
       qc.setQueriesData(
         { queryKey: ["tableRows", tableId] },
@@ -629,7 +806,7 @@ export function useUpdateCell(tableId: string, viewId?: string | null) {
           }))
       );
 
-      return { previous };
+      return { previous, previousValue, hadPreviousRow: Boolean(previousRow) };
     },
     onError: (err, args, context) => {
       console.error("useUpdateCell onError:", err, args);
@@ -640,7 +817,7 @@ export function useUpdateCell(tableId: string, viewId?: string | null) {
       // Re-throw so the component can handle it
       throw err;
     },
-    onSuccess: (result) => {
+    onSuccess: (result, args, context) => {
       // Result is guaranteed to have data at this point (error would have thrown)
       if ("data" in result && result.data) {
         const updatedRow = result.data as TableRow;
@@ -656,6 +833,22 @@ export function useUpdateCell(tableId: string, viewId?: string | null) {
           qc.invalidateQueries({ queryKey: ["timelineItems"] });
           qc.invalidateQueries({ queryKey: queryKeys.entityProperties(st, sid) });
         }
+        if (context?.hadPreviousRow) {
+          projectUndo.registerAction({
+            id: `table-cell-update-${args.rowId}-${args.fieldId}-${Date.now()}`,
+            label: "cell edit",
+            undo: async () => {
+              const undoResult = await updateCell(args.rowId, args.fieldId, context.previousValue);
+              if ("error" in undoResult) throw new Error(undoResult.error);
+              qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
+            },
+            redo: async () => {
+              const redoResult = await updateCell(args.rowId, args.fieldId, args.value);
+              if ("error" in redoResult) throw new Error(redoResult.error);
+              qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
+            },
+          });
+        }
       }
       // Invalidate to ensure consistency
       qc.invalidateQueries({ queryKey: ["tableRows", tableId], refetchType: "active" });
@@ -666,23 +859,48 @@ export function useUpdateCell(tableId: string, viewId?: string | null) {
 
 export function useDeleteRow(tableId: string, viewId?: string | null) {
   const qc = useQueryClient();
+  const projectUndo = useProjectUndo();
   return useMutation({
     mutationFn: (rowId: string) => deleteRow(rowId),
     onMutate: async (rowId) => {
       await qc.cancelQueries({ queryKey: ["tableRows", tableId] });
       const previous = qc.getQueriesData({ queryKey: ["tableRows", tableId] });
+      const deletedRow = previous.flatMap(([, data]) => collectRowsFromCache(data)).find((row) => row.id === rowId);
       qc.setQueriesData(
         { queryKey: ["tableRows", tableId] },
         (old: unknown) => filterRowsInCache(old, (r) => r.id !== rowId)
       );
-      return { previous };
+      return { previous, deletedRow };
     },
     onError: (_err, _rowId, context) => {
       (context?.previous ?? []).forEach(([key, data]) => {
         if (data !== undefined) qc.setQueryData(key, data);
       });
     },
-    onSuccess: () => {
+    onSuccess: (result, rowId, context) => {
+      if ("error" in result) return;
+      if (context?.deletedRow) {
+        const deletedRow = context.deletedRow;
+        projectUndo.registerAction({
+          id: `table-row-delete-${rowId}-${Date.now()}`,
+          label: "row delete",
+          undo: async () => {
+            const result = await createRow({
+              tableId,
+              id: deletedRow.id,
+              data: deletedRow.data,
+              order: deletedRow.order,
+            });
+            if ("error" in result) throw new Error(result.error);
+            qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
+          },
+          redo: async () => {
+            const result = await deleteRow(deletedRow.id);
+            if ("error" in result) throw new Error(result.error);
+            qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
+          },
+        });
+      }
       qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
     },
   });
@@ -690,24 +908,49 @@ export function useDeleteRow(tableId: string, viewId?: string | null) {
 
 export function useDeleteRows(tableId: string, viewId?: string | null) {
   const qc = useQueryClient();
+  const projectUndo = useProjectUndo();
   return useMutation({
     mutationFn: (rowIds: string[]) => deleteRows(rowIds),
     onMutate: async (rowIds) => {
       const ids = new Set(rowIds);
       await qc.cancelQueries({ queryKey: ["tableRows", tableId] });
       const previous = qc.getQueriesData({ queryKey: ["tableRows", tableId] });
+      const deletedRows = previous.flatMap(([, data]) => collectRowsFromCache(data)).filter((row) => ids.has(row.id));
       qc.setQueriesData(
         { queryKey: ["tableRows", tableId] },
         (old: unknown) => filterRowsInCache(old, (r) => !ids.has(r.id))
       );
-      return { previous };
+      return { previous, deletedRows };
     },
     onError: (_err, _rowIds, context) => {
       (context?.previous ?? []).forEach(([key, data]) => {
         if (data !== undefined) qc.setQueryData(key, data);
       });
     },
-    onSuccess: () => {
+    onSuccess: (result, rowIds, context) => {
+      if ("error" in result) return;
+      if (context?.deletedRows && context.deletedRows.length > 0) {
+        const deletedRows = context.deletedRows;
+        projectUndo.registerAction({
+          id: `table-rows-delete-${Date.now()}`,
+          label: "row delete",
+          undo: async () => {
+            const results = await Promise.all(
+              deletedRows.map((row) =>
+                createRow({ tableId, id: row.id, data: row.data, order: row.order })
+              )
+            );
+            const failed = results.find((createResult) => "error" in createResult);
+            if (failed && "error" in failed) throw new Error(failed.error);
+            qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
+          },
+          redo: async () => {
+            const result = await deleteRows(rowIds);
+            if ("error" in result) throw new Error(result.error);
+            qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
+          },
+        });
+      }
       qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
       qc.invalidateQueries({ queryKey: queryKeys.tableBootstrap(tableId) });
     },
@@ -716,9 +959,35 @@ export function useDeleteRows(tableId: string, viewId?: string | null) {
 
 export function useReorderRows(tableId: string, viewId?: string | null) {
   const qc = useQueryClient();
+  const projectUndo = useProjectUndo();
   return useMutation({
     mutationFn: (orders: Array<{ rowId: string; order: number | string }>) => reorderRows(tableId, orders),
-    onSuccess: () => {
+    onMutate: (orders) => {
+      const ids = new Set(orders.map((order) => order.rowId));
+      const previousRows = qc.getQueriesData({ queryKey: ["tableRows", tableId] })
+        .flatMap(([, data]) => collectRowsFromCache(data))
+        .filter((row) => ids.has(row.id));
+      const previousOrders = previousRows.map((row) => ({ rowId: row.id, order: row.order }));
+      return { previousOrders, nextOrders: orders.map((order) => ({ ...order })) };
+    },
+    onSuccess: (result, _orders, context) => {
+      if ("error" in result) return;
+      if (context?.previousOrders.length) {
+        projectUndo.registerAction({
+          id: `table-row-reorder-${Date.now()}`,
+          label: "row move",
+          undo: async () => {
+            const result = await reorderRows(tableId, context.previousOrders);
+            if ("error" in result) throw new Error(result.error);
+            qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
+          },
+          redo: async () => {
+            const result = await reorderRows(tableId, context.nextOrders);
+            if ("error" in result) throw new Error(result.error);
+            qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
+          },
+        });
+      }
       qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId, viewId) });
     },
   });

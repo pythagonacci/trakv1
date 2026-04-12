@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, LayoutDashboard, ChevronUp, ChevronDown, PanelRightOpen, PanelRightClose, Settings, FolderOpen } from "lucide-react";
+import { ArrowLeft, LayoutDashboard, ChevronUp, ChevronDown, PanelRightOpen, PanelRightClose, Settings, FolderOpen, Redo2 } from "lucide-react";
 import { useRouter, usePathname } from "next/navigation";
 import { useState, useEffect, useMemo } from "react";
 import StatusBadge from "../../projects/status-badge";
@@ -24,6 +24,7 @@ import {
   buildProjectOverviewPath,
 } from "@/lib/dashboard-routes";
 import { useTabContents } from "./tabs/[tabId]/tab-contents-context";
+import { useProjectUndo } from "./project-undo-context";
 
 interface Tab {
   id: string;
@@ -61,6 +62,7 @@ interface ProjectHeaderProps {
 
 export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }: ProjectHeaderProps) {
   const tabContents = useTabContents();
+  const projectUndo = useProjectUndo();
   const hasBlocks = tabContents && tabContents.blocks.length > 0;
   const router = useRouter();
   const [isPermissionsDialogOpen, setIsPermissionsDialogOpen] = useState(false);
@@ -163,6 +165,18 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
             </span>
           </div>
           <div className="flex items-center gap-1">
+            {projectUndo.canRedo && (
+              <button
+                onClick={() => void projectUndo.redoLast()}
+                disabled={projectUndo.isApplyingUndo}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-[var(--foreground)]/50 hover:text-[var(--foreground)]/80 transition-colors rounded hover:bg-[var(--surface-hover)] disabled:opacity-50"
+                title={projectUndo.redoLabel ? `Redo ${projectUndo.redoLabel}` : "Redo last undone action"}
+                aria-label="Redo last undone action"
+              >
+                <Redo2 className="h-2.5 w-2.5" />
+                Redo
+              </button>
+            )}
             {hasBlocks && (
               <button
                 onClick={() => tabContents?.setTocExpanded((prev) => !prev)}
@@ -274,6 +288,18 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
+          {projectUndo.canRedo && (
+            <button
+              onClick={() => void projectUndo.redoLast()}
+              disabled={projectUndo.isApplyingUndo}
+              className="inline-flex h-7 items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--foreground)] transition-all duration-150 hover:bg-[var(--surface-hover)] hover:border-[var(--border-strong)] disabled:opacity-50 shadow-sm"
+              title={projectUndo.redoLabel ? `Redo ${projectUndo.redoLabel}` : "Redo last undone action"}
+              aria-label="Redo last undone action"
+            >
+              <Redo2 className="h-3 w-3" />
+              Redo
+            </button>
+          )}
           {/* Collapse button - show on a tab or overview */}
           {canCollapseHeader && (
             <button
