@@ -9,7 +9,7 @@ function normalizePaidPlan(value: string | null): PaidPlan | null {
 }
 
 function buildAppUrl(request: NextRequest, path: string) {
-  return new URL(path, request.url);
+  return new URL(path, process.env.NEXT_PUBLIC_APP_URL || request.url);
 }
 
 export async function GET(request: NextRequest) {
