@@ -159,6 +159,11 @@ export function TextCell({ value, editing, onStartEdit, onCommit, onCancel, savi
         isExpanded ? "whitespace-pre-wrap break-words [overflow-wrap:anywhere]" : "truncate whitespace-nowrap"
       }`}
       onClick={() => {
+        if (!displayValue) {
+          resetDraft();
+          onStartEdit();
+          return;
+        }
         if (forceExpanded) return;
         if (onToggleExpanded) {
           onToggleExpanded();
@@ -181,7 +186,7 @@ export function TextCell({ value, editing, onStartEdit, onCommit, onCancel, savi
       title={displayValue}
       aria-expanded={isExpanded}
     >
-      {displayValue}
+      {displayValue || <span className="text-[var(--muted-foreground)]">Empty</span>}
     </button>
   );
 }
