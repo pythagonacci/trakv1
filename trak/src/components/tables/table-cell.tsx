@@ -44,6 +44,8 @@ interface TableCellProps {
   onEditRequestHandled?: () => void;
   onContentResize?: () => void;
   forceExpanded?: boolean;
+  expanded?: boolean;
+  onToggleExpanded?: () => void;
 }
 
 export const TableCell = memo(function TableCell({
@@ -66,6 +68,8 @@ export const TableCell = memo(function TableCell({
   onEditRequestHandled,
   onContentResize,
   forceExpanded,
+  expanded,
+  onToggleExpanded,
 }: TableCellProps) {
   const [editing, setEditing] = useState(false);
   const [initialValue, setInitialValue] = useState<string | null>(null);
@@ -99,7 +103,7 @@ export const TableCell = memo(function TableCell({
 
   switch (field.type) {
     case "long_text":
-      return <LongTextCell {...commonProps} field={field} initialValue={initialValue} onContentResize={onContentResize} forceExpanded={forceExpanded} />;
+      return <LongTextCell {...commonProps} field={field} initialValue={initialValue} onContentResize={onContentResize} forceExpanded={forceExpanded} expanded={expanded} onToggleExpanded={onToggleExpanded} />;
     case "number":
       return <NumberCell {...commonProps} field={field} initialValue={initialValue} />;
     case "date":
@@ -134,6 +138,6 @@ export const TableCell = memo(function TableCell({
     case "formula":
       return <FormulaCell field={field} value={value} rowId={rowId} tableId={tableId} />;
     default:
-      return <TextCell {...commonProps} field={field} initialValue={initialValue} onContentResize={onContentResize} forceExpanded={forceExpanded} />;
+      return <TextCell {...commonProps} field={field} initialValue={initialValue} onContentResize={onContentResize} forceExpanded={forceExpanded} expanded={expanded} onToggleExpanded={onToggleExpanded} />;
   }
 });

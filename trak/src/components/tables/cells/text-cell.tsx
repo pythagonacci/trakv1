@@ -14,13 +14,16 @@ interface Props {
   initialValue?: string | null;
   onContentResize?: () => void;
   forceExpanded?: boolean;
+  expanded?: boolean;
+  onToggleExpanded?: () => void;
 }
 
-export function TextCell({ value, editing, onStartEdit, onCommit, onCancel, saving, initialValue, onContentResize, forceExpanded }: Props) {
+export function TextCell({ value, editing, onStartEdit, onCommit, onCancel, saving, initialValue, onContentResize, forceExpanded, expanded, onToggleExpanded }: Props) {
   const [draft, setDraft] = useState<string>(String(value ?? ""));
-  const [expanded, setExpanded] = useState(false);
+  const [localExpanded, setLocalExpanded] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const isExpanded = Boolean(forceExpanded || expanded);
+  const cellExpanded = expanded ?? localExpanded;
+  const isExpanded = Boolean(forceExpanded || cellExpanded);
 
   const requestContentResize = useCallback(() => {
     window.requestAnimationFrame(() => onContentResize?.());
@@ -75,11 +78,15 @@ export function TextCell({ value, editing, onStartEdit, onCommit, onCancel, savi
       }`}
       onClick={() => {
         if (forceExpanded) return;
-        setExpanded((current) => !current);
+        if (onToggleExpanded) {
+          onToggleExpanded();
+        } else {
+          setLocalExpanded((current) => !current);
+        }
         requestContentResize();
       }}
       onDoubleClick={() => {
-        setExpanded(false);
+        if (!onToggleExpanded) setLocalExpanded(false);
         requestContentResize();
         onStartEdit();
       }}

@@ -347,6 +347,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
   const cellRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
   const [expandedTextFieldIds, setExpandedTextFieldIds] = useState<Set<string>>(() => new Set());
+  const [expandedTextCellIds, setExpandedTextCellIds] = useState<Set<string>>(() => new Set());
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const tablePointerInsideRef = useRef(false);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
@@ -837,6 +838,10 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
     () => Array.from(expandedTextFieldIds).sort().join("|"),
     [expandedTextFieldIds]
   );
+  const expandedTextCellKey = useMemo(
+    () => Array.from(expandedTextCellIds).sort().join("|"),
+    [expandedTextCellIds]
+  );
   useLayoutEffect(() => {
     if (viewType !== "table") return;
     measureTableRows();
@@ -849,7 +854,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
       window.cancelAnimationFrame(firstFrame);
       if (secondFrame) window.cancelAnimationFrame(secondFrame);
     };
-  }, [expandedTextFieldKey, measureTableRows, viewType, visibleRows.length]);
+  }, [expandedTextCellKey, expandedTextFieldKey, measureTableRows, viewType, visibleRows.length]);
   const handleToggleFieldExpansion = useCallback((fieldId: string) => {
     setExpandedTextFieldIds((current) => {
       const next = new Set(current);
@@ -862,7 +867,21 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
     });
     window.requestAnimationFrame(measureTableRows);
   }, [measureTableRows]);
-  const shouldVirtualizeRows = visibleRows.length > 40 && expandedTextFieldIds.size === 0;
+  const handleToggleCellExpansion = useCallback((rowId: string, fieldId: string) => {
+    setExpandedTextCellIds((current) => {
+      const next = new Set(current);
+      const key = `${rowId}:${fieldId}`;
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+    window.requestAnimationFrame(measureTableRows);
+  }, [measureTableRows]);
+  const shouldVirtualizeRows =
+    visibleRows.length > 40 && expandedTextFieldIds.size === 0 && expandedTextCellIds.size === 0;
 
   // Memoize row IDs to prevent infinite loops
   const sortedRowIds = useMemo(() => sortedRows.map((row) => row.id), [sortedRows]);
@@ -2397,6 +2416,8 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
                               commentCount={rowCommentCounts[row.id] || 0}
                               onContentResize={measureTableRows}
                               expandedFieldIds={expandedTextFieldIds}
+                              expandedCellIds={expandedTextCellIds}
+                              onToggleCellExpansion={handleToggleCellExpansion}
                             />
                           ))}
                       </React.Fragment>
@@ -2463,6 +2484,8 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
                               commentCount={rowCommentCounts[row.id] || 0}
                               onContentResize={measureTableRows}
                               expandedFieldIds={expandedTextFieldIds}
+                              expandedCellIds={expandedTextCellIds}
+                              onToggleCellExpansion={handleToggleCellExpansion}
                             />
                           </div>
                         );
@@ -2513,6 +2536,8 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
                         commentCount={rowCommentCounts[row.id] || 0}
                         onContentResize={measureTableRows}
                         expandedFieldIds={expandedTextFieldIds}
+                        expandedCellIds={expandedTextCellIds}
+                        onToggleCellExpansion={handleToggleCellExpansion}
                       />
                     ))
                   )}

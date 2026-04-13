@@ -48,6 +48,8 @@ interface Props {
   commentCount?: number;
   onContentResize?: () => void;
   expandedFieldIds?: Set<string>;
+  expandedCellIds?: Set<string>;
+  onToggleCellExpansion?: (rowId: string, fieldId: string) => void;
 }
 
 export const TableRow = memo(function TableRow({
@@ -83,6 +85,8 @@ export const TableRow = memo(function TableRow({
   commentCount,
   onContentResize,
   expandedFieldIds,
+  expandedCellIds,
+  onToggleCellExpansion,
 }: Props) {
   const saving = savingRowIds?.has(rowId);
   const isSubtask = Boolean(subtaskMeta?.isSubtask);
@@ -147,7 +151,9 @@ export const TableRow = memo(function TableRow({
         const isPrimary = field.id === primaryFieldId;
         const showSubtaskToggle = isPrimary && hasSubtasks;
         const showSubtaskIndent = isPrimary && isSubtask;
+        const cellKey = `${rowId}:${field.id}`;
         const fieldIsExpanded = Boolean(expandedFieldIds?.has(field.id));
+        const cellIsExpanded = Boolean(expandedCellIds?.has(cellKey));
         return (
           <div
             key={field.id}
@@ -181,7 +187,7 @@ export const TableRow = memo(function TableRow({
                   {isCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                 </button>
               )}
-              <div className={cn("min-w-0 flex-1 w-full", fieldIsExpanded ? "overflow-visible" : "overflow-hidden")}>
+              <div className={cn("min-w-0 flex-1 w-full", fieldIsExpanded || cellIsExpanded ? "overflow-visible" : "overflow-hidden")}>
                 <TableCell
                   field={field}
                   value={data?.[field.id]}
@@ -199,6 +205,8 @@ export const TableRow = memo(function TableRow({
                   onEditRequestHandled={onEditRequestHandled}
                   onContentResize={onContentResize}
                   forceExpanded={fieldIsExpanded}
+                  expanded={cellIsExpanded}
+                  onToggleExpanded={() => onToggleCellExpansion?.(rowId, field.id)}
                 />
               </div>
             </div>
