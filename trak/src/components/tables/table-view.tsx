@@ -9,7 +9,6 @@ import { createPortal } from "react-dom";
 import { Plus, EyeOff } from "lucide-react";
 import {
   useTableBootstrap,
-  useTableRows,
   useInfiniteTableRows,
   useCreateRow,
   useUpdateCell,
@@ -45,7 +44,7 @@ import { SyncEditedRowsDialog, type SyncResolution } from "./sync-edited-rows-di
 import { RelationConfigModal } from "./relation-config-modal";
 import { RollupConfigModal } from "./rollup-config-modal";
 import { FormulaConfigModal } from "./formula-config-modal";
-import type { SortCondition, FilterCondition, FieldType, ViewConfig, GroupByConfig, Table, TableField, TableView, TableRow as TableRowType } from "@/types/table";
+import type { CalculationType, RelationFieldConfig, SortCondition, FilterCondition, FieldType, ViewConfig, GroupByConfig, Table, TableField, TableView, TableRow as TableRowType } from "@/types/table";
 import { countRelationLinksForRows } from "@/app/actions/tables/relation-actions";
 import { getTableSourceOrigins, type TableSourceOrigin } from "@/app/actions/tables/query-actions";
 import { getRowCommentCounts } from "@/app/actions/tables/comment-actions";
@@ -75,6 +74,8 @@ import {
 import {
   getCanonicalPriorityOption,
   getCanonicalStatusOption,
+  TABLE_PRIORITY_LEVELS,
+  TABLE_STATUS_OPTIONS,
   normalizeCanonicalPriorityValue,
   normalizeCanonicalStatusValue,
 } from "@/lib/tables/universal-property";
@@ -111,11 +112,6 @@ const isTextInputElement = (el: HTMLElement | null) => {
   return contentEditable === "true";
 };
 
-const isTableGridCellElement = (el: HTMLElement | null, container: HTMLElement) => {
-  const gridCell = el?.closest('[role="gridcell"]');
-  return Boolean(gridCell && container.contains(gridCell));
-};
-
 const isHTMLElement = (target: EventTarget | null): target is HTMLElement =>
   target instanceof HTMLElement;
 
@@ -125,6 +121,159 @@ const getStructuredClipboardText = (clipboardData: DataTransfer | null | undefin
     .map((type) => clipboardData.getData(type))
     .filter((value) => value && value.trim().length > 0);
   return candidates.find((value) => isStructuredData(value)) ?? "";
+};
+
+type ClipboardOption = {
+  id?: unknown;
+  label?: unknown;
+  name?: unknown;
+};
+
+const normalizeClipboardToken = (value: unknown) => String(value ?? "").trim().toLowerCase();
+
+const getOptionLabel = (options: ClipboardOption[] | undefined, value: unknown) => {
+  if (value === null || value === undefined || value === "") return "";
+  const token = normalizeClipboardToken(value);
+  const matched = options?.find((option) => {
+    const id = normalizeClipboardToken(option.id);
+    const label = normalizeClipboardToken(option.label);
+    const name = normalizeClipboardToken(option.name);
+    return (id && id === token) || (label && label === token) || (name && name === token);
+  });
+  const label = matched?.label ?? matched?.name ?? matched?.id;
+  return label === null || label === undefined ? String(value) : String(label);
+};
+
+const formatClipboardDateToken = (value: unknown) => {
+  const str = String(value ?? "").trim();
+  if (!str) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    const [year, month, day] = str.split("-").map(Number);
+    if (year && month && day) return new Date(year, month - 1, day).toLocaleDateString();
+  }
+  const date = new Date(str);
+  return Number.isNaN(date.getTime()) ? str : date.toLocaleDateString();
+};
+
+const formatClipboardDateValue = (value: unknown) => {
+  if (value === null || value === undefined || value === "") return "";
+  if (typeof value === "string") {
+    const rangeMatch = value.trim().match(/^(\d{4}-\d{2}-\d{2})\s*\.\.\s*(\d{4}-\d{2}-\d{2})$/);
+    if (rangeMatch) {
+      return `${formatClipboardDateToken(rangeMatch[1])} - ${formatClipboardDateToken(rangeMatch[2])}`;
+    }
+    return formatClipboardDateToken(value);
+  }
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    const start = obj.start ?? obj.startDate ?? obj.from ?? obj.date ?? null;
+    const end = obj.end ?? obj.endDate ?? obj.to ?? obj.dueDate ?? start;
+    const startText = formatClipboardDateToken(start);
+    const endText = formatClipboardDateToken(end);
+    if (startText && endText && startText !== endText) return `${startText} - ${endText}`;
+    return endText || startText;
+  }
+  return formatClipboardDateToken(value);
+};
+
+const stringifyClipboardValue = (value: unknown): string => {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(stringifyClipboardValue).filter(Boolean).join(", ");
+  }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const label = record.label ?? record.name ?? record.title ?? record.email;
+    if (label !== null && label !== undefined) return String(label);
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+};
+
+const formatCellValueForClipboard = (
+  field: TableField,
+  value: unknown,
+  workspaceMembers: Array<{ id: string; name?: string; email?: string }> | undefined
+) => {
+  const config = (field.config ?? {}) as {
+    options?: ClipboardOption[];
+    levels?: ClipboardOption[];
+  };
+
+  if (field.type === "date") return formatClipboardDateValue(value);
+
+  if (field.type === "checkbox" || field.type === "subtask") {
+    if (value === null || value === undefined || value === "") return "";
+    return value === true ? "true" : "false";
+  }
+
+  if (field.type === "select") {
+    return getOptionLabel(config.options, value);
+  }
+
+  if (field.type === "multi_select") {
+    const values = Array.isArray(value) ? value : value === null || value === undefined ? [] : [value];
+    return values.map((entry) => getOptionLabel(config.options, entry)).filter(Boolean).join(", ");
+  }
+
+  if (field.type === "status") {
+    const label = getOptionLabel(config.options ?? TABLE_STATUS_OPTIONS, value);
+    return label || getCanonicalStatusOption(value)?.label || stringifyClipboardValue(value);
+  }
+
+  if (field.type === "priority") {
+    const label = getOptionLabel(config.levels ?? TABLE_PRIORITY_LEVELS, value);
+    return label || getCanonicalPriorityOption(value)?.label || stringifyClipboardValue(value);
+  }
+
+  if (field.type === "tags") {
+    const values = Array.isArray(value) ? value : value === null || value === undefined ? [] : [value];
+    return values.map((entry) => getOptionLabel(config.options, entry)).filter(Boolean).join(", ");
+  }
+
+  if (field.type === "person") {
+    const membersById = new Map((workspaceMembers ?? []).map((member) => [member.id, member]));
+    const values = Array.isArray(value) ? value : value === null || value === undefined ? [] : [value];
+    return values
+      .map((entry) => {
+        if (typeof entry === "string") {
+          const member = membersById.get(entry);
+          return member?.name || member?.email || entry;
+        }
+        return stringifyClipboardValue(entry);
+      })
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  return stringifyClipboardValue(value);
+};
+
+const writeClipboardText = async (text: string) => {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    document.execCommand("copy");
+  } finally {
+    document.body.removeChild(textarea);
+  }
 };
 
 const isEmptyImportCellValue = (value: unknown) => {
@@ -648,7 +797,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
     if (!calculation) {
       delete next[fieldId];
     } else {
-      next[fieldId] = calculation as any;
+      next[fieldId] = calculation as CalculationType;
     }
     const nextConfig: ViewConfig = {
       ...(view.config || {}),
@@ -902,7 +1051,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
     async (rowId: string, file: File) => {
       if (!tableData?.table?.workspace_id || !tableData?.table?.project_id || !view?.id) return;
       let coverFieldId = view.config?.galleryConfig?.coverFieldId;
-      let coverField = coverFieldId ? allFields.find((f) => f.id === coverFieldId) : undefined;
+      const coverField = coverFieldId ? allFields.find((f) => f.id === coverFieldId) : undefined;
       if (!coverField || coverField.type !== "files") {
         const existingFiles = allFields.find((f) => f.type === "files");
         if (existingFiles) {
@@ -967,10 +1116,10 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
     updateCell.mutate(
       { rowId, fieldId, value },
       {
-        onSuccess: (result) => {
+        onSuccess: () => {
           savingRows.delete(rowId);
           if (targetField?.type === "relation") {
-            const config = targetField.config as any;
+            const config = targetField.config as RelationFieldConfig | null;
             const relationIds = Array.isArray(value) ? value : [];
 
             // Invalidate current row's related rows query
@@ -1525,7 +1674,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
     });
   }, [fields, updateField]);
 
-  const handleUpdateFieldConfig = useCallback((fieldId: string, config: any) => {
+  const handleUpdateFieldConfig = useCallback((fieldId: string, config: TableField["config"]) => {
     setError(null);
     updateField.mutate({ id: fieldId, updates: { config } }, {
       onError: (err) => setError(err instanceof Error ? err.message : "Failed to update field config"),
@@ -1672,13 +1821,31 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
   };
 
   const hiddenFieldList = useMemo(
-    () => hiddenFields.map((id: string) => allFields.find((f) => f.id === id)).filter(Boolean),
+    () => hiddenFields
+      .map((id: string) => allFields.find((field) => field.id === id))
+      .filter((field): field is TableField => Boolean(field)),
     [hiddenFields, allFields]
   );
 
-  const handleCellContextMenu = (e: React.MouseEvent, rowId: string) => {
+  const copyCellToClipboard = useCallback(async (rowId: string, fieldId: string) => {
+    const row = sortedRows.find((candidate) => candidate.id === rowId);
+    const field = fields.find((candidate) => candidate.id === fieldId) ?? allFields.find((candidate) => candidate.id === fieldId);
+    if (!row || !field) return;
+
+    const text = formatCellValueForClipboard(field, row.data?.[field.id], workspaceMembers);
+
+    try {
+      await writeClipboardText(text);
+      setToast({ message: "Cell copied.", type: "success" });
+    } catch (error) {
+      console.error("Failed to copy table cell:", error);
+      setToast({ message: "Failed to copy cell.", type: "error" });
+    }
+  }, [allFields, fields, sortedRows, workspaceMembers]);
+
+  const handleCellContextMenu = (e: React.MouseEvent, rowId: string, fieldId?: string) => {
     e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, type: "cell", rowId });
+    setContextMenu({ x: e.clientX, y: e.clientY, type: "cell", rowId, fieldId });
   };
 
   const handleColumnContextMenu = (e: React.MouseEvent, fieldId: string) => {
@@ -1844,16 +2011,17 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
       if (!container) return;
       const targetElement = isHTMLElement(event.target) ? event.target : null;
       const targetNode = event.target instanceof Node ? event.target : null;
-      const activeNode = document.activeElement as Node | null;
+      const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      const activeNode = activeElement as Node | null;
       const isWithinTable =
         tablePointerInsideRef.current ||
         (targetNode && container.contains(targetNode)) ||
         (activeNode && container.contains(activeNode));
       if (!isWithinTable) return;
+      if (isTextInputElement(targetElement) || isTextInputElement(activeElement)) return;
 
       const pastedText = getStructuredClipboardText(event.clipboardData);
       if (!pastedText) return;
-      if (isTextInputElement(targetElement) && !isTableGridCellElement(targetElement, container)) return;
 
       event.preventDefault();
       event.stopPropagation();
@@ -2185,13 +2353,13 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
         <div className="mb-2 px-3 py-2 text-xs text-neutral-600 flex items-center gap-2">
           <EyeOff className="h-4 w-4" />
           Hidden columns:
-          {hiddenFieldList.map((f: any) => (
+          {hiddenFieldList.map((f) => (
             <button
-              key={f!.id}
-              onClick={() => handleShowField(f!.id)}
+              key={f.id}
+              onClick={() => handleShowField(f.id)}
               className="px-2 py-1 rounded-md border border-neutral-200 text-[var(--foreground)] hover:border-[var(--border-strong)] hover:bg-neutral-200 transition-colors duration-150"
             >
-              Show {f!.name}
+              Show {f.name}
             </button>
           ))}
         </div>
@@ -2240,8 +2408,8 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
                     return;
                   }
                   const resolvedCount = resolution === "push"
-                    ? (data as any).pushedCount
-                    : (data as any).refreshedCount;
+                    ? ("pushedCount" in data ? data.pushedCount : 0)
+                    : ("refreshedCount" in data ? data.refreshedCount : 0);
                   setToast({
                     message: `${resolution === "push" ? "Pushed" : "Discarded"} edits for ${resolvedCount} row${resolvedCount === 1 ? "" : "s"}. Live sync enabled.`,
                     type: "success",
@@ -2389,6 +2557,9 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
                               isCommentsOpen={commentsRowId === row.id}
                               pinnedFields={pinnedFields}
                               onContextMenu={handleCellContextMenu}
+                              onCellDoubleClick={(rowId, fieldId) => {
+                                void copyCellToClipboard(rowId, fieldId);
+                              }}
                               widths={widthMap}
                               selectionWidth={selectionWidth}
                               showSelection
@@ -2457,6 +2628,9 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
                               isCommentsOpen={commentsRowId === row.id}
                               pinnedFields={pinnedFields}
                               onContextMenu={handleCellContextMenu}
+                              onCellDoubleClick={(rowId, fieldId) => {
+                                void copyCellToClipboard(rowId, fieldId);
+                              }}
                               widths={widthMap}
                               selectionWidth={selectionWidth}
                               showSelection
@@ -2509,6 +2683,9 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
                         isCommentsOpen={commentsRowId === row.id}
                         pinnedFields={pinnedFields}
                         onContextMenu={handleCellContextMenu}
+                        onCellDoubleClick={(rowId, fieldId) => {
+                          void copyCellToClipboard(rowId, fieldId);
+                        }}
                         widths={widthMap}
                         selectionWidth={selectionWidth}
                         showSelection
@@ -2738,6 +2915,11 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
             onAddRowBelow={contextMenu.type === "cell" ? handleAddRowBelow : undefined}
             onAddColumnLeft={contextMenu.type === "column" ? handleAddColumnLeft : undefined}
             onAddColumnRight={contextMenu.type === "column" ? handleAddColumnRight : undefined}
+            onCopyCell={
+              contextMenu.type === "cell" && contextMenu.rowId && contextMenu.fieldId
+                ? () => copyCellToClipboard(contextMenu.rowId!, contextMenu.fieldId!)
+                : undefined
+            }
             onAddComment={
               contextMenu.type === "cell" && contextMenu.rowId
                 ? () => {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Copy } from "lucide-react";
 
 interface ContextMenuProps {
   x: number;
@@ -11,6 +11,7 @@ interface ContextMenuProps {
   onAddRowBelow?: () => void;
   onAddColumnLeft?: () => void;
   onAddColumnRight?: () => void;
+  onCopyCell?: () => void;
   onAddComment?: () => void;
   onOpenProperties?: () => void;
   type: "cell" | "column";
@@ -24,6 +25,7 @@ export function TableContextMenu({
   onAddRowBelow,
   onAddColumnLeft,
   onAddColumnRight,
+  onCopyCell,
   onAddComment,
   onOpenProperties,
   type,
@@ -57,23 +59,27 @@ export function TableContextMenu({
 
   useEffect(() => {
     if (menuRef.current) {
-      const rect = menuRef.current.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
+      const frame = window.requestAnimationFrame(() => {
+        if (!menuRef.current) return;
+        const rect = menuRef.current.getBoundingClientRect();
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
 
-      let newX = x;
-      let newY = y;
+        let newX = x;
+        let newY = y;
 
-      if (x + rect.width > viewportWidth) {
-        newX = viewportWidth - rect.width - 10;
-      }
-      if (y + rect.height > viewportHeight) {
-        newY = viewportHeight - rect.height - 10;
-      }
-      if (newX < 10) newX = 10;
-      if (newY < 10) newY = 10;
+        if (x + rect.width > viewportWidth) {
+          newX = viewportWidth - rect.width - 10;
+        }
+        if (y + rect.height > viewportHeight) {
+          newY = viewportHeight - rect.height - 10;
+        }
+        if (newX < 10) newX = 10;
+        if (newY < 10) newY = 10;
 
-      setAdjustedPosition({ x: newX, y: newY });
+        setAdjustedPosition({ x: newX, y: newY });
+      });
+      return () => window.cancelAnimationFrame(frame);
     }
   }, [x, y]);
 
@@ -86,6 +92,18 @@ export function TableContextMenu({
     >
       {type === "cell" && (
         <>
+          {onCopyCell && (
+            <button
+              className="w-full px-3 py-1.5 text-left text-xs text-[var(--foreground)] hover:bg-[var(--surface-hover)] flex items-center gap-2 transition-colors duration-150"
+              onClick={() => {
+                void onCopyCell();
+                onClose();
+              }}
+            >
+              <Copy className="h-3 w-3" />
+              Copy cell
+            </button>
+          )}
           {onAddRowAbove && (
             <button
               className="w-full px-3 py-1.5 text-left text-xs text-[var(--foreground)] hover:bg-[var(--surface-hover)] flex items-center gap-2 transition-colors duration-150"

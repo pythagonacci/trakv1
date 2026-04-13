@@ -17,7 +17,8 @@ interface Props {
   onOpenComments?: (rowId: string, anchorEl?: HTMLElement | null) => void;
   isCommentsOpen?: boolean;
   pinnedFields?: string[];
-  onContextMenu?: (e: React.MouseEvent, rowId: string) => void;
+  onContextMenu?: (e: React.MouseEvent, rowId: string, fieldId?: string) => void;
+  onCellDoubleClick?: (rowId: string, fieldId: string) => void;
   widths?: Record<string, number>;
   selectionWidth?: number;
   showSelection?: boolean;
@@ -36,7 +37,7 @@ interface Props {
   cellRefs?: React.MutableRefObject<Record<string, HTMLDivElement | null>>;
   draggable?: boolean;
   onDragStart?: (rowId: string, e: React.DragEvent) => void;
-  onUpdateFieldConfig?: (fieldId: string, config: any) => void;
+  onUpdateFieldConfig?: (fieldId: string, config: TableField["config"]) => void;
   editRequest?: { rowId: string; fieldId: string; initialValue?: string };
   onEditRequestHandled?: () => void;
   subtaskMeta?: {
@@ -64,6 +65,7 @@ export const TableRow = memo(function TableRow({
   isCommentsOpen,
   pinnedFields,
   onContextMenu,
+  onCellDoubleClick,
   widths,
   selectionWidth = 0,
   showSelection,
@@ -170,6 +172,20 @@ export const TableRow = memo(function TableRow({
               }
             }}
             onKeyDown={(e) => onCellKeyDown?.(e, rowId, field.id)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onContextMenu?.(e, rowId, field.id);
+            }}
+            onDoubleClick={(e) => {
+              const target = e.target instanceof HTMLElement ? e.target : null;
+              if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+              const targetButton = target?.closest("button");
+              const buttonClassName = typeof targetButton?.className === "string" ? targetButton.className : "";
+              const isCellDisplayButton = buttonClassName.includes("w-full") && buttonClassName.includes("text-left");
+              if (targetButton && !isCellDisplayButton) return;
+              onCellDoubleClick?.(rowId, field.id);
+            }}
           >
             <div className={`flex min-h-[22px] items-start gap-1 ${showSubtaskIndent ? "pl-6" : ""}`}>
               {showSubtaskToggle && (
