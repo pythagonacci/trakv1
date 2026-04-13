@@ -160,6 +160,8 @@ interface Props {
   calculations?: Record<string, CalculationType | undefined>;
   rows?: TableRowType[];
   onUpdateCalculation?: (fieldId: string, calc: CalculationType | null) => void;
+  expandedFieldIds?: Set<string>;
+  onToggleFieldExpansion?: (fieldId: string) => void;
 }
 
 export function TableHeaderRow({
@@ -192,6 +194,8 @@ export function TableHeaderRow({
   onResize,
   widths,
   onUpdateFieldConfig,
+  expandedFieldIds,
+  onToggleFieldExpansion,
 }: Props) {
   const template = useMemo(() => {
     if (columnTemplate) return columnTemplate;
@@ -275,6 +279,8 @@ export function TableHeaderRow({
                 calculations={calculations}
                 rows={rows}
                 onUpdateCalculation={onUpdateCalculation}
+                expanded={expandedFieldIds?.has(field.id)}
+                onToggleExpansion={onToggleFieldExpansion}
               />
         </div>
       );
@@ -319,6 +325,8 @@ interface FieldHeaderProps {
   calculations?: Record<string, CalculationType | undefined>;
   rows?: TableRowType[];
   onUpdateCalculation?: (fieldId: string, calc: CalculationType | null) => void;
+  expanded?: boolean;
+  onToggleExpansion?: (fieldId: string) => void;
 }
 
 function isOptionField(type: FieldType) {
@@ -369,6 +377,8 @@ function FieldHeader({
   rows = [],
   onUpdateCalculation,
   onUpdateFieldConfig,
+  expanded,
+  onToggleExpansion,
 }: FieldHeaderProps) {
   const [draftName, setDraftName] = useState(field.name);
   const [draftOptions, setDraftOptions] = useState<any[]>([]);
@@ -563,6 +573,14 @@ function FieldHeader({
               className="gap-1.5 px-2 py-1 text-xs"
             >
               <Eye className="h-3 w-3" /> View column details
+            </DropdownMenuItem>
+          )}
+          {onToggleExpansion && (field.type === "text" || field.type === "long_text") && (
+            <DropdownMenuItem
+              onSelect={() => onToggleExpansion(field.id)}
+              className="gap-1.5 px-2 py-1 text-xs"
+            >
+              {expanded ? "Collapse column text" : "Expand column text"}
             </DropdownMenuItem>
           )}
           {onUpdateCalculation && (

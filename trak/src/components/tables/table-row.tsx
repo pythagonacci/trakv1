@@ -46,6 +46,8 @@ interface Props {
   };
   onToggleSubtasks?: (rowId: string) => void;
   commentCount?: number;
+  onContentResize?: () => void;
+  expandedFieldIds?: Set<string>;
 }
 
 export const TableRow = memo(function TableRow({
@@ -79,6 +81,8 @@ export const TableRow = memo(function TableRow({
   subtaskMeta,
   onToggleSubtasks,
   commentCount,
+  onContentResize,
+  expandedFieldIds,
 }: Props) {
   const saving = savingRowIds?.has(rowId);
   const isSubtask = Boolean(subtaskMeta?.isSubtask);
@@ -116,8 +120,8 @@ export const TableRow = memo(function TableRow({
 
   return (
     <div
-      className="relative grid border-l border-neutral-200 row-hover-teal transition-colors duration-150 bg-white w-full after:pointer-events-none after:absolute after:bottom-0 after:left-0 after:right-0 after:z-30 after:h-px after:bg-[rgba(28,25,22,0.28)]"
-      style={{ gridTemplateColumns: template }}
+      className="relative grid min-h-[38px] border-l border-neutral-200 row-hover-teal transition-colors duration-150 bg-white w-full after:pointer-events-none after:absolute after:bottom-0 after:left-0 after:right-0 after:z-30 after:h-px after:bg-[rgba(28,25,22,0.28)]"
+      style={{ gridTemplateColumns: template, gridAutoRows: "minmax(38px, max-content)" }}
       onContextMenu={(e) => {
         e.preventDefault();
         onContextMenu?.(e, rowId);
@@ -126,7 +130,7 @@ export const TableRow = memo(function TableRow({
       onDragStart={(e) => onDragStart?.(rowId, e)}
     >
       {showSelection && (
-        <div className="flex items-center justify-center border-r border-[var(--border-strong)] bg-white sticky left-0 z-20">
+        <div className="flex min-h-[38px] items-center justify-center border-r border-[var(--border-strong)] bg-white sticky left-0 z-20">
           <input
             type="checkbox"
             checked={Boolean(isSelected)}
@@ -143,10 +147,11 @@ export const TableRow = memo(function TableRow({
         const isPrimary = field.id === primaryFieldId;
         const showSubtaskToggle = isPrimary && hasSubtasks;
         const showSubtaskIndent = isPrimary && isSubtask;
+        const fieldIsExpanded = Boolean(expandedFieldIds?.has(field.id));
         return (
           <div
             key={field.id}
-            className={`px-3 py-2 border-r border-[var(--border-strong)] last:border-r-0 min-w-0 ${isPinned ? "sticky z-10 bg-white" : ""}`}
+            className={`min-h-[38px] px-3 py-2 border-r border-[var(--border-strong)] last:border-r-0 min-w-0 ${isPinned ? "sticky z-10 bg-white" : ""}`}
             style={isPinned ? {
               left: `${pinnedOffsets[field.id]}px`,
               boxShadow: idx > 0 ? '2px 0 4px rgba(0,0,0,0.1)' : 'none'
@@ -160,7 +165,7 @@ export const TableRow = memo(function TableRow({
             }}
             onKeyDown={(e) => onCellKeyDown?.(e, rowId, field.id)}
           >
-            <div className={`flex items-start gap-1 ${showSubtaskIndent ? "pl-6" : ""}`}>
+            <div className={`flex min-h-[22px] items-start gap-1 ${showSubtaskIndent ? "pl-6" : ""}`}>
               {showSubtaskToggle && (
                 <button
                   type="button"
@@ -176,7 +181,7 @@ export const TableRow = memo(function TableRow({
                   {isCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                 </button>
               )}
-              <div className="min-w-0 flex-1 w-full overflow-hidden">
+              <div className={cn("min-w-0 flex-1 w-full", fieldIsExpanded ? "overflow-visible" : "overflow-hidden")}>
                 <TableCell
                   field={field}
                   value={data?.[field.id]}
@@ -192,6 +197,8 @@ export const TableRow = memo(function TableRow({
                   onUpdateFieldConfig={(config) => onUpdateFieldConfig?.(field.id, config)}
                   editRequest={editRequest}
                   onEditRequestHandled={onEditRequestHandled}
+                  onContentResize={onContentResize}
+                  forceExpanded={fieldIsExpanded}
                 />
               </div>
             </div>
@@ -199,7 +206,7 @@ export const TableRow = memo(function TableRow({
         );
       })}
       <div className="min-w-0 bg-white" aria-hidden="true" />
-      <div className="px-2 py-2 border-l border-[var(--border-strong)] sticky right-0 z-10 bg-white flex items-center justify-center">
+      <div className="min-h-[38px] px-2 py-2 border-l border-[var(--border-strong)] sticky right-0 z-10 bg-white flex items-center justify-center">
         <button
           type="button"
           onClick={(e) => {

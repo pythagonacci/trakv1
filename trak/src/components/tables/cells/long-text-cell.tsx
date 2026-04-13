@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { type TableField } from "@/types/table";
 
 interface Props {
@@ -12,11 +12,23 @@ interface Props {
   onCancel: () => void;
   onCommit: (value: unknown) => void;
   initialValue?: string | null;
+  onContentResize?: () => void;
+  forceExpanded?: boolean;
 }
 
-export function LongTextCell({ value, editing, onStartEdit, onCommit, onCancel, saving, initialValue }: Props) {
+export function LongTextCell({ value, editing, onStartEdit, onCommit, onCancel, saving, initialValue, onContentResize, forceExpanded }: Props) {
   const [draft, setDraft] = useState<string>(String(value ?? ""));
+  const [expanded, setExpanded] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isExpanded = Boolean(forceExpanded || expanded);
+
+  const requestContentResize = useCallback(() => {
+    window.requestAnimationFrame(() => onContentResize?.());
+  }, [onContentResize]);
+
+  useEffect(() => {
+    requestContentResize();
+  }, [forceExpanded, requestContentResize]);
 
   useEffect(() => {
     setDraft(String(value ?? ""));
@@ -68,15 +80,25 @@ export function LongTextCell({ value, editing, onStartEdit, onCommit, onCancel, 
   }
 
   const displayText = String(value ?? "");
-  const isMultiline = displayText.includes('\n');
 
   return (
     <button
-      className={`w-full text-left text-xs text-[var(--foreground)] min-h-[18px] hover:text-[var(--primary)] transition-colors duration-150 break-words overflow-wrap-anywhere ${
-        isMultiline ? 'whitespace-pre-wrap' : ''
+      className={`block w-full text-left text-xs text-[var(--foreground)] min-h-[18px] hover:text-[var(--primary)] transition-colors duration-150 ${
+        isExpanded ? "whitespace-pre-wrap break-words [overflow-wrap:anywhere]" : "truncate whitespace-nowrap"
       }`}
-      onClick={onStartEdit}
+      onClick={() => {
+        if (forceExpanded) return;
+        setExpanded((current) => !current);
+        requestContentResize();
+      }}
+      onDoubleClick={() => {
+        setExpanded(false);
+        requestContentResize();
+        onStartEdit();
+      }}
       disabled={saving}
+      title={displayText}
+      aria-expanded={isExpanded}
     >
       {displayText || <span className="text-[var(--muted-foreground)]">Empty</span>}
     </button>

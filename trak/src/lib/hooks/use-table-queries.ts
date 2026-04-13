@@ -1274,7 +1274,7 @@ export function useBulkInsertRows(tableId: string) {
     ) =>
       bulkInsertRows({ tableId, rows }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.tableRows(tableId) });
+      qc.invalidateQueries({ queryKey: ["tableRows", tableId] });
     },
   });
 }

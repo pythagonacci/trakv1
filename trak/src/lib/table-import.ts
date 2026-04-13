@@ -1,4 +1,4 @@
-import type { FieldType, SelectFieldOption, TableField } from "@/types/table";
+import type { SelectFieldOption, TableField } from "@/types/table";
 
 export type ParsedTableData = {
   delimiter: string;
@@ -7,9 +7,28 @@ export type ParsedTableData = {
   hasHeader: boolean;
 };
 
-const DELIMITERS = ["\t", ",", "|"] as const;
+const DELIMITERS = ["\t", ",", ";", "|"] as const;
 
 const isNonEmpty = (value: string | null | undefined) => Boolean(value && value.trim().length > 0);
+
+const normalizePastedText = (text: string) => text.replace(/^\uFEFF/, "");
+
+const getExplicitDelimiter = (text: string): (typeof DELIMITERS)[number] | null => {
+  const firstLine = text.split(/\r?\n/, 1)[0]?.trim().toLowerCase();
+  if (!firstLine?.startsWith("sep=")) return null;
+  const delimiter = firstLine.slice(4);
+  return DELIMITERS.find((candidate) => candidate === delimiter) ?? null;
+};
+
+const stripDelimiterHint = (text: string) => text.replace(/^sep=.+(?:\r?\n|$)/i, "");
+
+const parseSingleColumnText = (text: string) => {
+  const rows = text
+    .split(/\r?\n/)
+    .map((line) => [line.trim()])
+    .filter((row) => row[0].length > 0);
+  return rows.length > 1 ? rows : null;
+};
 
 const countDelimitersOutsideQuotes = (line: string, delimiter: string) => {
   let inQuotes = false;
@@ -29,17 +48,32 @@ const countDelimitersOutsideQuotes = (line: string, delimiter: string) => {
   return count;
 };
 
+const delimiterScore = (text: string, delimiter: (typeof DELIMITERS)[number]) => {
+  const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
+  const counts = lines.map((line) => countDelimitersOutsideQuotes(line, delimiter));
+  const rowsWithDelimiter = counts.filter((count) => count > 0).length;
+  if (rowsWithDelimiter === 0) return null;
+
+  const positiveCounts = counts.filter((count) => count > 0);
+  const max = Math.max(...positiveCounts);
+  const min = Math.min(...positiveCounts);
+  const avg = positiveCounts.reduce((sum, val) => sum + val, 0) / positiveCounts.length;
+  const consistency = max === min ? 1 : min / max;
+
+  return rowsWithDelimiter * 10 + avg + consistency;
+};
+
 const detectDelimiter = (text: string): (typeof DELIMITERS)[number] | null => {
+  const explicitDelimiter = getExplicitDelimiter(text);
+  if (explicitDelimiter) return explicitDelimiter;
+
   const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
   if (lines.length === 0) return null;
 
   let best: { delimiter: (typeof DELIMITERS)[number]; score: number } | null = null;
   for (const delimiter of DELIMITERS) {
-    const counts = lines.map((line) => countDelimitersOutsideQuotes(line, delimiter));
-    const max = Math.max(...counts);
-    const avg = counts.reduce((sum, val) => sum + val, 0) / counts.length;
-    const score = max + avg;
-    if (max === 0) continue;
+    const score = delimiterScore(text, delimiter);
+    if (score == null) continue;
     if (!best || score > best.score) {
       best = { delimiter, score };
     }
@@ -127,9 +161,65 @@ const looksLikeHeaderCell = (value: string) => {
   if (!value) return false;
   const trimmed = value.trim();
   if (!trimmed) return false;
+  if (isEmail(trimmed) || isBoolean(trimmed)) return false;
   if (/^\d+(\.\d+)?$/.test(trimmed)) return false;
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return false;
   return true;
+};
+
+const COMMON_HEADER_TERMS = new Set([
+  "address",
+  "amount",
+  "assignee",
+  "brand",
+  "budget",
+  "campaign",
+  "category",
+  "city",
+  "client",
+  "column",
+  "company",
+  "contact",
+  "content",
+  "cost",
+  "country",
+  "creator",
+  "date",
+  "description",
+  "due",
+  "email",
+  "first",
+  "field",
+  "handle",
+  "id",
+  "item",
+  "last",
+  "link",
+  "name",
+  "notes",
+  "owner",
+  "phone",
+  "priority",
+  "product",
+  "quantity",
+  "sku",
+  "status",
+  "task",
+  "title",
+  "total",
+  "type",
+  "url",
+  "value",
+  "vendor",
+]);
+
+const looksLikeKnownHeaderCell = (value: string) => {
+  const tokens = value
+    .trim()
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  return tokens.some((token) => COMMON_HEADER_TERMS.has(token));
 };
 
 const detectHeaderRow = (rows: string[][]) => {
@@ -139,21 +229,23 @@ const detectHeaderRow = (rows: string[][]) => {
 
   const headerLike = first.filter((cell) => looksLikeHeaderCell(cell)).length;
   const secondNumeric = second.filter((cell) => isNumeric(cell) || isDateFormat(cell) || isBoolean(cell)).length;
-  const uniqueFirst = new Set(first.map((cell) => cell.trim().toLowerCase())).size;
+  const headerTermCount = first.filter((cell) => looksLikeKnownHeaderCell(cell)).length;
 
   const hasMostlyHeaders = headerLike >= Math.ceil(first.length * 0.6);
   const secondHasData = secondNumeric >= Math.ceil(second.length * 0.4);
-  const uniqueEnough = uniqueFirst >= Math.ceil(first.length * 0.8);
+  const hasHeaderTerms = headerTermCount >= Math.max(1, Math.ceil(first.length * 0.4));
 
-  return hasMostlyHeaders && (secondHasData || uniqueEnough);
+  return hasMostlyHeaders && (secondHasData || hasHeaderTerms);
 };
 
 export const parsePastedTable = (text: string): ParsedTableData | null => {
   if (!text || text.trim().length === 0) return null;
-  const delimiter = detectDelimiter(text);
-  if (!delimiter) return null;
-
-  const rows = normalizeRows(parseDelimitedText(text, delimiter), delimiter);
+  const normalizedText = normalizePastedText(text);
+  const delimiter = detectDelimiter(normalizedText);
+  const rows = delimiter
+    ? normalizeRows(parseDelimitedText(stripDelimiterHint(normalizedText), delimiter), delimiter)
+    : parseSingleColumnText(stripDelimiterHint(normalizedText));
+  if (!rows) return null;
   if (rows.length < 1) return null;
   if (rows.length === 1 && rows[0].length < 2) return null;
 
@@ -162,7 +254,7 @@ export const parsePastedTable = (text: string): ParsedTableData | null => {
     ? rows[0].map((cell, idx) => cell.trim() || `Column ${idx + 1}`)
     : rows[0].map((_, idx) => `Column ${idx + 1}`);
 
-  return { delimiter, rows: hasHeader ? rows.slice(1) : rows, headers, hasHeader };
+  return { delimiter: delimiter ?? "\n", rows: hasHeader ? rows.slice(1) : rows, headers, hasHeader };
 };
 
 export const isStructuredData = (text: string) => Boolean(parsePastedTable(text));

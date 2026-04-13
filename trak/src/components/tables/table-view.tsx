@@ -4,7 +4,7 @@
 // - Uses new Supabase-backed schema (tables/table_fields/table_rows/table_views) and React Query hooks in src/lib/hooks/use-table-queries.ts.
 // - Table, board, and timeline views live here; list/gallery/calendar are stubbed.
 
-import { useEffect, useMemo, useState, useRef, useCallback, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState, useRef, useCallback, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { Plus, EyeOff } from "lucide-react";
 import {
@@ -104,12 +104,38 @@ const isFocusableElement = (el: HTMLElement | null) => {
 };
 
 const isTextInputElement = (el: HTMLElement | null) => {
-  if (!el) return false;
+  if (!el?.tagName) return false;
   const tag = el.tagName.toLowerCase();
   if (["input", "textarea", "select"].includes(tag)) return true;
   const contentEditable = (el as HTMLElement).getAttribute("contenteditable");
   return contentEditable === "true";
 };
+
+const isTableGridCellElement = (el: HTMLElement | null, container: HTMLElement) => {
+  const gridCell = el?.closest('[role="gridcell"]');
+  return Boolean(gridCell && container.contains(gridCell));
+};
+
+const isHTMLElement = (target: EventTarget | null): target is HTMLElement =>
+  target instanceof HTMLElement;
+
+const getStructuredClipboardText = (clipboardData: DataTransfer | null | undefined) => {
+  if (!clipboardData) return "";
+  const candidates = ["text/csv", "text/tab-separated-values", "text/plain", "text"]
+    .map((type) => clipboardData.getData(type))
+    .filter((value) => value && value.trim().length > 0);
+  return candidates.find((value) => isStructuredData(value)) ?? "";
+};
+
+const isEmptyImportCellValue = (value: unknown) => {
+  if (value === null || value === undefined) return true;
+  if (typeof value === "string") return value.trim().length === 0;
+  if (Array.isArray(value)) return value.length === 0;
+  return false;
+};
+
+const isEmptyImportRowData = (data: Record<string, unknown> | null | undefined) =>
+  !data || Object.values(data).every(isEmptyImportCellValue);
 
 const normalizeFieldName = (name?: string | null) =>
   (name ?? "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "_");
@@ -320,7 +346,9 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
   const [openSearchTick, setOpenSearchTick] = useState(0);
   const cellRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
+  const [expandedTextFieldIds, setExpandedTextFieldIds] = useState<Set<string>>(() => new Set());
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const tablePointerInsideRef = useRef(false);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [lastSelectedRowId, setLastSelectedRowId] = useState<string | null>(null);
   const [relationConfigField, setRelationConfigField] = useState<TableField | null>(null);
@@ -800,8 +828,41 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
     getScrollElement: () => scrollContainerRef.current,
     estimateSize: () => 38, // approximate height of TableRow
     overscan: 10,
+    getItemKey: (index) => visibleRows[index]?.id ?? index,
   });
-  const shouldVirtualizeRows = visibleRows.length > 40;
+  const measureTableRows = useCallback(() => {
+    rowVirtualizer.measure();
+  }, [rowVirtualizer]);
+  const expandedTextFieldKey = useMemo(
+    () => Array.from(expandedTextFieldIds).sort().join("|"),
+    [expandedTextFieldIds]
+  );
+  useLayoutEffect(() => {
+    if (viewType !== "table") return;
+    measureTableRows();
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      measureTableRows();
+      secondFrame = window.requestAnimationFrame(measureTableRows);
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [expandedTextFieldKey, measureTableRows, viewType, visibleRows.length]);
+  const handleToggleFieldExpansion = useCallback((fieldId: string) => {
+    setExpandedTextFieldIds((current) => {
+      const next = new Set(current);
+      if (next.has(fieldId)) {
+        next.delete(fieldId);
+      } else {
+        next.add(fieldId);
+      }
+      return next;
+    });
+    window.requestAnimationFrame(measureTableRows);
+  }, [measureTableRows]);
+  const shouldVirtualizeRows = visibleRows.length > 40 && expandedTextFieldIds.size === 0;
 
   // Memoize row IDs to prevent infinite loops
   const sortedRowIds = useMemo(() => sortedRows.map((row) => row.id), [sortedRows]);
@@ -1117,13 +1178,13 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
     URL.revokeObjectURL(url);
   };
 
-  const getLastOrderValue = () => {
+  const getLastOrderValue = useCallback(() => {
     const numericOrders = sortedRows
       .map((row) => Number(row.order))
       .filter((order) => !Number.isNaN(order));
     if (numericOrders.length === 0) return 0;
     return Math.max(...numericOrders);
-  };
+  }, [sortedRows]);
 
   const buildUniqueFieldName = (name: string, usedNames: Set<string>) => {
     const baseName = name.trim() || "New Field";
@@ -1237,8 +1298,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
           }
         }
 
-        const baseOrder = getLastOrderValue();
-        const rowsToInsert = parsed.rows.map((row, idx) => {
+        const importedRowData = parsed.rows.map((row) => {
           const data: Record<string, unknown> = {};
           mappingList.forEach((mapping) => {
             if (mapping.mode !== "field" || !mapping.fieldId) return;
@@ -1282,12 +1342,55 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
             }
             data[field.id] = transformValue(rawValue, field);
           });
-          return { data, order: baseOrder + idx + 1 };
+          return data;
         });
 
-        const insertResult = await bulkInsertRows.mutateAsync(rowsToInsert);
-        if ("error" in insertResult) {
-          throw new Error(insertResult.error);
+        const mappedFieldIds = Array.from(
+          new Set(
+            mappingList
+              .filter((mapping) => mapping.mode === "field" && mapping.fieldId)
+              .map((mapping) => mapping.fieldId!)
+          )
+        );
+        const singleMappedFieldId = mappedFieldIds.length === 1 ? mappedFieldIds[0] : null;
+        const emptyPlaceholderRows = sortedRows.filter((row) => isEmptyImportRowData(row.data));
+        const tableOnlyHasPlaceholders =
+          sortedRows.length > 0 && sortedRows.length <= 3 && emptyPlaceholderRows.length === sortedRows.length;
+        const fillTargetRows = singleMappedFieldId
+          ? sortedRows.filter((row) => isEmptyImportCellValue(row.data?.[singleMappedFieldId]))
+          : emptyPlaceholderRows;
+        const rowsToPatch = importedRowData.slice(0, fillTargetRows.length);
+
+        for (const [idx, data] of rowsToPatch.entries()) {
+          const targetRow = fillTargetRows[idx];
+          if (!targetRow) continue;
+          for (const [fieldId, value] of Object.entries(data)) {
+            await updateCell.mutateAsync({ rowId: targetRow.id, fieldId, value });
+          }
+        }
+
+        const updatedCount = rowsToPatch.length;
+        if (tableOnlyHasPlaceholders && updatedCount > 0) {
+          const patchedRowIds = new Set(fillTargetRows.slice(0, updatedCount).map((row) => row.id));
+          const unusedPlaceholderRowIds = emptyPlaceholderRows
+            .filter((row) => !patchedRowIds.has(row.id))
+            .map((row) => row.id);
+          if (unusedPlaceholderRowIds.length > 0) {
+            await bulkDeleteRows.mutateAsync(unusedPlaceholderRowIds);
+          }
+        }
+
+        const baseOrder = getLastOrderValue();
+        const rowsToInsert = importedRowData.slice(updatedCount).map((data, idx) => ({
+          data,
+          order: baseOrder + idx + 1,
+        }));
+
+        if (rowsToInsert.length > 0) {
+          const insertResult = await bulkInsertRows.mutateAsync(rowsToInsert);
+          if ("error" in insertResult) {
+            throw new Error(insertResult.error);
+          }
         }
 
         setImportModalOpen(false);
@@ -1295,7 +1398,11 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
         setImportMappings([]);
         const createdCount = createdFields.length;
         setToast({
-          message: `Imported ${rowsToInsert.length} rows${createdCount ? `, created ${createdCount} columns` : ""}`,
+          message: [
+            updatedCount ? `Updated ${updatedCount} rows` : null,
+            rowsToInsert.length ? `imported ${rowsToInsert.length} rows` : null,
+            createdCount ? `created ${createdCount} columns` : null,
+          ].filter(Boolean).join(", "),
           type: "success",
         });
       } catch (err) {
@@ -1308,7 +1415,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
         setImporting(false);
       }
     },
-    [allFields, bulkInsertRows, createField, importMappings, sortedRows, updateField]
+    [allFields, bulkDeleteRows, bulkInsertRows, createField, getLastOrderValue, importMappings, sortedRows, updateCell, updateField]
   );
 
   const handleAddField = useCallback(() => {
@@ -1639,7 +1746,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
     updateCell.mutate({ rowId, fieldId: groupByField.id, value });
   };
 
-  const buildInitialImportMappings = (parsed: NonNullable<ReturnType<typeof parsePastedTable>>) => {
+  const buildInitialImportMappings = useCallback((parsed: NonNullable<ReturnType<typeof parsePastedTable>>) => {
     const normalizedFieldMap = new Map(
       editableFields.map((field) => [field.name.trim().toLowerCase(), field.id])
     );
@@ -1679,7 +1786,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
         newFieldType: inferredType,
       } as ImportColumnMapping;
     });
-  };
+  }, [editableFields]);
 
   const handlePasteText = useCallback(
     (text: string) => {
@@ -1708,32 +1815,44 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
 
       setImportModalOpen(true);
     },
-    [editableFields, sortedRows.length, handlePasteImport]
+    [buildInitialImportMappings, editableFields.length, sortedRows.length, handlePasteImport]
+  );
+
+  const handleStructuredPaste = useCallback(
+    (event: ClipboardEvent | React.ClipboardEvent<HTMLElement>) => {
+      if (event.defaultPrevented) return;
+      const container = containerRef.current;
+      if (!container) return;
+      const targetElement = isHTMLElement(event.target) ? event.target : null;
+      const targetNode = event.target instanceof Node ? event.target : null;
+      const activeNode = document.activeElement as Node | null;
+      const isWithinTable =
+        tablePointerInsideRef.current ||
+        (targetNode && container.contains(targetNode)) ||
+        (activeNode && container.contains(activeNode));
+      if (!isWithinTable) return;
+
+      const pastedText = getStructuredClipboardText(event.clipboardData);
+      if (!pastedText) return;
+      if (isTextInputElement(targetElement) && !isTableGridCellElement(targetElement, container)) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      handlePasteText(pastedText);
+    },
+    [handlePasteText]
   );
 
   useEffect(() => {
     if (viewType !== "table") return;
 
     const handlePaste = (event: ClipboardEvent) => {
-      if (isTextInputElement(event.target as HTMLElement)) return;
-      const container = containerRef.current;
-      if (!container) return;
-      const targetNode = event.target as Node | null;
-      const activeNode = document.activeElement as Node | null;
-      const isWithinTable =
-        (targetNode && container.contains(targetNode)) || (activeNode && container.contains(activeNode));
-      if (!isWithinTable) return;
-
-      const pastedText = event.clipboardData?.getData("text/plain");
-      if (!pastedText) return;
-      if (!isStructuredData(pastedText)) return;
-      event.preventDefault();
-      handlePasteText(pastedText);
+      handleStructuredPaste(event);
     };
 
-    document.addEventListener("paste", handlePaste);
-    return () => document.removeEventListener("paste", handlePaste);
-  }, [handlePasteText, viewType]);
+    document.addEventListener("paste", handlePaste, true);
+    return () => document.removeEventListener("paste", handlePaste, true);
+  }, [handleStructuredPaste, viewType]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -2148,7 +2267,23 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
             onUpdateField={handleBulkUpdateField}
             onClearSelection={() => setSelectedRows(new Set())}
           />
-          <div className="relative w-full" ref={containerRef}>
+          <div
+            className="relative w-full outline-none"
+            ref={containerRef}
+            tabIndex={0}
+            onPointerEnter={() => {
+              tablePointerInsideRef.current = true;
+            }}
+            onPointerLeave={() => {
+              tablePointerInsideRef.current = false;
+            }}
+            onMouseDown={(event) => {
+              tablePointerInsideRef.current = true;
+              if (isFocusableElement(event.target as HTMLElement)) return;
+              event.currentTarget.focus();
+            }}
+            onPaste={handleStructuredPaste}
+          >
             <div
               ref={scrollContainerRef}
               className="overflow-x-auto w-full scrollbar-thin"
@@ -2201,6 +2336,8 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
                     calculations={view?.config?.field_calculations || {}}
                     rows={sortedRows}
                     onUpdateCalculation={handleUpdateCalculation}
+                    expandedFieldIds={expandedTextFieldIds}
+                    onToggleFieldExpansion={handleToggleFieldExpansion}
                     className="sticky top-0 z-[40]"
                   />
                   {groupedData.grouped ? (
@@ -2258,6 +2395,8 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
                               subtaskMeta={subtaskUiEnabled ? subtaskPresentation.rowMeta.get(row.id) : undefined}
                               onToggleSubtasks={subtaskUiEnabled ? toggleSubtasks : undefined}
                               commentCount={rowCommentCounts[row.id] || 0}
+                              onContentResize={measureTableRows}
+                              expandedFieldIds={expandedTextFieldIds}
                             />
                           ))}
                       </React.Fragment>
@@ -2275,9 +2414,10 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
                         return (
                           <div
                             key={row.id}
+                            data-index={virtualRow.index}
+                            ref={rowVirtualizer.measureElement}
                             className="absolute top-0 left-0 w-full"
                             style={{
-                              height: `${virtualRow.size}px`,
                               transform: `translateY(${virtualRow.start}px)`,
                             }}
                           >
@@ -2321,6 +2461,8 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
                               subtaskMeta={subtaskUiEnabled ? subtaskPresentation.rowMeta.get(row.id) : undefined}
                               onToggleSubtasks={subtaskUiEnabled ? toggleSubtasks : undefined}
                               commentCount={rowCommentCounts[row.id] || 0}
+                              onContentResize={measureTableRows}
+                              expandedFieldIds={expandedTextFieldIds}
                             />
                           </div>
                         );
@@ -2369,6 +2511,8 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
                         subtaskMeta={subtaskUiEnabled ? subtaskPresentation.rowMeta.get(row.id) : undefined}
                         onToggleSubtasks={subtaskUiEnabled ? toggleSubtasks : undefined}
                         commentCount={rowCommentCounts[row.id] || 0}
+                        onContentResize={measureTableRows}
+                        expandedFieldIds={expandedTextFieldIds}
                       />
                     ))
                   )}
