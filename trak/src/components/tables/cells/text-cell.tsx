@@ -186,7 +186,7 @@ export function TextCell({ value, editing, onStartEdit, onCommit, onCancel, savi
       title={displayValue}
       aria-expanded={isExpanded}
     >
-      {displayValue || <span className="text-[var(--muted-foreground)]">Empty</span>}
+      {displayValue}
     </button>
   );
 }
