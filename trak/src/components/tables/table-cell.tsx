@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, memo } from "react";
+import { useState, memo } from "react";
 import { type TableField } from "@/types/table";
 import { TextCell } from "./cells/text-cell";
 import { LongTextCell } from "./cells/long-text-cell";
@@ -39,7 +39,7 @@ interface TableCellProps {
   computedValue?: unknown;
   fieldMap?: Record<string, TableField>;
   onUploadFiles?: (files: File[]) => Promise<string[]>;
-  onUpdateFieldConfig?: (config: any) => void;
+  onUpdateFieldConfig?: (config: TableField["config"]) => void;
   editRequest?: { rowId: string; fieldId: string; initialValue?: string };
   onEditRequestHandled?: () => void;
   onContentResize?: () => void;
@@ -71,32 +71,26 @@ export const TableCell = memo(function TableCell({
   expanded,
   onToggleExpanded,
 }: TableCellProps) {
-  const [editing, setEditing] = useState(false);
-  const [initialValue, setInitialValue] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!editRequest) return;
-    if (editRequest.rowId !== rowId || editRequest.fieldId !== field.id) return;
-    setInitialValue(editRequest.initialValue ?? "");
-    setEditing(true);
-    onEditRequestHandled?.();
-  }, [editRequest, field.id, onEditRequestHandled, rowId]);
+  const [localEditing, setLocalEditing] = useState(false);
+  const editRequested = editRequest?.rowId === rowId && editRequest.fieldId === field.id;
+  const editing = localEditing || editRequested;
+  const initialValue = editRequested ? editRequest.initialValue ?? null : null;
 
   const commonProps = {
     value,
     editing,
     saving,
     onStartEdit: () => {
-      setInitialValue(null);
-      setEditing(true);
+      onEditRequestHandled?.();
+      setLocalEditing(true);
     },
     onCancel: () => {
-      setInitialValue(null);
-      setEditing(false);
+      onEditRequestHandled?.();
+      setLocalEditing(false);
     },
     onCommit: (val: unknown) => {
-      setInitialValue(null);
-      setEditing(false);
+      onEditRequestHandled?.();
+      setLocalEditing(false);
       onChange(val);
     },
   };

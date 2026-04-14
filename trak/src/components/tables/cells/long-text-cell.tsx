@@ -19,11 +19,31 @@ interface Props {
 }
 
 export function LongTextCell({ value, editing, onStartEdit, onCommit, onCancel, saving, initialValue, onContentResize, forceExpanded, expanded, onToggleExpanded }: Props) {
-  const [draft, setDraft] = useState<string>(String(value ?? ""));
+  const displayText = String(value ?? "");
+  const editSeed = initialValue ?? displayText;
+  const [draftState, setDraftState] = useState(() => ({
+    seed: displayText,
+    value: displayText,
+  }));
   const [localExpanded, setLocalExpanded] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const cellExpanded = expanded ?? localExpanded;
   const isExpanded = Boolean(forceExpanded || cellExpanded);
+  const draft = editing && draftState.seed === editSeed ? draftState.value : editSeed;
+
+  const updateDraft = useCallback((nextValue: string) => {
+    setDraftState({
+      seed: editSeed,
+      value: nextValue,
+    });
+  }, [editSeed]);
+
+  const resetDraft = useCallback(() => {
+    setDraftState({
+      seed: displayText,
+      value: displayText,
+    });
+  }, [displayText]);
 
   const requestContentResize = useCallback(() => {
     window.requestAnimationFrame(() => onContentResize?.());
@@ -34,10 +54,6 @@ export function LongTextCell({ value, editing, onStartEdit, onCommit, onCancel, 
   }, [forceExpanded, requestContentResize]);
 
   useEffect(() => {
-    setDraft(String(value ?? ""));
-  }, [value]);
-
-  useEffect(() => {
     if (editing && textareaRef.current) {
       textareaRef.current.focus();
       // Auto-resize textarea
@@ -46,15 +62,9 @@ export function LongTextCell({ value, editing, onStartEdit, onCommit, onCancel, 
     }
   }, [editing]);
 
-  useEffect(() => {
-    if (!editing) return;
-    if (initialValue === undefined || initialValue === null) return;
-    setDraft(initialValue);
-  }, [editing, initialValue]);
-
   // Auto-resize on content change
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setDraft(e.target.value);
+    updateDraft(e.target.value);
     e.target.style.height = "auto";
     e.target.style.height = `${e.target.scrollHeight}px`;
   };
@@ -73,7 +83,7 @@ export function LongTextCell({ value, editing, onStartEdit, onCommit, onCancel, 
             onCommit(draft);
           }
           if (e.key === "Escape") {
-            setDraft(String(value ?? ""));
+            resetDraft();
             onCancel();
           }
         }}
@@ -82,14 +92,17 @@ export function LongTextCell({ value, editing, onStartEdit, onCommit, onCancel, 
     );
   }
 
-  const displayText = String(value ?? "");
-
   return (
     <button
       className={`block w-full text-left text-xs text-[var(--foreground)] min-h-[18px] hover:text-[var(--primary)] transition-colors duration-150 ${
         isExpanded ? "whitespace-pre-wrap break-words [overflow-wrap:anywhere]" : "truncate whitespace-nowrap"
       }`}
       onClick={() => {
+        if (!displayText) {
+          resetDraft();
+          onStartEdit();
+          return;
+        }
         if (forceExpanded) return;
         if (onToggleExpanded) {
           onToggleExpanded();
@@ -98,16 +111,18 @@ export function LongTextCell({ value, editing, onStartEdit, onCommit, onCancel, 
         }
         requestContentResize();
       }}
-      onDoubleClick={() => {
+      onDoubleClick={(e) => {
+        e.stopPropagation();
         if (!onToggleExpanded) setLocalExpanded(false);
         requestContentResize();
+        resetDraft();
         onStartEdit();
       }}
       disabled={saving}
       title={displayText}
       aria-expanded={isExpanded}
     >
-      {displayText || <span className="text-[var(--muted-foreground)]">Empty</span>}
+      {displayText}
     </button>
   );
 }

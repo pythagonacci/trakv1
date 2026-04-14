@@ -509,6 +509,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
   const [countingRelations, setCountingRelations] = useState(false);
   const [editRequest, setEditRequest] = useState<{ rowId: string; fieldId: string; initialValue?: string } | null>(null);
   const [scrollToFieldId, setScrollToFieldId] = useState<string | null>(null);
+  const [pendingScrollRowId, setPendingScrollRowId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [importData, setImportData] = useState<ReturnType<typeof parsePastedTable> | null>(null);
   const [importMappings, setImportMappings] = useState<ImportColumnMapping[]>([]);
@@ -878,7 +879,9 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
   const handleCreateRow = useCallback(
     (input?: { data?: Record<string, unknown>; order?: number | string | null }) => {
       setError(null);
+      if (activeSearch) setSearch("");
       const rowId = createClientTableRowId();
+      if (rowId) setPendingScrollRowId(rowId);
       createRow.mutate(
         {
           ...(rowId ? { id: rowId } : {}),
@@ -886,11 +889,16 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
           order: input?.order ?? getNextCreateRowOrder(),
         },
         {
+          onSuccess: (res) => {
+            if (!rowId && "data" in res && res.data?.id) {
+              setPendingScrollRowId(res.data.id);
+            }
+          },
           onError: (err) => setError(err instanceof Error ? err.message : "Failed to create row"),
         }
       );
     },
-    [createClientTableRowId, createRow, getNextCreateRowOrder]
+    [activeSearch, createClientTableRowId, createRow, getNextCreateRowOrder]
   );
   const subtaskPresentation = useMemo(
     () => buildSubtaskPresentation(sortedRows, subtaskField?.id ?? null, collapsedSubtasks),
@@ -983,6 +991,31 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
   const measureTableRows = useCallback(() => {
     rowVirtualizer.measure();
   }, [rowVirtualizer]);
+  useEffect(() => {
+    if (!pendingScrollRowId || viewType !== "table") return;
+    const rowIndex = visibleRows.findIndex((row) => row.id === pendingScrollRowId);
+    if (rowIndex === -1) return;
+
+    rowVirtualizer.scrollToIndex(rowIndex, { align: "center" });
+
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        const firstFieldId = fields[0]?.id;
+        const cell = firstFieldId ? cellRefs.current[`${pendingScrollRowId}-${firstFieldId}`] : null;
+        if (cell) {
+          cell.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+          cell.focus({ preventScroll: true });
+        }
+        setPendingScrollRowId(null);
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [fields, pendingScrollRowId, rowVirtualizer, viewType, visibleRows]);
   const expandedTextFieldKey = useMemo(
     () => Array.from(expandedTextFieldIds).sort().join("|"),
     [expandedTextFieldIds]
@@ -2558,7 +2591,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
                               pinnedFields={pinnedFields}
                               onContextMenu={handleCellContextMenu}
                               onCellDoubleClick={(rowId, fieldId) => {
-                                void copyCellToClipboard(rowId, fieldId);
+                                setEditRequest({ rowId, fieldId });
                               }}
                               widths={widthMap}
                               selectionWidth={selectionWidth}
@@ -2629,7 +2662,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
                               pinnedFields={pinnedFields}
                               onContextMenu={handleCellContextMenu}
                               onCellDoubleClick={(rowId, fieldId) => {
-                                void copyCellToClipboard(rowId, fieldId);
+                                setEditRequest({ rowId, fieldId });
                               }}
                               widths={widthMap}
                               selectionWidth={selectionWidth}
@@ -2684,7 +2717,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
                         pinnedFields={pinnedFields}
                         onContextMenu={handleCellContextMenu}
                         onCellDoubleClick={(rowId, fieldId) => {
-                          void copyCellToClipboard(rowId, fieldId);
+                          setEditRequest({ rowId, fieldId });
                         }}
                         widths={widthMap}
                         selectionWidth={selectionWidth}

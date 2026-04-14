@@ -172,7 +172,8 @@ export function TextCell({ value, editing, onStartEdit, onCommit, onCancel, savi
         }
         requestContentResize();
       }}
-      onDoubleClick={() => {
+      onDoubleClick={(e) => {
+        e.stopPropagation();
         if (!onToggleExpanded) setLocalExpanded(false);
         requestContentResize();
         setDraftState({
