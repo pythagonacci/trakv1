@@ -22,7 +22,7 @@ export default async function ProjectLayout({
     const supabase = await createClient();
     const { projectId: projectIdParam } = await params;
 
-    // 1. Auth check
+    // 1. Auth + workspace (parallel where possible)
     const workspaceId = await getCurrentWorkspaceId();
     if (!workspaceId) {
         redirect("/dashboard");
@@ -38,15 +38,21 @@ export default async function ProjectLayout({
         notFound();
     }
 
-    // 2. Fetch project details
-    const { data: projectRow, error: projectError } = await supabase
-        .from("projects")
-        .select(
-            `id, name, status, due_date_date, due_date_text, priority, tags, client_page_enabled, client_comments_enabled, client_editing_enabled, public_token, workspace_id, client:clients(id, name, company)`
-        )
-        .eq("id", projectId)
-        .eq("workspace_id", workspaceId)
-        .single();
+    // 2. Fetch project + tabs + plan lock in parallel
+    const [projectQueryResult, tabsResult, planLockState] = await Promise.all([
+        supabase
+            .from("projects")
+            .select(
+                `id, name, status, due_date_date, due_date_text, priority, tags, client_page_enabled, client_comments_enabled, client_editing_enabled, public_token, workspace_id, client:clients(id, name, company)`
+            )
+            .eq("id", projectId)
+            .eq("workspace_id", workspaceId)
+            .single(),
+        getProjectTabs(projectId),
+        getWorkspacePlanLockState(workspaceId),
+    ]);
+
+    const { data: projectRow, error: projectError } = projectQueryResult;
 
     if (projectError || !projectRow) {
         notFound();
@@ -58,7 +64,6 @@ export default async function ProjectLayout({
         tags: projectRow.tags ?? [],
     };
 
-    const planLockState = await getWorkspacePlanLockState(workspaceId);
     if (planLockState.lockedProjectIds.includes(projectId)) {
         return (
             <PlanLockedState
@@ -68,8 +73,6 @@ export default async function ProjectLayout({
         );
     }
 
-    // 3. Fetch tabs hierarchy
-    const tabsResult = await getProjectTabs(projectId);
     const hierarchicalTabs = tabsResult.data || [];
 
     return (

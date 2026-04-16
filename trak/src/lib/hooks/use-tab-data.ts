@@ -26,9 +26,9 @@ export function useTabBlocks(tabId: string, initialBlocks?: Block[], options?: P
   const cachedData = queryClient.getQueryData<Block[]>(queryKeys.tabBlocks(tabId));
   const hasCache = !!cachedData;
 
-  // Only use initialData if we don't have cached data (first visit)
-  // This allows cache to be used on subsequent visits
-  const shouldUseInitialData = !hasCache && initialBlocks;
+  // Only use initialData if we don't have cached data (first visit) and
+  // initialBlocks was explicitly provided with content (not just an empty default)
+  const shouldUseInitialData = !hasCache && initialBlocks !== undefined && initialBlocks.length > 0;
 
   return useQuery({
     queryKey: queryKeys.tabBlocks(tabId),
@@ -50,9 +50,8 @@ export function useTabBlocks(tabId: string, initialBlocks?: Block[], options?: P
       return json.data || [];
     },
     initialData: shouldUseInitialData ? initialBlocks : undefined,
-    // Don't set initialDataUpdatedAt - let React Query handle it
-    // Don't refetch on mount if we have data (cached or initial)
-    refetchOnMount: false,
+    // Refetch on mount only when there's no cache and no initial data (client-side nav)
+    refetchOnMount: !hasCache && !shouldUseInitialData ? 'always' : false,
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 }

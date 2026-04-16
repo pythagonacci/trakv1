@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { createServerClient } from "@supabase/ssr";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import type { CookieOptions } from "@supabase/ssr";
@@ -30,7 +31,7 @@ export function setTestUserId(userId: string) {
   testUserId = userId;
 }
 
-export async function createClient() {
+async function _createClientImpl() {
   const supabaseEnv = getSupabaseEnv();
 
   // In test mode, use service role client instead of SSR client (only in test/dev environments)
@@ -108,3 +109,10 @@ export async function createClient() {
     }
   );
 }
+
+/**
+ * React cache()-wrapped Supabase client — returns the same instance for
+ * all callers within a single Next.js server request, eliminating redundant
+ * cookie parsing and client construction.
+ */
+export const createClient = cache(_createClientImpl);
