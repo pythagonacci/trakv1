@@ -68,6 +68,67 @@ const GALLERY_LAYOUTS: Record<GalleryLayout, { label: string }> = {
   array: { label: "Array" },
 };
 
+const CLIPBOARD_IMAGE_EXTENSIONS: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/heic": "heic",
+  "image/heif": "heif",
+};
+
+function isEditablePasteTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  const editable = target.closest("input, textarea, [contenteditable='true']");
+  if (!editable) return false;
+  if (editable instanceof HTMLInputElement) {
+    const nonTextTypes = new Set([
+      "button",
+      "checkbox",
+      "color",
+      "file",
+      "image",
+      "radio",
+      "range",
+      "reset",
+      "submit",
+    ]);
+    return !nonTextTypes.has(editable.type);
+  }
+  return true;
+}
+
+function normalizeClipboardImageFile(file: File) {
+  const hasExtension = /\.[a-z0-9]+$/i.test(file.name);
+  if (file.name && hasExtension) return file;
+
+  const type = file.type || "image/png";
+  const extension = CLIPBOARD_IMAGE_EXTENSIONS[type] || type.split("/")[1] || "png";
+  return new File([file], `pasted-image-${Date.now()}.${extension}`, {
+    type,
+    lastModified: file.lastModified || Date.now(),
+  });
+}
+
+function getClipboardImageFile(clipboardData: DataTransfer | null) {
+  if (!clipboardData) return null;
+
+  for (const item of Array.from(clipboardData.items || [])) {
+    if (item.kind === "file" && item.type.startsWith("image/")) {
+      const file = item.getAsFile();
+      if (file) return normalizeClipboardImageFile(file);
+    }
+  }
+
+  for (const file of Array.from(clipboardData.files || [])) {
+    if (file.type.startsWith("image/")) {
+      return normalizeClipboardImageFile(file);
+    }
+  }
+
+  return null;
+}
+
 function shiftMentionTokens(
   tokens: DraftMentionToken[],
   editStart: number,
@@ -788,6 +849,22 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
   const [replyToComment, setReplyToComment] = useState<{ id: string; authorName: string } | null>(null);
   const [showAddCommentInPanel, setShowAddCommentInPanel] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; index: number } | null>(null);
+  const hoveredImageIndexRef = useRef<number | null>(hoveredImageIndex);
+  const layoutRef = useRef<GalleryLayout | null>(layout);
+  const sideModalIndexRef = useRef<number | null>(sideModalIndex);
+  const uploadImageRef = useRef<((file: File, index: number) => Promise<void>) | null>(null);
+
+  useEffect(() => {
+    hoveredImageIndexRef.current = hoveredImageIndex;
+  }, [hoveredImageIndex]);
+
+  useEffect(() => {
+    layoutRef.current = layout;
+  }, [layout]);
+
+  useEffect(() => {
+    sideModalIndexRef.current = sideModalIndex;
+  }, [sideModalIndex]);
 
   useEffect(() => {
     const rawLayout = (block.content?.layout as string | undefined) || null;
@@ -1093,7 +1170,7 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
 
   const uploadImage = async (file: File, index: number, baseItems?: GalleryItem[]) => {
     if (!workspaceId || !projectId) return;
-    if ((block as any).locked) {
+    if ("locked" in block && Boolean(block.locked)) {
       alert("This gallery block is locked. Unlock it before adding images.");
       return;
     }
@@ -1156,9 +1233,10 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
         setItems(source);
         alert("Image uploaded, but the gallery block couldn't be saved. If this block is locked, unlock it and try again.");
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error("Upload error:", error);
-      alert("Upload failed: " + error.message);
+      const message = error instanceof Error ? error.message : "Unknown error";
+      alert("Upload failed: " + message);
     } finally {
       setUploadingSlots((prev) => {
         const next = new Set(prev);
@@ -1167,6 +1245,30 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
       });
     }
   };
+
+  useEffect(() => {
+    uploadImageRef.current = uploadImage;
+  });
+
+  useEffect(() => {
+    const handlePaste = (event: ClipboardEvent) => {
+      if (layoutRef.current !== "array" || sideModalIndexRef.current !== null) return;
+      if (isEditablePasteTarget(event.target)) return;
+
+      const index = hoveredImageIndexRef.current;
+      if (index === null || index < 0 || index >= items.length) return;
+
+      const file = getClipboardImageFile(event.clipboardData);
+      if (!file) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      void uploadImageRef.current?.(file, index);
+    };
+
+    document.addEventListener("paste", handlePaste);
+    return () => document.removeEventListener("paste", handlePaste);
+  }, [items.length]);
 
   const handleCaptionChange = (index: number, value: string) => {
     const nextItems = items.map((item, idx) =>
@@ -1878,6 +1980,7 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                     }}
                     onDrop={(e) => handleDrop(e, index)}
                     onDragOver={(e) => e.preventDefault()}
+                    title={hasFile ? "Paste an image to replace this slot" : "Paste, drop, or click to upload an image"}
                   >
                     {!!fileId && (fileCommentCounts[fileId] || 0) > 0 && (
                       <div className="absolute left-2 top-2 z-10 inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[10px] text-white">
@@ -1984,7 +2087,7 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                         ) : (
                           <ImageIcon className="h-6 w-6 text-neutral-400" />
                         )}
-                        <span>{isPendingUrl ? "Loading image..." : "Drop image or click to upload"}</span>
+                        <span>{isPendingUrl ? "Loading image..." : "Paste, drop, or click to upload"}</span>
                       </div>
                     )}
                   </div>
@@ -2555,7 +2658,8 @@ function GalleryImageContextMenu({
   };
 
   useEffect(() => {
-    if (menuRef.current) {
+    const frame = requestAnimationFrame(() => {
+      if (!menuRef.current) return;
       const rect = menuRef.current.getBoundingClientRect();
       const vw = window.innerWidth;
       const vh = window.innerHeight;
@@ -2563,7 +2667,8 @@ function GalleryImageContextMenu({
         x: x + rect.width > vw ? Math.max(8, vw - rect.width - 8) : x,
         y: y + rect.height > vh ? Math.max(8, vh - rect.height - 8) : y,
       });
-    }
+    });
+    return () => cancelAnimationFrame(frame);
   }, [x, y, showCommentInput]);
 
   useEffect(() => {

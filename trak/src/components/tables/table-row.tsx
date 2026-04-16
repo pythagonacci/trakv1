@@ -51,6 +51,9 @@ interface Props {
   expandedFieldIds?: Set<string>;
   expandedCellIds?: Set<string>;
   onToggleCellExpansion?: (rowId: string, fieldId: string) => void;
+  selectedCellIds?: Set<string>;
+  onCellSelectionMouseDown?: (event: React.MouseEvent, rowId: string, fieldId: string) => void;
+  onCellSelectionMouseEnter?: (rowId: string, fieldId: string) => void;
 }
 
 export const TableRow = memo(function TableRow({
@@ -89,6 +92,9 @@ export const TableRow = memo(function TableRow({
   expandedFieldIds,
   expandedCellIds,
   onToggleCellExpansion,
+  selectedCellIds,
+  onCellSelectionMouseDown,
+  onCellSelectionMouseEnter,
 }: Props) {
   const saving = savingRowIds?.has(rowId);
   const isSubtask = Boolean(subtaskMeta?.isSubtask);
@@ -156,10 +162,15 @@ export const TableRow = memo(function TableRow({
         const cellKey = `${rowId}:${field.id}`;
         const fieldIsExpanded = Boolean(expandedFieldIds?.has(field.id));
         const cellIsExpanded = Boolean(expandedCellIds?.has(cellKey));
+        const isCellSelected = Boolean(selectedCellIds?.has(cellKey));
         return (
           <div
             key={field.id}
-            className={`min-h-[38px] px-3 py-2 border-r border-[var(--border-strong)] last:border-r-0 min-w-0 ${isPinned ? "sticky z-10 bg-white" : ""}`}
+            className={cn(
+              "min-h-[38px] px-3 py-2 border-r border-[var(--border-strong)] last:border-r-0 min-w-0",
+              isPinned ? "sticky z-10 bg-white" : "",
+              isCellSelected ? "bg-[var(--secondary)]/15 ring-1 ring-inset ring-[var(--primary)]" : ""
+            )}
             style={isPinned ? {
               left: `${pinnedOffsets[field.id]}px`,
               boxShadow: idx > 0 ? '2px 0 4px rgba(0,0,0,0.1)' : 'none'
@@ -172,6 +183,8 @@ export const TableRow = memo(function TableRow({
               }
             }}
             onKeyDown={(e) => onCellKeyDown?.(e, rowId, field.id)}
+            onMouseDown={(e) => onCellSelectionMouseDown?.(e, rowId, field.id)}
+            onMouseEnter={() => onCellSelectionMouseEnter?.(rowId, field.id)}
             onContextMenu={(e) => {
               e.preventDefault();
               e.stopPropagation();

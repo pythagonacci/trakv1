@@ -9,6 +9,8 @@ import {
   Type,
   Maximize2,
   Minimize2,
+  List,
+  ListTodo,
 } from "lucide-react";
 import { type Block } from "@/app/actions/block";
 import { updateBlock } from "@/app/actions/block";
@@ -64,46 +66,60 @@ function extractEntityIdFromAnchor(el: Element): string | null {
   return null;
 }
 
+const normalizeUnmatchedBold = (input: string) => {
+  let result = input;
+  const boldTokens = (result.match(/\*\*/g) || []).length;
+
+  if (boldTokens % 2 !== 0) {
+    const lastIndex = result.lastIndexOf("**");
+    if (lastIndex !== -1) {
+      result = result.slice(0, lastIndex) + result.slice(lastIndex + 2);
+    }
+  }
+
+  return result;
+};
+
+/** Inline markdown → HTML for a single line segment (no block-level prefixes). */
+const applyInlineFormatting = (segment: string): string => {
+  let formatted = segment;
+  if (/<u>.*?<\/u>/.test(formatted)) {
+    formatted = formatted.replace(/<u>(.*?)<\/u>/g, '<u class="underline text-[var(--foreground)]">$1</u>');
+  }
+  formatted = formatted.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label, url) => {
+    const safeLabel = escapeHtml(label);
+    const safeUrl = escapeHtml(url);
+    return `<a href="${safeUrl}" title="${safeLabel}" data-ref-link="true" class="text-[var(--primary)] underline underline-offset-2 hover:opacity-80">${safeLabel}</a>`;
+  });
+  formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-[var(--foreground)]">$1</strong>');
+  formatted = formatted.replace(/\*([^*]+)\*/g, '<em class="italic text-[var(--foreground)]/90">$1</em>');
+  formatted = formatted.replace(
+    /`([^`]+)`/g,
+    '<code class="rounded-md bg-[var(--surface-hover)] px-1.5 py-0.5 text-xs font-medium text-[var(--foreground)]">$1</code>'
+  );
+  return formatted;
+};
+
 // Format markdown text to HTML
 const formatText = (text: string): string => {
   if (!text || text.trim() === "") {
     return '<span class="text-[var(--tertiary-foreground)] italic">Click to add text…</span>';
   }
 
-  const normalizeUnmatchedBold = (input: string) => {
-    let result = input;
-    let boldTokens = (result.match(/\*\*/g) || []).length;
-
-    // If there's an unmatched ** token, drop the last occurrence so it doesn't render literally
-    if (boldTokens % 2 !== 0) {
-      const lastIndex = result.lastIndexOf("**");
-      if (lastIndex !== -1) {
-        result = result.slice(0, lastIndex) + result.slice(lastIndex + 2);
-      }
-    }
-
-    return result;
-  };
-
   const lines = text.split("\n");
-  const formattedLines = lines.map((rawLine) => {
+  const formattedLines = lines.map((rawLine, lineIdx) => {
     const line = normalizeUnmatchedBold(rawLine);
     if (!line.trim()) return "<br/>";
 
     let formatted = line;
-    // Handle HTML underline tags - preserve them as-is (they'll be rendered properly)
-    // Check if line contains HTML tags (like <u>), if so, don't process markdown on that part
     if (/<u>.*?<\/u>/.test(formatted)) {
-      // Replace underline tags with styled version
       formatted = formatted.replace(/<u>(.*?)<\/u>/g, '<u class="underline text-[var(--foreground)]">$1</u>');
     }
-    // Convert markdown links to anchors
     formatted = formatted.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label, url) => {
       const safeLabel = escapeHtml(label);
       const safeUrl = escapeHtml(url);
       return `<a href="${safeUrl}" title="${safeLabel}" data-ref-link="true" class="text-[var(--primary)] underline underline-offset-2 hover:opacity-80">${safeLabel}</a>`;
     });
-    // Process markdown formatting (do this before HTML tag replacement to avoid conflicts)
     formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-[var(--foreground)]">$1</strong>');
     formatted = formatted.replace(/\*([^*]+)\*/g, '<em class="italic text-[var(--foreground)]/90">$1</em>');
     formatted = formatted.replace(/`([^`]+)`/g, '<code class="rounded-md bg-[var(--surface-hover)] px-1.5 py-0.5 text-xs font-medium text-[var(--foreground)]">$1</code>');
@@ -116,6 +132,23 @@ const formatText = (text: string): string => {
     }
     if (/^# /.test(formatted)) {
       return `<h1 class="text-xl font-semibold text-[var(--foreground)] mb-3">${formatted.replace(/^# /, "")}</h1>`;
+    }
+
+    const taskMatch = formatted.match(/^- \[([ xX])\]\s+(.*)$/);
+    if (taskMatch) {
+      const checked = taskMatch[1].trim().toLowerCase() === "x";
+      const bodyHtml = applyInlineFormatting(taskMatch[2]);
+      const checkedAttr = checked ? "true" : "false";
+      const boxClass = checked
+        ? "border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-foreground)]"
+        : "border-[var(--border)] bg-[var(--surface)] text-transparent";
+      return `<div class="flex items-start gap-2 mb-1.5" data-textblock-li="task" data-checked="${checkedAttr}" data-checklist-idx="${lineIdx}"><span contenteditable="false" data-checklist-toggle="true" role="checkbox" aria-checked="${checkedAttr}" tabindex="0" class="mt-0.5 flex h-3.5 w-3.5 shrink-0 cursor-pointer select-none items-center justify-center rounded-sm border text-[10px] leading-none ${boxClass}">${checked ? "&#10003;" : ""}</span><span data-task-body="true" class="min-w-0 flex-1 text-sm text-[var(--foreground)]">${bodyHtml}</span></div>`;
+    }
+
+    if (/^- /.test(formatted) && !/^- \[[ xX]\]\s+/i.test(formatted)) {
+      const body = formatted.slice(2);
+      const bodyHtml = applyInlineFormatting(body);
+      return `<div class="flex items-start gap-2 mb-1.5" data-textblock-li="bullet" data-bullet-idx="${lineIdx}"><span class="mt-0.5 text-[var(--muted-foreground)] select-none" contenteditable="false">&#8226;</span><span data-bullet-body="true" class="min-w-0 flex-1 text-sm text-[var(--foreground)]">${bodyHtml}</span></div>`;
     }
 
     // Specific list item styles
@@ -149,6 +182,35 @@ const formatText = (text: string): string => {
   // SECURITY: Sanitize HTML to prevent XSS attacks
   return sanitizeHtml(html);
 };
+
+function stripListAndHeadingPrefixes(line: string): string {
+  const t = line;
+  if (/^### /.test(t)) return t.slice(4);
+  if (/^## /.test(t)) return t.slice(3);
+  if (/^# /.test(t)) return t.slice(2);
+  if (/^- \[[ xX]\]\s+/i.test(t)) return t.replace(/^- \[[ xX]\]\s+/i, "");
+  if (/^- /.test(t)) return t.slice(2);
+  if (/^• /.test(t)) return t.slice(2);
+  return t;
+}
+
+/** Markdown line: `- item`; click again on a `-` bullet line removes the bullet. */
+function applyBulletMarkdownLine(line: string): string {
+  const t = line.trimStart();
+  const isTask = /^- \[[ xX]\]\s+/i.test(t);
+  const isDashOnly = /^- /.test(t) && !isTask;
+  const core = stripListAndHeadingPrefixes(line);
+  if (isDashOnly) {
+    return core;
+  }
+  return `- ${core}`;
+}
+
+/** Markdown line: checklist item (unchecked). */
+function applyChecklistMarkdownLine(line: string): string {
+  const core = stripListAndHeadingPrefixes(line);
+  return `- [ ] ${core}`;
+}
 
 export default function TextBlock({
   block,
@@ -302,6 +364,41 @@ export default function TextBlock({
       }
     },
     [block.id, onUpdate, isBorderless, block.content]
+  );
+
+  const toggleChecklistLineAtIndex = useCallback(
+    (lineIdx: number) => {
+      setContent((prev) => {
+        const lines = prev.split("\n");
+        if (lineIdx < 0 || lineIdx >= lines.length) return prev;
+        const line = lines[lineIdx];
+        const m = line.match(/^- \[([ xX])\]\s+(.*)$/);
+        if (!m) return prev;
+        const checked = m[1].trim().toLowerCase() === "x";
+        lines[lineIdx] = (checked ? "- [ ] " : "- [x] ") + m[2];
+        const next = lines.join("\n");
+
+        queueMicrotask(() => {
+          const ed = textareaRef.current;
+          if (ed) {
+            const html = formatText(next);
+            ed.innerHTML =
+              html && html.trim() !== ""
+                ? html
+                : '<span class="text-[var(--tertiary-foreground)] italic">Start typing…</span>';
+            inlineMentionRefIds.current = new Set();
+            ed.querySelectorAll('a[data-ref-link="true"]').forEach((link) => {
+              const refId = link.getAttribute("data-ref-id") || extractEntityIdFromAnchor(link);
+              if (refId) inlineMentionRefIds.current.add(refId);
+            });
+          }
+          void saveContent(next);
+        });
+
+        return next;
+      });
+    },
+    [saveContent]
   );
 
   const handleResizeMouseDown = useCallback(
@@ -498,7 +595,7 @@ export default function TextBlock({
     updateActiveFormatting();
   };
 
-  const insertHeading = (level: number) => {
+  const insertIndentAtSelection = () => {
     const editableDiv = textareaRef.current as HTMLDivElement | null;
     if (!editableDiv) return;
 
@@ -506,49 +603,61 @@ export default function TextBlock({
     if (!selection || selection.rangeCount === 0) return;
 
     const range = selection.getRangeAt(0);
-    const headingMarker = "#".repeat(level) + " ";
-    
-    // Expand range to include the entire line by finding line boundaries
-    // Get the editable div's text content to find line boundaries
+    if (!range.collapsed) {
+      range.collapse(true);
+    }
+    const indentNode = document.createTextNode("    ");
+    range.deleteContents();
+    range.insertNode(indentNode);
+    range.setStartAfter(indentNode);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    syncContentFromHTML();
+    updateActiveFormatting();
+  };
+
+  const mutateCurrentLine = (transform: (lineText: string) => string) => {
+    const editableDiv = textareaRef.current as HTMLDivElement | null;
+    if (!editableDiv) return;
+
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+
+    const range = selection.getRangeAt(0);
     const editableText = editableDiv.textContent || "";
-    const editableRange = document.createRange();
-    editableRange.selectNodeContents(editableDiv);
-    
-    // Find the character offset of the selection within the editable div
+
     const preRange = document.createRange();
     preRange.setStart(editableDiv, 0);
     preRange.setEnd(range.startContainer, range.startOffset);
     const startOffset = preRange.toString().length;
-    
-    // Find start of line (look backwards for newline)
+
     let lineStart = 0;
     for (let i = startOffset - 1; i >= 0; i--) {
-      if (editableText[i] === '\n') {
+      if (editableText[i] === "\n") {
         lineStart = i + 1;
         break;
       }
     }
-    
-    // Find end of line (look forwards for newline)
+
     let lineEnd = editableText.length;
     for (let i = startOffset; i < editableText.length; i++) {
-      if (editableText[i] === '\n') {
+      if (editableText[i] === "\n") {
         lineEnd = i;
         break;
       }
     }
-    
-    // Create range for the entire line
-    const lineRange = document.createRange();
+
     let charCount = 0;
     let startNode: Node | null = null;
     let startNodeOffset = 0;
     let endNode: Node | null = null;
     let endNodeOffset = 0;
-    
+
     const walker = document.createTreeWalker(editableDiv, NodeFilter.SHOW_TEXT, null);
     let node;
-    
+
     while ((node = walker.nextNode())) {
       const textLength = node.textContent?.length || 0;
       if (!startNode && charCount + textLength >= lineStart) {
@@ -562,21 +671,19 @@ export default function TextBlock({
       }
       charCount += textLength;
     }
-    
+
     if (startNode && endNode) {
       range.setStart(startNode, startNodeOffset);
       range.setEnd(endNode, endNodeOffset);
     }
-    
-    const lineText = range.toString();
-    const cleanedLine = lineText.replace(/^#{1,3} /, "").replace(/\n$/, "");
-    
-    // Replace line with heading
+
+    const lineText = range.toString().replace(/\n$/, "");
+    const newLine = transform(lineText);
+
     range.deleteContents();
-    const textNode = document.createTextNode(headingMarker + cleanedLine);
+    const textNode = document.createTextNode(newLine);
     range.insertNode(textNode);
-    
-    // Position cursor at end of line
+
     range.setStartAfter(textNode);
     range.collapse(true);
     selection.removeAllRanges();
@@ -584,6 +691,22 @@ export default function TextBlock({
 
     syncContentFromHTML();
     updateActiveFormatting();
+  };
+
+  const insertHeading = (level: number) => {
+    const headingMarker = "#".repeat(level) + " ";
+    mutateCurrentLine((lineText) => {
+      const cleanedLine = lineText.replace(/^#{1,3} /, "");
+      return headingMarker + cleanedLine;
+    });
+  };
+
+  const insertBulletLine = () => {
+    mutateCurrentLine(applyBulletMarkdownLine);
+  };
+
+  const insertChecklistLine = () => {
+    mutateCurrentLine(applyChecklistMarkdownLine);
   };
 
   // Convert HTML back to markdown
@@ -597,8 +720,6 @@ export default function TextBlock({
     let md = '';
     
     const processNode = (node: Node): string => {
-      let result = '';
-      
       if (node.nodeType === Node.TEXT_NODE) {
         return node.textContent || '';
       }
@@ -638,8 +759,34 @@ export default function TextBlock({
             return '\n';
         case 'p':
             return childText + '\n';
-        case 'div':
-            return childText + '\n';
+        case 'ul':
+        case 'ol':
+          return Array.from(el.childNodes)
+            .map((child) => processNode(child))
+            .join('');
+        case 'li':
+          return '- ' + childText.replace(/\n+$/g, '') + '\n';
+        case 'div': {
+          const liKind = el.getAttribute('data-textblock-li');
+          if (liKind === 'task') {
+            const checked = el.getAttribute('data-checked') === 'true';
+            const bodyEl = el.querySelector('[data-task-body="true"]');
+            const body =
+              bodyEl && bodyEl.childNodes.length
+                ? Array.from(bodyEl.childNodes).map(processNode).join('')
+                : childText;
+            return (checked ? '- [x] ' : '- [ ] ') + body.replace(/\n+$/g, '') + '\n';
+          }
+          if (liKind === 'bullet') {
+            const bodyEl = el.querySelector('[data-bullet-body="true"]');
+            const body =
+              bodyEl && bodyEl.childNodes.length
+                ? Array.from(bodyEl.childNodes).map(processNode).join('')
+                : childText;
+            return '- ' + body.replace(/\n+$/g, '') + '\n';
+          }
+          return childText + '\n';
+        }
           default:
             return childText;
         }
@@ -653,7 +800,7 @@ export default function TextBlock({
     // Clean up extra newlines
     md = md.replace(/\n{3,}/g, '\n\n');
     
-    return md.trim();
+    return md.replace(/\n+$/g, '');
   };
 
   // Sync content from HTML in contenteditable
@@ -1216,6 +1363,29 @@ export default function TextBlock({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          <div className="h-4 w-px bg-[var(--border)] mx-0.5" />
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              insertBulletLine();
+            }}
+            className="flex h-5 w-5 items-center justify-center rounded text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+            title="Bullet list"
+          >
+            <List className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              insertChecklistLine();
+            }}
+            className="flex h-5 w-5 items-center justify-center rounded text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+            title="Checklist"
+          >
+            <ListTodo className="h-3 w-3" />
+          </button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="flex h-5 w-5 items-center justify-center rounded text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]">
@@ -1235,8 +1405,16 @@ export default function TextBlock({
           contentEditable
           suppressContentEditableWarning
           onMouseDown={(e) => {
-            // Stop propagation to prevent block dragging
             e.stopPropagation();
+            const target = e.target as HTMLElement;
+            if (target.closest('[data-checklist-toggle="true"]')) {
+              e.preventDefault();
+              const row = target.closest("[data-checklist-idx]");
+              const idxStr = row?.getAttribute("data-checklist-idx");
+              if (idxStr != null) {
+                toggleChecklistLineAtIndex(Number(idxStr));
+              }
+            }
           }}
           onDragStart={(e) => {
             // Prevent dragging when selecting text
@@ -1264,6 +1442,13 @@ export default function TextBlock({
           }}
           onBlur={handleBlur}
           onKeyDown={(e) => {
+            if (e.key === "Tab") {
+              e.preventDefault();
+              e.stopPropagation();
+              insertIndentAtSelection();
+              return;
+            }
+
             // Delete an inline mention link as a single atomic unit
             if (e.key === "Backspace" || e.key === "Delete") {
               const selection = window.getSelection();
@@ -1438,7 +1623,7 @@ export default function TextBlock({
               checkRemovedMentions();
             }
           }}
-          className="w-full resize-none bg-transparent px-2 py-1 pt-7 text-sm leading-normal text-[var(--foreground)] focus:outline-none overflow-hidden min-h-[20px] [&_strong]:font-bold [&_b]:font-bold"
+          className="w-full resize-none whitespace-pre-wrap bg-transparent px-2 py-1 pt-7 text-sm leading-normal text-[var(--foreground)] focus:outline-none overflow-hidden min-h-[20px] [&_strong]:font-bold [&_b]:font-bold"
           style={{ minHeight: `${Math.max(20, minHeightPx ?? 20)}px`, height: 'auto' }}
         />
         {saveStatus !== "idle" && (
@@ -1489,10 +1674,21 @@ export default function TextBlock({
           if (target.closest('a[data-ref-link=\"true\"]')) {
             return;
           }
+          const toggleEl = target.closest('[data-checklist-toggle="true"]');
+          if (toggleEl) {
+            const row = toggleEl.closest("[data-checklist-idx]");
+            const idxStr = row?.getAttribute("data-checklist-idx");
+            if (idxStr != null) {
+              e.preventDefault();
+              e.stopPropagation();
+              toggleChecklistLineAtIndex(Number(idxStr));
+              return;
+            }
+          }
           setIsEditing(true);
         }}
         className={cn(
-          "text-sm leading-normal text-[var(--foreground)]",
+          "whitespace-pre-wrap text-sm leading-normal text-[var(--foreground)]",
           readOnly ? "" : "cursor-text",
           hasAdjustedHeight && !isHeightExpanded && "overflow-y-auto"
         )}

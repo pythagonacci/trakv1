@@ -8,6 +8,7 @@ import { type Block } from "@/app/actions/block";
 import { useTabContents } from "./tab-contents-context";
 import { useTable } from "@/lib/hooks/use-table-queries";
 import { buildProjectTabPath, matchesReadableEntity } from "@/lib/dashboard-routes";
+import { useTabNavigation } from "../../tab-navigation-context";
 
 const BLOCK_TYPE_LABELS: Partial<Record<Block["type"], string>> = {
   text: "Text",
@@ -129,9 +130,10 @@ export default function TableOfContents({
 }: TableOfContentsProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const activeTabParam = pathname.split("/tabs/")[1]?.split("/")[0];
-  const isActiveTab = (tabId: string, tabName: string) =>
-    !!activeTabParam && matchesReadableEntity(activeTabParam, tabName, tabId);
+  const tabNavCtx = useTabNavigation();
+
+  const isActiveTab = (tabId: string, _tabName: string) =>
+    tabNavCtx?.activeTabId === tabId;
   const tabContents = useTabContents();
   const subtabConfig = tabContents?.subtabConfig ?? null;
 
@@ -142,13 +144,14 @@ export default function TableOfContents({
     }
   };
   const navigateToTab = (tabId: string, tabName: string) => {
-    if (!projectName) return;
-    const nextPath = buildProjectTabPath(projectId, tabId, projectName, tabName);
-    if (pathname === nextPath) {
-      return;
+    if (tabNavCtx) {
+      tabNavCtx.navigateToTab(tabId, tabName);
+    } else {
+      if (!projectName) return;
+      const nextPath = buildProjectTabPath(projectId, tabId, projectName, tabName);
+      if (pathname === nextPath) return;
+      router.push(nextPath);
     }
-
-    router.push(nextPath);
   };
 
   const hasSubtabs = subtabConfig && subtabConfig.subtabs.length > 0;

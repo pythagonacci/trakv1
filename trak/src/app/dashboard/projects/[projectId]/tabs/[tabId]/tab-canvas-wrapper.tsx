@@ -19,7 +19,7 @@ interface TabCanvasWrapperProps {
   projectName?: string;
   workspaceId: string;
   perfNavigationId?: string;
-  blocks: Block[];
+  blocks?: Block[];
   initialBlockPropertiesById?: Record<string, EntityProperties>;
   scrollToTaskId?: string | null;
   initialFileUrls?: Record<string, string>;

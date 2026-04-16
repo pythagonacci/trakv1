@@ -6,7 +6,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useState, useRef, useCallback, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import { Plus, EyeOff } from "lucide-react";
+import { Plus, EyeOff, Maximize2, Minimize2 } from "lucide-react";
 import {
   useTableBootstrap,
   useInfiniteTableRows,
@@ -311,6 +311,23 @@ type SubtaskRowMeta = {
   isCollapsed?: boolean;
 };
 
+type TableRowsPage = {
+  rows?: TableRowType[];
+  view?: TableView | null;
+  hasMore?: boolean;
+  nextOffset?: number | null;
+  total?: number;
+};
+
+type CellSelection = {
+  anchorRowId: string;
+  anchorFieldId: string;
+  focusRowId: string;
+};
+
+const EMPTY_TABLE_ROWS_PAGES: TableRowsPage[] = [];
+const getTableCellKey = (rowId: string, fieldId: string) => `${rowId}:${fieldId}`;
+
 function buildSubtaskPresentation(
   rows: TableRowType[],
   subtaskFieldId: string | null,
@@ -501,6 +518,8 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
   const tablePointerInsideRef = useRef(false);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [lastSelectedRowId, setLastSelectedRowId] = useState<string | null>(null);
+  const [cellSelection, setCellSelection] = useState<CellSelection | null>(null);
+  const isDraggingCellSelectionRef = useRef(false);
   const [relationConfigField, setRelationConfigField] = useState<TableField | null>(null);
   const [rollupConfigField, setRollupConfigField] = useState<TableField | null>(null);
   const [formulaConfigField, setFormulaConfigField] = useState<TableField | null>(null);
@@ -516,10 +535,13 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const [collapsedSubtasks, setCollapsedSubtasks] = useState<Set<string>>(new Set());
+  const [showAllRows, setShowAllRows] = useState(false);
   const hasInitializedSubtaskCollapse = useRef(false);
 
-  const tableData: { table: Table; fields: TableField[] } | undefined =
-    bootstrap ? { table: bootstrap.table, fields: bootstrap.fields } : undefined;
+  const tableData: { table: Table; fields: TableField[] } | undefined = useMemo(
+    () => (bootstrap ? { table: bootstrap.table, fields: bootstrap.fields } : undefined),
+    [bootstrap]
+  );
   const defaultViewId = bootstrap?.view?.id ?? null;
   const isDefaultView = activeViewId === null || activeViewId === defaultViewId;
   const rowDataFromQuery = useInfiniteTableRows(
@@ -537,11 +559,18 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
     }
   );
 
-  const queryPages = rowDataFromQuery.data?.pages || [];
+  const queryPages = (rowDataFromQuery.data?.pages ?? EMPTY_TABLE_ROWS_PAGES) as TableRowsPage[];
   const queryRows = useMemo<TableRowType[]>(
     () => queryPages.flatMap((p) => (p?.rows || []) as TableRowType[]),
     [queryPages]
   );
+  const firstPageTotal = queryPages[0]?.total;
+  const totalRowCount =
+    typeof firstPageTotal === "number"
+      ? firstPageTotal
+      : typeof bootstrap?.totalRows === "number"
+        ? bootstrap.totalRows
+        : queryRows.length;
 
   const rowData: { rows: TableRowType[]; view: TableView | null } = {
     rows: queryRows,
@@ -563,6 +592,9 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
   const viewType = view?.type || "table";
   const metaLoading = bootstrapLoading && !bootstrap;
   const rowsLoading = rowDataFromQuery.isLoading && queryRows.length === 0;
+  const hasNextRowsPage = rowDataFromQuery.hasNextPage;
+  const isFetchingNextRowsPage = rowDataFromQuery.isFetchingNextPage;
+  const fetchNextRowsPage = rowDataFromQuery.fetchNextPage;
 
   useEffect(() => {
     if (defaultViewId != null && activeViewId === null) {
@@ -573,18 +605,18 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
   // Infinite scroll loader
   const loadMoreRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!rowDataFromQuery.hasNextPage || rowDataFromQuery.isFetchingNextPage) return;
+    if (!hasNextRowsPage || isFetchingNextRowsPage) return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting) {
-          rowDataFromQuery.fetchNextPage();
+          fetchNextRowsPage();
         }
       },
       { root: scrollContainerRef.current, threshold: 0.1 }
     );
     if (loadMoreRef.current) observer.observe(loadMoreRef.current);
     return () => observer.disconnect();
-  }, [rowDataFromQuery.hasNextPage, rowDataFromQuery.isFetchingNextPage, rowDataFromQuery.fetchNextPage]);
+  }, [fetchNextRowsPage, hasNextRowsPage, isFetchingNextRowsPage]);
 
   // Fetch workspace members only when table has person/assignee fields (defer for new tables)
   const allFieldsForMembers: TableField[] = tableData?.fields ?? [];
@@ -640,6 +672,24 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
   const refreshEditedRows = useRefreshEditedSnapshotRows(tableId);
   const [syncDialogOpen, setSyncDialogOpen] = useState(false);
   const [syncDialogResolving, setSyncDialogResolving] = useState(false);
+
+  useEffect(() => {
+    if (!showAllRows) return;
+    if (activeSearch || viewType !== "table") {
+      setShowAllRows(false);
+      return;
+    }
+    if (!hasNextRowsPage || isFetchingNextRowsPage) return;
+    fetchNextRowsPage();
+  }, [
+    activeSearch,
+    fetchNextRowsPage,
+    hasNextRowsPage,
+    isFetchingNextRowsPage,
+    queryRows.length,
+    showAllRows,
+    viewType,
+  ]);
 
   const allFields = useMemo<TableField[]>(() => tableData?.fields ?? [], [tableData]);
   const subtaskField = useMemo(() => {
@@ -1063,7 +1113,55 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
     window.requestAnimationFrame(measureTableRows);
   }, [measureTableRows]);
   const shouldVirtualizeRows =
-    visibleRows.length > 40 && expandedTextFieldIds.size === 0 && expandedTextCellIds.size === 0;
+    !showAllRows && visibleRows.length > 40 && expandedTextFieldIds.size === 0 && expandedTextCellIds.size === 0;
+  const selectedCellIds = useMemo(() => {
+    if (!cellSelection) return new Set<string>();
+    const anchorIndex = visibleRows.findIndex((row) => row.id === cellSelection.anchorRowId);
+    const focusIndex = visibleRows.findIndex((row) => row.id === cellSelection.focusRowId);
+    if (anchorIndex === -1 || focusIndex === -1) return new Set<string>();
+
+    const [start, end] = anchorIndex <= focusIndex ? [anchorIndex, focusIndex] : [focusIndex, anchorIndex];
+    const next = new Set<string>();
+    for (let index = start; index <= end; index += 1) {
+      const row = visibleRows[index];
+      if (row) next.add(getTableCellKey(row.id, cellSelection.anchorFieldId));
+    }
+    return next;
+  }, [cellSelection, visibleRows]);
+  const selectedCellCount = selectedCellIds.size;
+  const getSelectedCellClipboardText = useCallback(() => {
+    if (!cellSelection || selectedCellCount === 0) return "";
+    const field =
+      fields.find((candidate) => candidate.id === cellSelection.anchorFieldId) ??
+      allFields.find((candidate) => candidate.id === cellSelection.anchorFieldId);
+    if (!field) return "";
+
+    return visibleRows
+      .filter((row) => selectedCellIds.has(getTableCellKey(row.id, field.id)))
+      .map((row) => formatCellValueForClipboard(field, row.data?.[field.id], workspaceMembers))
+      .join("\n");
+  }, [allFields, cellSelection, fields, selectedCellCount, selectedCellIds, visibleRows, workspaceMembers]);
+  const shouldStartCellSelection = useCallback((event: React.MouseEvent) => {
+    if (event.button !== 0) return false;
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (!target) return false;
+    if (target.closest("input, textarea, select, [contenteditable='true']")) return false;
+    return true;
+  }, []);
+  const handleCellSelectionMouseDown = useCallback((event: React.MouseEvent, rowId: string, fieldId: string) => {
+    if (!shouldStartCellSelection(event)) return;
+    isDraggingCellSelectionRef.current = true;
+    setContextMenu(null);
+    setCellSelection({ anchorRowId: rowId, anchorFieldId: fieldId, focusRowId: rowId });
+  }, [shouldStartCellSelection]);
+  const handleCellSelectionMouseEnter = useCallback((rowId: string, fieldId: string) => {
+    if (!isDraggingCellSelectionRef.current) return;
+    setCellSelection((current) => {
+      if (!current) return current;
+      if (fieldId !== current.anchorFieldId && rowId === current.focusRowId) return current;
+      return { ...current, focusRowId: rowId };
+    });
+  }, []);
 
   // Memoize row IDs to prevent infinite loops
   const sortedRowIds = useMemo(() => sortedRows.map((row) => row.id), [sortedRows]);
@@ -2074,6 +2172,46 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
     return () => document.removeEventListener("paste", handlePaste, true);
   }, [handleStructuredPaste, viewType]);
 
+  useEffect(() => {
+    const handleMouseUp = () => {
+      isDraggingCellSelectionRef.current = false;
+    };
+    document.addEventListener("mouseup", handleMouseUp);
+    return () => document.removeEventListener("mouseup", handleMouseUp);
+  }, []);
+
+  useEffect(() => {
+    if (viewType !== "table") return;
+
+    const handleCopy = (event: ClipboardEvent) => {
+      if (selectedCellCount === 0) return;
+      const container = containerRef.current;
+      if (!container) return;
+      const targetElement = isHTMLElement(event.target) ? event.target : null;
+      const targetNode = event.target instanceof Node ? event.target : null;
+      const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      const activeNode = activeElement as Node | null;
+      const isWithinTable =
+        tablePointerInsideRef.current ||
+        (targetNode && container.contains(targetNode)) ||
+        (activeNode && container.contains(activeNode));
+      if (!isWithinTable) return;
+      if (isTextInputElement(targetElement) || isTextInputElement(activeElement)) return;
+
+      const text = getSelectedCellClipboardText();
+      if (!text) return;
+      event.preventDefault();
+      event.clipboardData?.setData("text/plain", text);
+      setToast({
+        message: `${selectedCellCount} cell${selectedCellCount === 1 ? "" : "s"} copied.`,
+        type: "success",
+      });
+    };
+
+    document.addEventListener("copy", handleCopy, true);
+    return () => document.removeEventListener("copy", handleCopy, true);
+  }, [getSelectedCellClipboardText, selectedCellCount, viewType]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const el = containerRef.current;
@@ -2222,6 +2360,12 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
         : type === "block"
           ? "blocks"
           : "tasks";
+  const canToggleAllRows = viewType === "table" && !activeSearch && totalRowCount > 0;
+  const isLoadingAllRows = showAllRows && rowDataFromQuery.hasNextPage;
+  const loadedRowsLabel =
+    totalRowCount > sortedRows.length
+      ? `${sortedRows.length.toLocaleString()} of ${totalRowCount.toLocaleString()} rows`
+      : `${totalRowCount.toLocaleString()} row${totalRowCount === 1 ? "" : "s"}`;
 
   return (
     <div className="p-3">
@@ -2508,8 +2652,8 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
               ref={scrollContainerRef}
               className="overflow-x-auto w-full scrollbar-thin"
               style={{
-                maxHeight: maxHeightPx && maxHeightPx > 0 ? `${maxHeightPx}px` : "480px",
-                overflowY: "scroll",
+                maxHeight: showAllRows ? "none" : maxHeightPx && maxHeightPx > 0 ? `${maxHeightPx}px` : "480px",
+                overflowY: showAllRows ? "visible" : "scroll",
               }}
             >
               <div style={{ width: "100%", minWidth: totalTableWidthPx }}>
@@ -2622,6 +2766,9 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
                               expandedFieldIds={expandedTextFieldIds}
                               expandedCellIds={expandedTextCellIds}
                               onToggleCellExpansion={handleToggleCellExpansion}
+                              selectedCellIds={selectedCellIds}
+                              onCellSelectionMouseDown={handleCellSelectionMouseDown}
+                              onCellSelectionMouseEnter={handleCellSelectionMouseEnter}
                             />
                           ))}
                       </React.Fragment>
@@ -2693,6 +2840,9 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
                               expandedFieldIds={expandedTextFieldIds}
                               expandedCellIds={expandedTextCellIds}
                               onToggleCellExpansion={handleToggleCellExpansion}
+                              selectedCellIds={selectedCellIds}
+                              onCellSelectionMouseDown={handleCellSelectionMouseDown}
+                              onCellSelectionMouseEnter={handleCellSelectionMouseEnter}
                             />
                           </div>
                         );
@@ -2748,6 +2898,9 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
                         expandedFieldIds={expandedTextFieldIds}
                         expandedCellIds={expandedTextCellIds}
                         onToggleCellExpansion={handleToggleCellExpansion}
+                        selectedCellIds={selectedCellIds}
+                        onCellSelectionMouseDown={handleCellSelectionMouseDown}
+                        onCellSelectionMouseEnter={handleCellSelectionMouseEnter}
                       />
                     ))
                   )}
@@ -2791,7 +2944,7 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
           </div>
 
           {/* Add row button - always visible at bottom */}
-          <div className="sticky bottom-0 left-0 right-0 bg-white border-t border-neutral-200 px-2 py-2 z-10 flex items-center justify-start">
+          <div className="sticky bottom-0 left-0 right-0 bg-white border-t border-neutral-200 px-2 py-2 z-10 flex items-center justify-between gap-2">
             <button
               onClick={() => handleCreateRow()}
               className="inline-flex items-center gap-1 rounded-[6px] border border-dashed border-neutral-200 px-2.5 py-1 text-xs font-medium text-neutral-600 transition-colors hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
@@ -2799,6 +2952,25 @@ export function TableView({ tableId, maxHeightPx, currentBlockId }: Props) {
               <Plus className="h-3 w-3" />
               Add row
             </button>
+            {canToggleAllRows && (
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="hidden text-xs text-neutral-500 sm:inline">
+                  {loadedRowsLabel}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowAllRows((current) => !current)}
+                  className="inline-flex items-center gap-1 rounded-[6px] border border-neutral-200 px-2.5 py-1 text-xs font-medium text-neutral-600 transition-colors hover:border-[var(--secondary)] hover:text-[var(--foreground)]"
+                >
+                  {showAllRows ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
+                  {showAllRows
+                    ? isLoadingAllRows
+                      ? "Loading all rows..."
+                      : "Collapse table"
+                    : "Expand table"}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

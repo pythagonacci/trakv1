@@ -9,6 +9,9 @@ import PlanLockedState from "@/components/billing/plan-locked-state";
 import ProjectHeaderWrapper from "./project-header-wrapper";
 import TabBar from "./tab-bar";
 import { ProjectUndoProvider } from "./project-undo-context";
+import { TabNavigationProvider } from "./tab-navigation-context";
+import ClientTabShell from "./client-tab-shell";
+import TabPrefetcher from "./tab-prefetcher";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +20,7 @@ export default async function ProjectLayout({
     params,
 }: {
     children: React.ReactNode;
-    params: Promise<{ projectId: string }>;
+    params: Promise<{ projectId: string; tabId?: string }>;
 }) {
     const supabase = await createClient();
     const { projectId: projectIdParam } = await params;
@@ -76,31 +79,47 @@ export default async function ProjectLayout({
     const hierarchicalTabs = tabsResult.data || [];
 
     return (
-        <ProjectUndoProvider>
-            <div className="flex-1 min-h-0 bg-transparent flex flex-col">
-                <div className="w-full px-2 md:px-3 lg:px-4 shrink-0">
-                    <div className="pt-2 pb-1">
-                        <ProjectHeaderWrapper project={project} tabs={hierarchicalTabs} workspaceId={workspaceId} />
+        <TabNavigationProvider
+            projectId={projectId}
+            projectName={project.name}
+            tabs={hierarchicalTabs}
+            serverTabId={null}
+        >
+            <ProjectUndoProvider>
+                <div className="flex-1 min-h-0 bg-transparent flex flex-col">
+                    <div className="w-full px-2 md:px-3 lg:px-4 shrink-0">
+                        <div className="pt-2 pb-1">
+                            <ProjectHeaderWrapper project={project} tabs={hierarchicalTabs} workspaceId={workspaceId} />
+                        </div>
+
+                        {hierarchicalTabs.length > 0 && (
+                            <div className="sticky top-0 z-40 bg-transparent backdrop-blur-sm border-b border-[var(--border)]">
+                                <TabBar
+                                    tabs={hierarchicalTabs}
+                                    projectId={projectId}
+                                    projectName={project.name}
+                                    isClientProject={!!project.client}
+                                    clientPageEnabled={project.client_page_enabled || false}
+                                    lockedTabIds={planLockState.lockedTabIds}
+                                />
+                            </div>
+                        )}
                     </div>
 
-                    {hierarchicalTabs.length > 0 && (
-                        <div className="sticky top-0 z-40 bg-transparent backdrop-blur-sm border-b border-[var(--border)]">
-                            <TabBar
-                                tabs={hierarchicalTabs}
-                                projectId={projectId}
-                                projectName={project.name}
-                                isClientProject={!!project.client}
-                                clientPageEnabled={project.client_page_enabled || false}
-                                lockedTabIds={planLockState.lockedTabIds}
-                            />
-                        </div>
-                    )}
+                    <div className="flex-1 min-h-0 w-full relative pl-2 pr-1 md:pl-2 md:pr-1 lg:pl-2 lg:pr-1 bg-[var(--surface)]">
+                        <ClientTabShell
+                            projectId={projectId}
+                            projectName={project.name}
+                            workspaceId={workspaceId}
+                            tabs={hierarchicalTabs}
+                            lockedBlockIds={planLockState.lockedBlockIds}
+                        >
+                            {children}
+                        </ClientTabShell>
+                    </div>
                 </div>
-
-                <div className="flex-1 min-h-0 w-full relative pl-2 pr-1 md:pl-2 md:pr-1 lg:pl-2 lg:pr-1 bg-[var(--surface)]">
-                    {children}
-                </div>
-            </div>
-        </ProjectUndoProvider>
+            </ProjectUndoProvider>
+            <TabPrefetcher tabs={hierarchicalTabs} currentTabId={null} />
+        </TabNavigationProvider>
     );
 }

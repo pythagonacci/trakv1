@@ -1222,12 +1222,6 @@ export default function TaskBlock({
   };
 
   const hasAdjustedHeight = Boolean(listHeightPx && listHeightPx > 0);
-  const constrainedHeightStyle = hasAdjustedHeight && !isHeightExpanded
-    ? {
-        maxHeight: `${listHeightPx}px`,
-        height: `${listHeightPx}px`,
-      }
-    : {};
   const expandableMaxHeightStyle = hasAdjustedHeight && !isHeightExpanded
     ? {
         maxHeight: `${listHeightPx}px`,
@@ -5379,7 +5373,7 @@ export default function TaskBlock({
             className={cn("min-h-0", isHeightExpanded ? "overflow-visible" : "overflow-auto")}
             style={{
               contain: "layout style",
-              ...(hasAdjustedHeight ? constrainedHeightStyle : { maxHeight: "70vh", height: "70vh" }),
+              ...expandableMaxHeightStyle,
             }}
           >
             <div className="overflow-x-auto min-h-0">

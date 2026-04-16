@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { buildProjectTabPath, matchesReadableEntity } from "@/lib/dashboard-routes";
+import { useTabNavigation } from "../../tab-navigation-context";
 
 interface SubtabSidebarTab {
   id: string;
@@ -33,17 +34,19 @@ export default function SubtabSidebar({
 }: SubtabSidebarProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const activeTabParam = pathname.split("/tabs/")[1]?.split("/")[0];
-  const isActiveTab = (tabId: string, tabName: string) =>
-    !!activeTabParam && matchesReadableEntity(activeTabParam, tabName, tabId);
+  const tabNav = useTabNavigation();
+
+  const isActiveTab = (tabId: string, _tabName: string) =>
+    tabNav?.activeTabId === tabId;
 
   const handleTabClick = (tabId: string, tabName: string) => {
-    const nextPath = buildProjectTabPath(projectId, tabId, projectName, tabName);
-    if (pathname === nextPath) {
-      return;
+    if (tabNav) {
+      tabNav.navigateToTab(tabId, tabName);
+    } else {
+      const nextPath = buildProjectTabPath(projectId, tabId, projectName, tabName);
+      if (pathname === nextPath) return;
+      router.push(nextPath);
     }
-
-    router.push(nextPath);
   };
 
   if (subtabs.length === 0) return null;

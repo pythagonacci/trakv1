@@ -16,6 +16,7 @@ import {
   buildProjectTabPath,
   matchesReadableEntity,
 } from "@/lib/dashboard-routes";
+import { useTabNavigation } from "./tab-navigation-context";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -53,6 +54,7 @@ export default function TabBar({
   const router = useRouter();
   const pathname = usePathname();
   const { currentWorkspace } = useWorkspace();
+  const tabNav = useTabNavigation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [createDialogParentId, setCreateDialogParentId] = useState<string | undefined>(undefined);
@@ -70,14 +72,16 @@ export default function TabBar({
   const floatingTimeoutRef = useRef<number | null>(null);
 
   const canDeleteTabs = currentWorkspace?.role === "owner" || currentWorkspace?.role === "admin";
-  const activeTabParam = pathname.split("/tabs/")[1]?.split("/")[0];
-  const resolveActiveTabId = (tabParam: string | undefined): string | undefined => {
-    if (!tabParam) return undefined;
+
+  // Use context for active tab (handles both server and client-side navigation)
+  const activeTabId = tabNav?.activeTabId ?? (() => {
+    const activeTabParam = pathname.split("/tabs/")[1]?.split("/")[0];
+    if (!activeTabParam) return undefined;
     const stack = [...tabs];
     while (stack.length > 0) {
       const current = stack.shift();
       if (!current) continue;
-      if (matchesReadableEntity(tabParam, current.name, current.id)) {
+      if (matchesReadableEntity(activeTabParam, current.name, current.id)) {
         return current.id;
       }
       if (current.children && current.children.length > 0) {
@@ -85,9 +89,8 @@ export default function TabBar({
       }
     }
     return undefined;
-  };
-  const activeTabId = resolveActiveTabId(activeTabParam);
-  const isOverview = pathname?.endsWith("/overview");
+  })();
+  const isOverview = !tabNav?.isClientSideNav && pathname?.endsWith("/overview");
   const lockedTabIdSet = new Set(lockedTabIds);
 
   useEffect(() => {
@@ -133,13 +136,11 @@ export default function TabBar({
       return;
     }
 
-    const nextPath = buildProjectTabPath(projectId, tab.id, projectName, tab.name);
-    if (pathname === nextPath) {
-      setMobileMenuOpen(false);
-      return;
+    if (tabNav) {
+      tabNav.navigateToTab(tab.id, tab.name);
+    } else {
+      router.push(buildProjectTabPath(projectId, tab.id, projectName, tab.name));
     }
-
-    router.push(nextPath);
     setMobileMenuOpen(false);
   };
 
