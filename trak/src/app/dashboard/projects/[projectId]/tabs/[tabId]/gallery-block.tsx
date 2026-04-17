@@ -1958,8 +1958,9 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                   <div
                     key={`gallery-slot-${index}`}
                     className={cn(
-                      "group relative flex flex-col min-h-0 overflow-hidden rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700 bg-white/70 dark:bg-neutral-900/60",
-                      isUploading && "border-solid"
+                      "group relative flex flex-col min-h-0 overflow-hidden rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700 bg-white/70 dark:bg-neutral-900/60 transition-all",
+                      isUploading && "border-solid",
+                      isHovered && !isUploading && "border-neutral-500 shadow-sm ring-2 ring-neutral-900/15 dark:border-neutral-300 dark:ring-white/20"
                     )}
                     onMouseEnter={() => setHoveredImageIndex(index)}
                     onMouseLeave={() => setHoveredImageIndex(null)}
@@ -1982,6 +1983,14 @@ export default function GalleryBlock({ block, workspaceId, projectId, onUpdate }
                     onDragOver={(e) => e.preventDefault()}
                     title={hasFile ? "Paste an image to replace this slot" : "Paste, drop, or click to upload an image"}
                   >
+                    {isHovered && !isUploading && (
+                      <>
+                        <div className="pointer-events-none absolute inset-0 z-[6] rounded-lg bg-neutral-900/[0.03] ring-1 ring-inset ring-neutral-900/20 dark:bg-white/[0.04] dark:ring-white/20" />
+                        <div className="pointer-events-none absolute left-1/2 top-2 z-[7] -translate-x-1/2 rounded-full bg-black/70 px-2.5 py-1 text-[10px] font-medium text-white shadow-sm">
+                          {hasFile ? "Paste to replace" : "Paste image here"}
+                        </div>
+                      </>
+                    )}
                     {!!fileId && (fileCommentCounts[fileId] || 0) > 0 && (
                       <div className="absolute left-2 top-2 z-10 inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[10px] text-white">
                         <MessageSquare className="h-3 w-3" />

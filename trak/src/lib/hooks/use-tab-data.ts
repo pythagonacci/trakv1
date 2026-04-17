@@ -131,6 +131,18 @@ export function useBatchFileUrls(
       return json.data || {};
     },
     initialData: shouldUseInitialData ? initialUrls : undefined,
+    placeholderData: (previousData) => {
+      if (fileIds.length === 0) return undefined;
+      const sources = {
+        ...(initialUrls || {}),
+        ...(previousData || {}),
+      };
+      const merged = fileIds.reduce<Record<string, string>>((acc, id) => {
+        if (sources[id]) acc[id] = sources[id];
+        return acc;
+      }, {});
+      return Object.keys(merged).length > 0 ? merged : undefined;
+    },
     refetchOnMount: true, // Always refetch on mount to get fresh signed URLs
     staleTime: 30 * 60 * 1000, // 30 min (half of 60-min signed URL TTL)
     gcTime: 55 * 60 * 1000,    // GC just before signed URLs expire
