@@ -8,6 +8,32 @@ function normalizeEntityId(entityId: string): string {
   return entityId.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+// Canonical v4 UUID as produced by gen_random_uuid(). Project/tab ids are stored
+// as Postgres `uuid`, so only strings that parse as a UUID are valid for a
+// direct `eq("id", …)` lookup. Anything else triggers a Postgres
+// "invalid input syntax for type uuid" error when used in an equality filter.
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function looksLikeDirectEntityId(param: string): boolean {
+  // Support legacy links that still use raw UUIDs in the route. Readable params
+  // always include "~" (or legacy "--"), so anything containing those is
+  // definitely not a direct id.
+  const trimmed = param.trim();
+  if (!trimmed) return false;
+  if (trimmed.includes("~") || trimmed.includes("--")) return false;
+  return UUID_PATTERN.test(trimmed);
+}
+
+// Build a UUID range that covers every uuid whose first hex group (8 chars)
+// matches the given short id. Lets us use the native uuid index for prefix
+// lookups without casting to text (which can't use the index).
+function shortIdToUuidRange(shortId: string): { lower: string; upper: string } | null {
+  if (!/^[0-9a-f]{8}$/i.test(shortId)) return null;
+  const lower = `${shortId.toLowerCase()}-0000-0000-0000-000000000000`;
+  const upper = `${shortId.toLowerCase()}-ffff-ffff-ffff-ffffffffffff`;
+  return { lower, upper };
+}
+
 function resolveEntityIdFromCandidates<T extends { id: string; name: string | null }>(
   param: string,
   candidates: T[] | null | undefined
@@ -48,17 +74,32 @@ export const resolveProjectIdFromParam = cache(async (
   workspaceId: string,
   projectParam: string
 ): Promise<string | null> => {
-  const { slug, shortId } = decodeReadableEntityParam(projectParam);
+  if (looksLikeDirectEntityId(projectParam)) {
+    const { data: project } = await supabase
+      .from("projects")
+      .select("id")
+      .eq("workspace_id", workspaceId)
+      .eq("id", projectParam.trim())
+      .maybeSingle();
+
+    if (project?.id) return project.id;
+  }
+
+  const { shortId } = decodeReadableEntityParam(projectParam);
 
   if (shortId) {
-    const { data: candidates } = await supabase
-      .from("projects")
-      .select("id, name")
-      .eq("workspace_id", workspaceId)
-      .ilike("id", `${shortId}%`)
-      .limit(10);
+    const range = shortIdToUuidRange(shortId);
+    if (range) {
+      const { data: candidates } = await supabase
+        .from("projects")
+        .select("id, name")
+        .eq("workspace_id", workspaceId)
+        .gte("id", range.lower)
+        .lte("id", range.upper)
+        .limit(10);
 
-    return resolveEntityIdFromCandidates(projectParam, candidates);
+      return resolveEntityIdFromCandidates(projectParam, candidates);
+    }
   }
 
   const { data: candidates } = await supabase
@@ -80,17 +121,32 @@ export const resolveTabIdFromParam = cache(async (
   projectId: string,
   tabParam: string
 ): Promise<string | null> => {
-  const { slug, shortId } = decodeReadableEntityParam(tabParam);
+  if (looksLikeDirectEntityId(tabParam)) {
+    const { data: tab } = await supabase
+      .from("tabs")
+      .select("id")
+      .eq("project_id", projectId)
+      .eq("id", tabParam.trim())
+      .maybeSingle();
+
+    if (tab?.id) return tab.id;
+  }
+
+  const { shortId } = decodeReadableEntityParam(tabParam);
 
   if (shortId) {
-    const { data: candidates } = await supabase
-      .from("tabs")
-      .select("id, name")
-      .eq("project_id", projectId)
-      .ilike("id", `${shortId}%`)
-      .limit(10);
+    const range = shortIdToUuidRange(shortId);
+    if (range) {
+      const { data: candidates } = await supabase
+        .from("tabs")
+        .select("id, name")
+        .eq("project_id", projectId)
+        .gte("id", range.lower)
+        .lte("id", range.upper)
+        .limit(10);
 
-    return resolveEntityIdFromCandidates(tabParam, candidates);
+      return resolveEntityIdFromCandidates(tabParam, candidates);
+    }
   }
 
   const { data: candidates } = await supabase
