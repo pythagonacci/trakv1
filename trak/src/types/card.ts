@@ -93,4 +93,38 @@ export interface CardsBlockContent {
   cardVariant?: CardVariant;
   /** Resizable block height in pixels. */
   heightPx?: number;
+  /** Number of columns when two or more cards are shown in a grid (1–6). */
+  gridColumns?: number;
+  /**
+   * Shared height in pixels for the asset (image) area on every card in grid view
+   * when there are multiple cards.
+   */
+  gridAssetHeightPx?: number;
+  /**
+   * Shared max width in pixels for the asset area when multiple cards are in grid view
+   * (media is centered; cannot exceed the card cell). Drag the corner handle horizontally to adjust.
+   */
+  gridAssetWidthPx?: number;
+}
+
+export const MIN_GRID_COLUMNS = 1;
+export const MAX_GRID_COLUMNS = 6;
+
+export function clampGridColumns(raw: unknown): number {
+  const n =
+    typeof raw === "number" && Number.isFinite(raw)
+      ? Math.round(raw)
+      : Number.parseInt(String(raw ?? ""), 10);
+  if (!Number.isFinite(n)) return 2;
+  return Math.min(MAX_GRID_COLUMNS, Math.max(MIN_GRID_COLUMNS, n));
+}
+
+/** Min/max for shared grid media width and height (px). */
+export const MIN_GRID_ASSET_MEDIA_PX = 140;
+export const MAX_GRID_ASSET_MEDIA_PX = 560;
+
+export function clampGridAssetMediaPx(raw: unknown, fallback: number): number {
+  const n = typeof raw === "number" && Number.isFinite(raw) ? raw : Number.parseFloat(String(raw ?? ""));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(MAX_GRID_ASSET_MEDIA_PX, Math.max(MIN_GRID_ASSET_MEDIA_PX, Math.round(n)));
 }

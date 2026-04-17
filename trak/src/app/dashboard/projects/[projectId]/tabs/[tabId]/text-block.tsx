@@ -27,6 +27,7 @@ import { useBlockReferencePicker } from "@/components/blocks/block-reference-pic
 import { useBlockReferences, useDeleteBlockReference } from "@/lib/hooks/use-block-references";
 import type { LinkableItem } from "@/app/actions/timelines/linkable-actions";
 import { getLinkableItemHref } from "@/lib/references/navigation";
+import { shouldPreserveTextBlockEditModeOnBlur } from "./text-block-blur";
 
 interface TextBlockProps {
   block: Block;
@@ -499,6 +500,7 @@ export default function TextBlock({
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const minHeightRef = useRef<number | null>(initialHeightPx);
   const resizeStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
+  const preservedExternalBlurRef = useRef(false);
   const mentionRangeRef = useRef<Range | null>(null);
   const mentionStartRef = useRef<{ node: Node; offset: number } | null>(null);
   const mentionEndRef = useRef<{ node: Node; offset: number } | null>(null);
@@ -569,6 +571,30 @@ export default function TextBlock({
       editingRef.current = false;
     }
   }, [isEditing, content]);
+
+  useEffect(() => {
+    if (!isEditing) {
+      preservedExternalBlurRef.current = false;
+      return;
+    }
+
+    const restoreFocus = () => {
+      if (!preservedExternalBlurRef.current) return;
+      if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+
+      preservedExternalBlurRef.current = false;
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus();
+      });
+    };
+
+    window.addEventListener("focus", restoreFocus);
+    document.addEventListener("visibilitychange", restoreFocus);
+    return () => {
+      window.removeEventListener("focus", restoreFocus);
+      document.removeEventListener("visibilitychange", restoreFocus);
+    };
+  }, [isEditing]);
 
   // Auto-resize contenteditable to fit content
   useEffect(() => {
@@ -746,6 +772,13 @@ export default function TextBlock({
   const handleBlur = async () => {
     // Small delay to allow clicking on toolbar buttons / dropdowns
     setTimeout(async () => {
+      // Browser tab/window switches blur the editor without indicating that the
+      // user clicked away inside the app. Keep edit mode active in that case.
+      if (shouldPreserveTextBlockEditModeOnBlur(document)) {
+        preservedExternalBlurRef.current = true;
+        return;
+      }
+
       // Don't exit editing if a mention/reference picker selection is in progress
       if (mentionStartRef.current) return;
 

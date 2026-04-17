@@ -11,7 +11,16 @@ import { useEntitiesProperties, useWorkspaceMembers } from "@/lib/hooks/use-prop
 import { AssigneeBadge, DueDateBadge, PriorityBadge, PropertyMenu, StatusBadge, TagBadge } from "@/components/properties";
 import { cn } from "@/lib/utils";
 import type { DueDateRange, NamedField, Priority, Status } from "@/types/properties";
-import type { CardWidth, CardHeight } from "@/types/card";
+import {
+  type CardHeight,
+  type CardWidth,
+  clampGridAssetMediaPx,
+  clampGridColumns,
+  MAX_GRID_ASSET_MEDIA_PX,
+  MAX_GRID_COLUMNS,
+  MIN_GRID_ASSET_MEDIA_PX,
+  MIN_GRID_COLUMNS,
+} from "@/types/card";
 import {
   Calendar,
   ChevronLeft,
@@ -27,6 +36,12 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useQueryClient } from "@tanstack/react-query";
 import type { CardsBlockBundle } from "@/app/actions/cards/query-actions";
 import TextCardsBlock from "./text-cards-block";
@@ -92,6 +107,58 @@ function UploadPlaceholder({ large = false, onClick }: { large?: boolean; onClic
   );
 }
 
+function AssetLoadingPlaceholder({ large = false }: { large?: boolean }) {
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-[#f7f4f0] text-[#aaa]">
+      <Loader2 className={cn("animate-spin text-[#999]", large ? "h-5 w-5" : "h-4 w-4")} strokeWidth={1.8} />
+      <span className={cn("font-medium", large ? "text-xs" : "text-[11px]")}>Loading asset</span>
+    </div>
+  );
+}
+
+function AssetUnavailablePlaceholder({
+  large = false,
+  onRetry,
+  onReplace,
+}: {
+  large?: boolean;
+  onRetry: () => void;
+  onReplace: () => void;
+}) {
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-[#f7f4f0] px-4 text-center text-[#8e857c]">
+      <ImageIcon className={cn("text-[#b5aca2]", large ? "h-5 w-5" : "h-4 w-4")} strokeWidth={1.8} />
+      <span className={cn("font-medium", large ? "text-xs" : "text-[11px]")}>Asset could not load</span>
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onRetry();
+          }}
+          className="rounded bg-white px-2 py-1 text-[11px] font-medium text-[#1a1814] shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
+        >
+          Retry
+        </button>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onReplace();
+          }}
+          className="rounded bg-white px-2 py-1 text-[11px] font-medium text-[#1a1814] shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
+        >
+          Replace
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export default function CardsBlock({ block, workspaceId, projectId, onUpdate }: CardsBlockProps) {
   const blockContent = (block.content ?? {}) as Record<string, unknown>;
   const cardVariant = blockContent.cardVariant === "text" ? "text" : "asset";
@@ -113,6 +180,17 @@ function AssetCardsBlock({ block, workspaceId, projectId, onUpdate }: CardsBlock
   const [listHeightPx, setListHeightPx] = useState<number | null>(initialHeightPx);
   const listHeightRef = useRef<number | null>(initialHeightPx);
 
+  const gridColumns = clampGridColumns(blockContent.gridColumns);
+  const initialGridAssetHeightPx = clampGridAssetMediaPx(blockContent.gridAssetHeightPx, 320);
+  const initialGridAssetWidthPx = clampGridAssetMediaPx(
+    blockContent.gridAssetWidthPx ?? initialGridAssetHeightPx,
+    initialGridAssetHeightPx
+  );
+  const [gridAssetHeightPx, setGridAssetHeightPx] = useState(initialGridAssetHeightPx);
+  const gridAssetHeightRef = useRef(initialGridAssetHeightPx);
+  const [gridAssetWidthPx, setGridAssetWidthPx] = useState(initialGridAssetWidthPx);
+  const gridAssetWidthRef = useRef(initialGridAssetWidthPx);
+
   useEffect(() => {
     if (typeof blockContent.heightPx === "number" && blockContent.heightPx > 0) {
       setListHeightPx(blockContent.heightPx);
@@ -120,9 +198,25 @@ function AssetCardsBlock({ block, workspaceId, projectId, onUpdate }: CardsBlock
     }
   }, [blockContent.heightPx]);
 
+  useEffect(() => {
+    const nextH = clampGridAssetMediaPx(blockContent.gridAssetHeightPx, 320);
+    setGridAssetHeightPx(nextH);
+    gridAssetHeightRef.current = nextH;
+    const nextW = clampGridAssetMediaPx(blockContent.gridAssetWidthPx ?? nextH, nextH);
+    setGridAssetWidthPx(nextW);
+    gridAssetWidthRef.current = nextW;
+  }, [blockContent.gridAssetHeightPx, blockContent.gridAssetWidthPx]);
+
   const { data: bundle } = useCards(cardsBlockId);
-  const cards = bundle?.cards ?? [];
+  const cards = useMemo(() => bundle?.cards ?? [], [bundle?.cards]);
+  const cardsRef = useRef(cards);
+  const effectiveGridColumns = cards.length <= 1 ? 1 : gridColumns;
+  const isUniformAssetGrid = viewMode === "grid" && cards.length > 1;
   const setCardCount = useCardCountContext()?.setCardCount;
+
+  useEffect(() => {
+    cardsRef.current = cards;
+  }, [cards]);
 
   useEffect(() => {
     setCardCount?.(cardsBlockId, cards.length);
@@ -140,6 +234,7 @@ function AssetCardsBlock({ block, workspaceId, projectId, onUpdate }: CardsBlock
   const createCardMutation = useCreateCard(cardsBlockId);
   const updateCardMutation = useUpdateCard(cardsBlockId);
   const deleteCardMutation = useDeleteCard(cardsBlockId);
+  const pendingCreateCardPromisesRef = useRef(new Map<string, ReturnType<typeof createCardMutation.mutateAsync>>());
   const cardComments = useCardComments(cardsBlockId);
   const queryClient = useQueryClient();
   const cardsQueryKey = ["cardItems", cardsBlockId] as const;
@@ -261,7 +356,12 @@ function AssetCardsBlock({ block, workspaceId, projectId, onUpdate }: CardsBlock
       }),
     [cards]
   );
-  const { data: fileUrls = {} } = useBatchFileUrls(assetFileIds);
+  const {
+    data: fileUrls = {},
+    isFetching: fileUrlsFetching,
+    isError: fileUrlsError,
+    refetch: refetchFileUrls,
+  } = useBatchFileUrls(assetFileIds);
 
   const getMemberName = (memberId?: string | null) => {
     if (!memberId) return null;
@@ -565,10 +665,25 @@ function AssetCardsBlock({ block, workspaceId, projectId, onUpdate }: CardsBlock
     if (nextViewMode === viewMode) return;
     const result = await updateBlock({
       blockId: block.id,
-        content: {
+      content: {
         ...block.content,
         title: blockTitleDraft,
         viewMode: nextViewMode,
+      },
+    });
+    if ("data" in result && result.data) onUpdate?.(result.data);
+  };
+
+  const handleGridColumnsChange = async (nextCols: number) => {
+    const n = Math.min(MAX_GRID_COLUMNS, Math.max(MIN_GRID_COLUMNS, Math.round(nextCols)));
+    if (n === clampGridColumns(blockContent.gridColumns)) return;
+    const result = await updateBlock({
+      blockId: block.id,
+      content: {
+        ...block.content,
+        title: blockTitleDraft,
+        viewMode,
+        gridColumns: n,
       },
     });
     if ("data" in result && result.data) onUpdate?.(result.data);
@@ -594,7 +709,7 @@ function AssetCardsBlock({ block, workspaceId, projectId, onUpdate }: CardsBlock
     setCardCount?.(cardsBlockId, cards.length + 1);
     const clientKey = createOptimisticCardClientKey();
     setSelectedCardId(clientKey);
-    await createCardMutation.mutateAsync({
+    const createPromise = createCardMutation.mutateAsync({
       cardsBlockId,
       clientKey,
       title: "Untitled card",
@@ -602,6 +717,12 @@ function AssetCardsBlock({ block, workspaceId, projectId, onUpdate }: CardsBlock
       width: "half",
       height: "tall",
     });
+    pendingCreateCardPromisesRef.current.set(clientKey, createPromise);
+    try {
+      await createPromise;
+    } finally {
+      pendingCreateCardPromisesRef.current.delete(clientKey);
+    }
   };
 
   const [uploadMode, setUploadMode] = useState<"replace" | "add">("replace");
@@ -609,13 +730,47 @@ function AssetCardsBlock({ block, workspaceId, projectId, onUpdate }: CardsBlock
   const getCardAssetIds = (card: (typeof cards)[number]) =>
     card.assetFileIds?.length ? card.assetFileIds : card.assetFileId ? [card.assetFileId] : [];
 
-  const openUploadPicker = (cardId: string, mode: "replace" | "add" = "replace") => {
-    setUploadTargetCardId(cardId);
+  const findCardByUploadKey = (cardKey: string) =>
+    cardsRef.current.find((card) => card.id === cardKey || getCardClientKey(card) === cardKey) ?? null;
+
+  const resolveUploadCardTarget = async (cardKey: string) => {
+    let card = findCardByUploadKey(cardKey);
+    if (card && isPersistedCardId(card.id)) {
+      return { cardId: card.id, card, cardClientKey: getCardClientKey(card) };
+    }
+
+    const pendingCreate = pendingCreateCardPromisesRef.current.get(cardKey);
+    if (pendingCreate) {
+      const result = await pendingCreate;
+      if ("error" in result) {
+        throw new Error(result.error);
+      }
+      card = findCardByUploadKey(cardKey) ?? findCardByUploadKey(result.data.id);
+      return {
+        cardId: result.data.id,
+        card,
+        cardClientKey: card ? getCardClientKey(card) : cardKey,
+      };
+    }
+
+    for (let i = 0; i < 20; i += 1) {
+      await delay(100);
+      card = findCardByUploadKey(cardKey);
+      if (card && isPersistedCardId(card.id)) {
+        return { cardId: card.id, card, cardClientKey: getCardClientKey(card) };
+      }
+    }
+
+    throw new Error("Card is still saving. Please try again in a moment.");
+  };
+
+  const openUploadPicker = (cardKey: string, mode: "replace" | "add" = "replace") => {
+    setUploadTargetCardId(cardKey);
     setUploadMode(mode);
     fileInputRef.current?.click();
   };
 
-  const uploadAsset = async (cardId: string, file: File, mode: "replace" | "add" = "replace") => {
+  const uploadAsset = async (cardKey: string, file: File, mode: "replace" | "add" = "replace") => {
     if (!workspaceId || !projectId) return;
     if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
       alert("Please select an image or video file");
@@ -623,6 +778,14 @@ function AssetCardsBlock({ block, workspaceId, projectId, onUpdate }: CardsBlock
     }
     if (file.size > MAX_FILE_SIZE) {
       alert("File exceeds 50MB limit");
+      return;
+    }
+
+    let target: Awaited<ReturnType<typeof resolveUploadCardTarget>>;
+    try {
+      target = await resolveUploadCardTarget(cardKey);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Could not save this asset to the card");
       return;
     }
 
@@ -656,9 +819,11 @@ function AssetCardsBlock({ block, workspaceId, projectId, onUpdate }: CardsBlock
       return;
     }
 
-    const card = cards.find((c) => c.id === cardId);
+    const card = target.card;
     const existingIds = card ? getCardAssetIds(card) : [];
-    const currentIndex = card ? Math.min(slideIndexByCardId[cardId] ?? 0, Math.max(0, existingIds.length - 1)) : 0;
+    const currentIndex = card
+      ? Math.min(slideIndexByCardId[target.cardClientKey] ?? 0, Math.max(0, existingIds.length - 1))
+      : 0;
 
     let nextAssetFileIds: string[];
     if (mode === "add") {
@@ -669,14 +834,35 @@ function AssetCardsBlock({ block, workspaceId, projectId, onUpdate }: CardsBlock
       nextAssetFileIds = [fileId];
     }
 
-    await updateCardMutation.mutateAsync({
-      cardId,
+    const updateResult = await updateCardMutation.mutateAsync({
+      cardId: target.cardId,
       updates: {
         assetFileIds: nextAssetFileIds,
         assetFileId: nextAssetFileIds[0],
         assetKind: file.type.startsWith("video/") ? "video" : "image",
       },
     });
+    if ("error" in updateResult) {
+      alert(updateResult.error);
+      return;
+    }
+
+    cardsRef.current = cardsRef.current.map((currentCard) =>
+      currentCard.id === target.cardId || getCardClientKey(currentCard) === target.cardClientKey
+        ? {
+            ...currentCard,
+            assetFileId: nextAssetFileIds[0] ?? null,
+            assetFileIds: nextAssetFileIds,
+            assetKind: file.type.startsWith("video/") ? "video" : "image",
+          }
+        : currentCard
+    );
+
+    setSlideIndexByCardId((prev) => ({
+      ...prev,
+      [target.cardClientKey]:
+        mode === "add" ? Math.max(0, nextAssetFileIds.length - 1) : Math.min(currentIndex, nextAssetFileIds.length - 1),
+    }));
   };
 
   const handleFileInputChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -725,9 +911,75 @@ function AssetCardsBlock({ block, workspaceId, projectId, onUpdate }: CardsBlock
     });
   };
 
-  const handleResizeMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleResizeMouseDown = (e: React.MouseEvent<HTMLElement>) => {
     e.preventDefault();
     e.stopPropagation();
+
+    if (isUniformAssetGrid) {
+      const startH =
+        gridAssetHeightRef.current > 0 ? gridAssetHeightRef.current : initialGridAssetHeightPx;
+      const startW =
+        gridAssetWidthRef.current > 0 ? gridAssetWidthRef.current : initialGridAssetWidthPx;
+      const state = { startX: e.clientX, startY: e.clientY, startH, startW };
+
+      const handleMouseMove = (ev: MouseEvent) => {
+        const dx = ev.clientX - state.startX;
+        const dy = ev.clientY - state.startY;
+        const nextH = Math.min(
+          MAX_GRID_ASSET_MEDIA_PX,
+          Math.max(MIN_GRID_ASSET_MEDIA_PX, state.startH + dy)
+        );
+        const nextW = Math.min(
+          MAX_GRID_ASSET_MEDIA_PX,
+          Math.max(MIN_GRID_ASSET_MEDIA_PX, state.startW + dx)
+        );
+        setGridAssetHeightPx(nextH);
+        gridAssetHeightRef.current = nextH;
+        setGridAssetWidthPx(nextW);
+        gridAssetWidthRef.current = nextW;
+      };
+
+      const handleMouseUp = async () => {
+        document.removeEventListener("mousemove", handleMouseMove);
+        document.removeEventListener("mouseup", handleMouseUp);
+
+        const clampedH = Math.round(
+          Math.min(
+            MAX_GRID_ASSET_MEDIA_PX,
+            Math.max(MIN_GRID_ASSET_MEDIA_PX, gridAssetHeightRef.current ?? state.startH)
+          )
+        );
+        const clampedW = Math.round(
+          Math.min(
+            MAX_GRID_ASSET_MEDIA_PX,
+            Math.max(MIN_GRID_ASSET_MEDIA_PX, gridAssetWidthRef.current ?? state.startW)
+          )
+        );
+
+        setGridAssetHeightPx(clampedH);
+        gridAssetHeightRef.current = clampedH;
+        setGridAssetWidthPx(clampedW);
+        gridAssetWidthRef.current = clampedW;
+
+        if (!block.id.startsWith("temp-")) {
+          const result = await updateBlock({
+            blockId: block.id,
+            content: {
+              ...block.content,
+              title: blockTitleDraft,
+              viewMode,
+              gridAssetHeightPx: clampedH,
+              gridAssetWidthPx: clampedW,
+            },
+          });
+          if ("data" in result && result.data) onUpdate?.(result.data);
+        }
+      };
+
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+      return;
+    }
 
     const MIN_HEIGHT = 240;
     const MAX_HEIGHT = 1600;
@@ -789,8 +1041,24 @@ function AssetCardsBlock({ block, workspaceId, projectId, onUpdate }: CardsBlock
     const url = fileId ? fileUrls[fileId] : null;
     const isSlideshow = ids.length > 1;
 
-    if (ids.length === 0 || !url) {
-      return <UploadPlaceholder large={large} onClick={() => openUploadPicker(card.id)} />;
+    if (ids.length === 0) {
+      return <UploadPlaceholder large={large} onClick={() => openUploadPicker(cardClientKey)} />;
+    }
+
+    if (!url) {
+      if (fileUrlsFetching && !fileUrlsError) {
+        return <AssetLoadingPlaceholder large={large} />;
+      }
+
+      return (
+        <AssetUnavailablePlaceholder
+          large={large}
+          onRetry={() => {
+            void refetchFileUrls();
+          }}
+          onReplace={() => openUploadPicker(cardClientKey, "replace")}
+        />
+      );
     }
 
     const navButtons = isSlideshow && (
@@ -824,8 +1092,8 @@ function AssetCardsBlock({ block, workspaceId, projectId, onUpdate }: CardsBlock
           <video src={url} className="h-full w-full object-cover" muted playsInline />
           {navButtons}
           <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/0 opacity-0 transition-all group-hover:bg-black/35 group-hover:opacity-100">
-            <button type="button" onClick={(e) => { e.stopPropagation(); openUploadPicker(card.id, "replace"); }} className="rounded bg-white/90 px-2 py-1 text-[11px] font-medium text-[#1a1814]">Replace</button>
-            <button type="button" onClick={(e) => { e.stopPropagation(); openUploadPicker(card.id, "add"); }} className="rounded bg-white/90 px-2 py-1 text-[11px] font-medium text-[#1a1814]">Add image</button>
+            <button type="button" onClick={(e) => { e.stopPropagation(); openUploadPicker(cardClientKey, "replace"); }} className="rounded bg-white/90 px-2 py-1 text-[11px] font-medium text-[#1a1814]">Replace</button>
+            <button type="button" onClick={(e) => { e.stopPropagation(); openUploadPicker(cardClientKey, "add"); }} className="rounded bg-white/90 px-2 py-1 text-[11px] font-medium text-[#1a1814]">Add image</button>
             <a href={url} target="_blank" rel="noreferrer" className="rounded bg-white/90 px-2 py-1 text-[11px] font-medium text-[#1a1814]">View</a>
           </div>
         </div>
@@ -838,8 +1106,8 @@ function AssetCardsBlock({ block, workspaceId, projectId, onUpdate }: CardsBlock
         <img src={url} alt={card.title} className="h-full w-full object-cover" />
         {navButtons}
         <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/0 opacity-0 transition-all group-hover:bg-black/35 group-hover:opacity-100">
-          <button type="button" onClick={(e) => { e.stopPropagation(); openUploadPicker(card.id, "replace"); }} className="rounded bg-white/90 px-2 py-1 text-[11px] font-medium text-[#1a1814]">Replace</button>
-          <button type="button" onClick={(e) => { e.stopPropagation(); openUploadPicker(card.id, "add"); }} className="rounded bg-white/90 px-2 py-1 text-[11px] font-medium text-[#1a1814]">Add image</button>
+          <button type="button" onClick={(e) => { e.stopPropagation(); openUploadPicker(cardClientKey, "replace"); }} className="rounded bg-white/90 px-2 py-1 text-[11px] font-medium text-[#1a1814]">Replace</button>
+          <button type="button" onClick={(e) => { e.stopPropagation(); openUploadPicker(cardClientKey, "add"); }} className="rounded bg-white/90 px-2 py-1 text-[11px] font-medium text-[#1a1814]">Add image</button>
           <a href={url} target="_blank" rel="noreferrer" className="rounded bg-white/90 px-2 py-1 text-[11px] font-medium text-[#1a1814]">View</a>
         </div>
       </div>
@@ -918,13 +1186,46 @@ function AssetCardsBlock({ block, workspaceId, projectId, onUpdate }: CardsBlock
             <Plus className="h-3.5 w-3.5" />
             Add card
           </button>
-          <Settings className="h-4 w-4 text-[#1a1814] opacity-40" />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="rounded p-1 text-[#1a1814] opacity-70 transition-opacity hover:opacity-100"
+                aria-label="Cards block layout"
+              >
+                <Settings className="h-4 w-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[200px]">
+              <DropdownMenuLabel className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#8e857c]">
+                Grid columns (2+ cards)
+              </DropdownMenuLabel>
+              <div className="px-2 pb-2 pt-0.5">
+                <select
+                  value={gridColumns}
+                  onChange={(event) => void handleGridColumnsChange(Number(event.target.value))}
+                  onClick={(event) => event.stopPropagation()}
+                  className="w-full rounded-[6px] border border-[#ede8e0] bg-[#faf8f5] px-2 py-1.5 text-[12px] text-[#1a1814] outline-none"
+                >
+                  {[1, 2, 3, 4, 5, 6].map((n) => (
+                    <option key={n} value={n}>
+                      {n} column{n === 1 ? "" : "s"}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-2 text-[11px] leading-snug text-[#8e857c]">
+                  With several cards in grid view, drag the corner handle on the grid to resize every card image wider
+                  and taller together.
+                </p>
+              </div>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Lock className="h-4 w-4 text-[#1a1814] opacity-40" />
         </div>
       </div>
 
       <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
+        <div className={cn("min-w-0 flex-1", isUniformAssetGrid && "relative")}>
           <div
             className={viewMode === "list" ? "min-h-0" : "overflow-auto"}
             style={
@@ -937,7 +1238,13 @@ function AssetCardsBlock({ block, workspaceId, projectId, onUpdate }: CardsBlock
             }
           >
           {viewMode === "grid" ? (
-            <div className="grid grid-cols-2 gap-3">
+            <div
+              className="gap-3"
+              style={{
+                display: "grid",
+                gridTemplateColumns: `repeat(${effectiveGridColumns}, minmax(0, 1fr))`,
+              }}
+            >
               {cards.map((card) => {
                 const cardClientKey = getCardClientKey(card);
                 const selected = selectedCardId === cardClientKey || selectedCardId === card.id;
@@ -949,8 +1256,14 @@ function AssetCardsBlock({ block, workspaceId, projectId, onUpdate }: CardsBlock
                 const isDetailsExpanded = Boolean(expandedGridCardDetails[cardClientKey]);
                 const showDetailsToggle = hasGridDetails(card);
                 const cardWidth = card.width ?? "half";
-                const cardHeight = card.height ?? "tall";
-                const assetHeight = cardHeight === "tall" ? "h-[320px]" : "h-[220px]";
+                const assetHeightPx =
+                  cards.length > 1
+                    ? gridAssetHeightPx
+                    : (card.height ?? "tall") === "compact"
+                      ? 220
+                      : 320;
+                const spanFullRow =
+                  effectiveGridColumns > 1 && (cardWidth === "full" || cards.length === 1);
                 return (
                   <div
                     key={cardClientKey}
@@ -963,13 +1276,28 @@ function AssetCardsBlock({ block, workspaceId, projectId, onUpdate }: CardsBlock
                     }}
                     role="button"
                     tabIndex={0}
+                    style={spanFullRow ? { gridColumn: "1 / -1" } : undefined}
                     className={cn(
                       "overflow-hidden rounded-[8px] border bg-white text-left shadow-[0_1px_3px_rgba(0,0,0,0.04)] transition-all",
-                      (cardWidth === "full" || cards.length === 1) && "col-span-2",
                       selected ? "border-[#c3baaf] shadow-[0_2px_12px_rgba(0,0,0,0.07)]" : "border-[#e8e2da] hover:border-[#d0c8be] hover:shadow-[0_2px_12px_rgba(0,0,0,0.07)]"
                     )}
                   >
-                    <div className={cn("border-b border-[#f0ebe4]", assetHeight)}>{renderAsset(card)}</div>
+                    <div className="flex justify-center border-b border-[#f0ebe4] bg-[#f7f4f0]">
+                      <div
+                        className="relative overflow-hidden"
+                        style={
+                          cards.length > 1
+                            ? {
+                                width: gridAssetWidthPx,
+                                maxWidth: "100%",
+                                height: assetHeightPx,
+                              }
+                            : { width: "100%", height: assetHeightPx }
+                        }
+                      >
+                        {renderAsset(card)}
+                      </div>
+                    </div>
                     <div className="flex flex-col gap-2 px-[13px] pb-[13px] pt-[10px]">
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0 flex-1 text-[12px] font-semibold leading-[1.3] tracking-[-0.01em] text-[#1a1814]">{card.title}</div>
@@ -1146,12 +1474,25 @@ function AssetCardsBlock({ block, workspaceId, projectId, onUpdate }: CardsBlock
             </div>
           )}
           </div>
-          <div
-            className="mt-1 flex justify-end cursor-row-resize select-none"
-            onMouseDown={handleResizeMouseDown}
-          >
-            <div className="h-1 w-10 rounded-full bg-[#e8e2da] hover:bg-[#d0c8be]" />
-          </div>
+          {isUniformAssetGrid ? (
+            <button
+              type="button"
+              aria-label="Resize all card images — drag diagonally"
+              title="Drag diagonally to resize width and height together"
+              onMouseDown={handleResizeMouseDown}
+              className="absolute bottom-1 right-1 z-10 flex h-6 w-6 cursor-nwse-resize select-none items-end justify-end rounded-sm border border-[#e0d8cf] bg-white/95 p-0.5 shadow-[0_1px_3px_rgba(0,0,0,0.06)] transition-colors hover:border-[#c3baaf] hover:bg-white"
+            >
+              <span className="pointer-events-none block h-2.5 w-2.5 rounded-br border-b-2 border-r-2 border-[#9b9389]" />
+            </button>
+          ) : (
+            <div
+              className="mt-1 flex flex-col items-end gap-0.5 cursor-ns-resize select-none"
+              onMouseDown={handleResizeMouseDown}
+              title="Drag to resize the block height"
+            >
+              <div className="h-1 w-10 rounded-full bg-[#e8e2da] hover:bg-[#d0c8be]" />
+            </div>
+          )}
         </div>
 
         {selectedCard ? (
@@ -1190,7 +1531,22 @@ function AssetCardsBlock({ block, workspaceId, projectId, onUpdate }: CardsBlock
                 <X className="h-[15px] w-[15px]" />
               </button>
             </div>
-            <div className="h-[210px] border-b border-[#f0ebe4]">{renderAsset(selectedCard, true)}</div>
+            <div className="flex justify-center border-b border-[#f0ebe4] bg-[#f7f4f0]">
+              <div
+                className="relative overflow-hidden"
+                style={
+                  isUniformAssetGrid
+                    ? {
+                        width: gridAssetWidthPx,
+                        maxWidth: "100%",
+                        height: gridAssetHeightPx,
+                      }
+                    : { width: "100%", height: 210 }
+                }
+              >
+                {renderAsset(selectedCard, true)}
+              </div>
+            </div>
             <div className="max-h-[80vh] overflow-y-auto px-5 py-[18px]">
               {getCardAssetIds(selectedCard).length > 1 ? (
                 <div className="flex w-full items-center gap-4 border-b border-[#f5f1ec] py-2.5">
@@ -1202,31 +1558,54 @@ function AssetCardsBlock({ block, workspaceId, projectId, onUpdate }: CardsBlock
               ) : null}
               <div className="flex w-full items-center gap-4 border-b border-[#f5f1ec] py-2.5">
                 <span className="w-[90px] flex-shrink-0 text-[12px] font-medium text-[#aaa]">Size</span>
-                <div className="flex min-w-0 flex-1 flex-wrap gap-2">
-                  <select
-                    value={selectedCard.width ?? "half"}
-                    onChange={(e) => {
-                      const v = e.target.value as CardWidth;
-                      void updateCardMutation.mutateAsync({ cardId: selectedCard.id, updates: { width: v } });
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                    className="rounded-[6px] border border-[#ede8e0] bg-[#faf8f5] px-2.5 py-1.5 text-[12px] text-[#1a1814] outline-none"
-                  >
-                    <option value="half">Half width</option>
-                    <option value="full">Full width</option>
-                  </select>
-                  <select
-                    value={selectedCard.height ?? "tall"}
-                    onChange={(e) => {
-                      const v = e.target.value as CardHeight;
-                      void updateCardMutation.mutateAsync({ cardId: selectedCard.id, updates: { height: v } });
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                    className="rounded-[6px] border border-[#ede8e0] bg-[#faf8f5] px-2.5 py-1.5 text-[12px] text-[#1a1814] outline-none"
-                  >
-                    <option value="compact">Compact</option>
-                    <option value="tall">Tall</option>
-                  </select>
+                <div className="flex min-w-0 flex-1 flex-col gap-2">
+                  {isUniformAssetGrid ? (
+                    <>
+                      <p className="text-[12px] leading-snug text-[#8e857c]">
+                        Image size is shared for every card in this grid. Drag the corner handle on the grid (bottom
+                        right) to change width and height together. Column count is in the block settings (gear).
+                      </p>
+                      <select
+                        value={selectedCard.width ?? "half"}
+                        onChange={(e) => {
+                          const v = e.target.value as CardWidth;
+                          void updateCardMutation.mutateAsync({ cardId: selectedCard.id, updates: { width: v } });
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-fit rounded-[6px] border border-[#ede8e0] bg-[#faf8f5] px-2.5 py-1.5 text-[12px] text-[#1a1814] outline-none"
+                      >
+                        <option value="half">Half row width</option>
+                        <option value="full">Full row width</option>
+                      </select>
+                    </>
+                  ) : (
+                    <div className="flex min-w-0 flex-1 flex-wrap gap-2">
+                      <select
+                        value={selectedCard.width ?? "half"}
+                        onChange={(e) => {
+                          const v = e.target.value as CardWidth;
+                          void updateCardMutation.mutateAsync({ cardId: selectedCard.id, updates: { width: v } });
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="rounded-[6px] border border-[#ede8e0] bg-[#faf8f5] px-2.5 py-1.5 text-[12px] text-[#1a1814] outline-none"
+                      >
+                        <option value="half">Half width</option>
+                        <option value="full">Full width</option>
+                      </select>
+                      <select
+                        value={selectedCard.height ?? "tall"}
+                        onChange={(e) => {
+                          const v = e.target.value as CardHeight;
+                          void updateCardMutation.mutateAsync({ cardId: selectedCard.id, updates: { height: v } });
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="rounded-[6px] border border-[#ede8e0] bg-[#faf8f5] px-2.5 py-1.5 text-[12px] text-[#1a1814] outline-none"
+                      >
+                        <option value="compact">Compact</option>
+                        <option value="tall">Tall</option>
+                      </select>
+                    </div>
+                  )}
                 </div>
               </div>
               {[

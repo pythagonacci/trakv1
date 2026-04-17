@@ -116,7 +116,8 @@ export function useBatchFileUrls(
       logClientPerf(
         `[PERF] client useBatchFileUrls nav=${options?.navigationId ?? "none"} ids=${fileIds.length} hasCache=${hasCache} hasInitialUrls=${hasInitialUrls} initialCoverage=${initialCoverageCount}/${fileIds.length} initialUrlsCoverAll=${initialUrlsCoverAll} refetchOnMount=true`
       );
-      const params = new URLSearchParams({ ids: fileIds.join(",") });
+      const params = new URLSearchParams();
+      uniqueFileIds(fileIds).forEach((id) => params.append("ids", id));
       const response = await fetch(`/api/files/batch-urls?${params.toString()}`, {
         cache: "no-store",
         headers: buildClientPerfHeaders({
@@ -143,11 +144,16 @@ export function useBatchFileUrls(
       }, {});
       return Object.keys(merged).length > 0 ? merged : undefined;
     },
-    refetchOnMount: true, // Always refetch on mount to get fresh signed URLs
+    // `true` only refetches when stale; empty/partial maps were staying "fresh" for 30m and hid new assets.
+    refetchOnMount: 'always',
     staleTime: 30 * 60 * 1000, // 30 min (half of 60-min signed URL TTL)
     gcTime: 55 * 60 * 1000,    // GC just before signed URLs expire
     enabled: fileIds.length > 0, // Don't fetch if no file IDs
   });
+}
+
+function uniqueFileIds(fileIds: string[]) {
+  return Array.from(new Set(fileIds.map((id) => id.trim()).filter(Boolean)));
 }
 
 /**

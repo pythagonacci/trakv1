@@ -10,8 +10,7 @@ export async function GET(request: NextRequest) {
   const perfContext = getPerfRequestContext(request);
   const url = new URL(request.url);
   const ids = url.searchParams.getAll("ids");
-  const idsParam = url.searchParams.get("ids");
-  const fileIdsRaw = ids.length > 0 ? ids : (idsParam ? idsParam.split(",") : []);
+  const fileIdsRaw = ids.flatMap((value) => value.split(","));
   const fileIds = fileIdsRaw.map((id) => id.trim()).filter(Boolean);
 
   if (fileIds.length === 0) {

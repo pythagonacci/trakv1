@@ -8,13 +8,20 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { type Block } from "@/app/actions/block";
+import { type Block, updateBlock } from "@/app/actions/block";
 import { useCards, useCreateCard, useDeleteCard, useUpdateCard } from "@/lib/hooks/use-card-queries";
 import { useCardCountContext } from "./card-count-context";
 import { useEntitiesProperties, useWorkspaceMembers } from "@/lib/hooks/use-property-queries";
 import { cn } from "@/lib/utils";
 import type { DueDateRange, EntityProperties, Priority, Status } from "@/types/properties";
-import type { TextCardFieldType, TextCardRow, TextCardRowValue } from "@/types/card";
+import {
+  type TextCardFieldType,
+  type TextCardRow,
+  type TextCardRowValue,
+  clampGridColumns,
+  MAX_GRID_COLUMNS,
+  MIN_GRID_COLUMNS,
+} from "@/types/card";
 import { DateRangeCalendarDropdown } from "@/components/due-date-calendar";
 import { PriorityBadge, StatusBadge } from "@/components/properties";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
@@ -309,10 +316,13 @@ function SortableTextCardRow({
   );
 }
 
-export default function TextCardsBlock({ block, workspaceId }: TextCardsBlockProps) {
+export default function TextCardsBlock({ block, workspaceId, onUpdate }: TextCardsBlockProps) {
   const cardsBlockId = block.id;
+  const blockContent = (block.content ?? {}) as Record<string, unknown>;
+  const gridColumns = clampGridColumns(blockContent.gridColumns);
   const { data: bundle } = useCards(cardsBlockId);
   const cards = useMemo(() => bundle?.cards ?? [], [bundle?.cards]);
+  const effectiveGridColumns = cards.length <= 1 ? 1 : gridColumns;
   const setCardCount = useCardCountContext()?.setCardCount;
   const [editingPersonRowId, setEditingPersonRowId] = useState<string | null>(null);
   const [activeTypeMenuRowKey, setActiveTypeMenuRowKey] = useState<string | null>(null);
@@ -370,6 +380,19 @@ export default function TextCardsBlock({ block, workspaceId }: TextCardsBlockPro
   const getHydratedRows = (cardId: string, rawRows: TextCardRow[] | undefined) =>
     hydrateRowsFromProperties(rawRows, entityPropertiesByCardId[cardId]);
 
+  const handleGridColumnsChange = async (nextCols: number) => {
+    const n = Math.min(MAX_GRID_COLUMNS, Math.max(MIN_GRID_COLUMNS, Math.round(nextCols)));
+    if (n === clampGridColumns(blockContent.gridColumns)) return;
+    const result = await updateBlock({
+      blockId: block.id,
+      content: {
+        ...(block.content as Record<string, unknown>),
+        gridColumns: n,
+      },
+    });
+    if ("data" in result && result.data) onUpdate?.(result.data);
+  };
+
   useEffect(() => {
     if (!activeTypeMenuRowKey) return;
 
@@ -385,12 +408,31 @@ export default function TextCardsBlock({ block, workspaceId }: TextCardsBlockPro
   }, [activeTypeMenuRowKey]);
 
   return (
-    <div
-      className={cn(
-        "w-full",
-        cards.length > 1 ? "grid grid-cols-1 gap-4 md:grid-cols-2" : "grid grid-cols-1"
-      )}
-    >
+    <div className="w-full">
+      {cards.length > 1 ? (
+        <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+          <span className="text-[12px] font-medium text-[#7d746b]">Card columns</span>
+          <select
+            value={gridColumns}
+            onChange={(event) => void handleGridColumnsChange(Number(event.target.value))}
+            className="rounded-[8px] border border-[#d8d0c7] bg-white px-2.5 py-1.5 text-[12px] text-[#3f3831] outline-none"
+            aria-label="Number of columns for text cards"
+          >
+            {[1, 2, 3, 4, 5, 6].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
+      <div
+        className="w-full gap-4"
+        style={{
+          display: "grid",
+          gridTemplateColumns: `repeat(${effectiveGridColumns}, minmax(0, 1fr))`,
+        }}
+      >
       {cards.length === 0 ? (
         <div className="flex min-h-[160px] items-center justify-center rounded-[14px] border border-dashed border-[#d8d0c7] bg-[#faf8f5]">
           <button
@@ -802,6 +844,7 @@ export default function TextCardsBlock({ block, workspaceId }: TextCardsBlockPro
           </div>
         );
       })}
+      </div>
     </div>
   );
 }

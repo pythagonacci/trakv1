@@ -35,7 +35,7 @@ export default function TabPrefetcher({ tabs, currentTabId }: TabPrefetcherProps
         if (tabId === activeTabId) continue;
         if (queryClient.getQueryData(queryKeys.tabBlocks(tabId))) continue;
 
-        queryClient.prefetchQuery({
+        await queryClient.prefetchQuery({
           queryKey: queryKeys.tabBlocks(tabId),
           queryFn: async () => {
             const response = await fetch(`/api/blocks/tab?tabId=${encodeURIComponent(tabId)}`, {
@@ -47,6 +47,48 @@ export default function TabPrefetcher({ tabs, currentTabId }: TabPrefetcherProps
           },
           staleTime: 5 * 60 * 1000,
         });
+
+        // Extract file IDs from blocks that need signed URLs (gallery, image, pdf, video, cards)
+        const blocks = queryClient.getQueryData<any[]>(queryKeys.tabBlocks(tabId)) || [];
+        const fileIds: string[] = [];
+        for (const block of blocks) {
+          if (block.type === "image" && block.content?.fileId) {
+            fileIds.push(block.content.fileId as string);
+          }
+          if (block.type === "gallery" && Array.isArray(block.content?.items)) {
+            for (const item of block.content.items) {
+              if (item?.fileId) fileIds.push(item.fileId as string);
+            }
+          }
+          if (block.type === "pdf" && block.content?.fileId) {
+            fileIds.push(block.content.fileId as string);
+          }
+          if (block.type === "video" && block.content?.fileId) {
+            fileIds.push(block.content.fileId as string);
+          }
+          if (block.type === "cards" && Array.isArray(block.content?.items)) {
+            for (const item of block.content.items) {
+              if (item?.fileId) fileIds.push(item.fileId as string);
+            }
+          }
+        }
+
+        const uniqueFileIds = [...new Set(fileIds)];
+        if (uniqueFileIds.length > 0 && !queryClient.getQueryData(queryKeys.fileUrls(uniqueFileIds))) {
+          queryClient.prefetchQuery({
+            queryKey: queryKeys.fileUrls(uniqueFileIds),
+            queryFn: async () => {
+              const params = new URLSearchParams({ ids: uniqueFileIds.join(",") });
+              const response = await fetch(`/api/files/batch-urls?${params.toString()}`, {
+                cache: "no-store",
+              });
+              const json = await response.json();
+              if (!response.ok || json?.error) throw new Error(json?.error || "Failed to fetch file URLs");
+              return json.data || {};
+            },
+            staleTime: 30 * 60 * 1000,
+          });
+        }
 
         // Small gap between prefetches to avoid flooding the server
         await new Promise((r) => setTimeout(r, 200));

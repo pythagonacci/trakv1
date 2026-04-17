@@ -447,6 +447,14 @@ export function useUpdateCard(blockId: string) {
           },
         };
       });
+
+      if (
+        input.updates.assetFileId !== undefined ||
+        input.updates.assetFileIds !== undefined ||
+        input.updates.assetKind !== undefined
+      ) {
+        void qc.invalidateQueries({ queryKey: ['fileUrls'] });
+      }
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["tableRows"] });

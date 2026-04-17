@@ -50,6 +50,36 @@ function findTabById(tabs: TabInfo[], tabId: string): TabInfo | null {
   return null;
 }
 
+export function shouldResetClientSideTabNavigation({
+  pathname,
+  previousPathname,
+  tabs,
+  isClientSideNav,
+  clientTabId,
+  pendingClientTabId,
+}: {
+  pathname: string;
+  previousPathname: string;
+  tabs: TabInfo[];
+  isClientSideNav: boolean;
+  clientTabId: string | null;
+  pendingClientTabId: string | null;
+}) {
+  if (pathname === previousPathname) {
+    return false;
+  }
+
+  const pathnameTabId = findTabIdFromPathname(pathname, tabs);
+  if (!pathnameTabId) {
+    return true;
+  }
+
+  return !(
+    pathnameTabId === pendingClientTabId ||
+    (isClientSideNav && pathnameTabId === clientTabId)
+  );
+}
+
 interface TabNavigationProviderProps {
   projectId: string;
   projectName: string;
@@ -70,9 +100,16 @@ export function TabNavigationProvider({
   const [clientTabId, setClientTabId] = useState<string | null>(null);
   const [isClientSideNav, setIsClientSideNav] = useState(false);
   const tabsRef = useRef(tabs);
-  tabsRef.current = tabs;
   const projectIdRef = useRef(projectId);
-  projectIdRef.current = projectId;
+  const pendingClientTabIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    tabsRef.current = tabs;
+  }, [tabs]);
+
+  useEffect(() => {
+    projectIdRef.current = projectId;
+  }, [projectId]);
 
   // Derive active tab: client-side nav takes priority, then server-derived from URL
   const serverDerivedTabId = serverTabId ?? findTabIdFromPathname(pathname, tabs);
@@ -86,9 +123,10 @@ export function TabNavigationProvider({
     }
 
     const newPath = buildProjectTabPath(projectIdRef.current, tabId, projectName, tabName);
-    window.history.pushState({ trakClientNav: true, tabId }, "", newPath);
+    pendingClientTabIdRef.current = tabId;
     setClientTabId(tabId);
     setIsClientSideNav(true);
+    window.history.pushState({ trakClientNav: true, tabId }, "", newPath);
   }, [projectName, router]);
 
   useEffect(() => {
@@ -101,6 +139,7 @@ export function TabNavigationProvider({
         if (newTabId) {
           const tab = findTabById(tabsRef.current, newTabId);
           if (!tab?.is_workflow_page) {
+            pendingClientTabIdRef.current = newTabId;
             setClientTabId(newTabId);
             setIsClientSideNav(true);
             return;
@@ -110,6 +149,7 @@ export function TabNavigationProvider({
 
       setIsClientSideNav(false);
       setClientTabId(null);
+      pendingClientTabIdRef.current = null;
       router.push(newPath);
     };
 
@@ -117,17 +157,33 @@ export function TabNavigationProvider({
     return () => window.removeEventListener("popstate", handlePopState);
   }, [router]);
 
-  // Reset client state when a server navigation occurs (Next.js pathname change).
-  // Note: pathname from usePathname() only changes on real Next.js navigations,
-  // not on our pushState calls, so this correctly resets on refresh/overview/etc.
+  // Reset client state when a server navigation occurs. Native pushState updates
+  // usePathname() in current Next, so keep client mode when that pathname is the
+  // same tab we just pushed.
   const prevPathnameRef = useRef(pathname);
   useEffect(() => {
-    if (pathname !== prevPathnameRef.current) {
-      prevPathnameRef.current = pathname;
+    const previousPathname = prevPathnameRef.current;
+    if (pathname === previousPathname) {
+      return;
+    }
+
+    const shouldReset = shouldResetClientSideTabNavigation({
+      pathname,
+      previousPathname,
+      tabs: tabsRef.current,
+      isClientSideNav,
+      clientTabId,
+      pendingClientTabId: pendingClientTabIdRef.current,
+    });
+
+    prevPathnameRef.current = pathname;
+    if (shouldReset) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- keep tab content mode in sync with Next pathname changes.
       setIsClientSideNav(false);
       setClientTabId(null);
     }
-  }, [pathname]);
+    pendingClientTabIdRef.current = null;
+  }, [pathname, isClientSideNav, clientTabId]);
 
   return (
     <TabNavigationContext.Provider value={{ activeTabId, navigateToTab, isClientSideNav, clientTabId }}>
