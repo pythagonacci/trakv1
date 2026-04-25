@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import type { PostgrestError } from "@supabase/supabase-js";
 
 type SidebarProject = {
   id: string;
@@ -105,7 +106,10 @@ export async function GET(request: NextRequest) {
 
   const { data: taskRows, error: taskError } =
     pinnedProjectIds.size === 0
-      ? { data: [] as Array<{ project_id: string | null; statuses: Array<{ value?: string }> | null; status: string | null }>, error: null as string | null }
+      ? {
+          data: [] as Array<{ project_id: string | null; statuses: Array<{ value?: string }> | null; status: string | null }>,
+          error: null as PostgrestError | null,
+        }
       : await supabase
           .from("task_items")
           .select("project_id, statuses, status")
