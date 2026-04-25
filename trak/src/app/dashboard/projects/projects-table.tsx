@@ -50,6 +50,7 @@ import { cn } from "@/lib/utils";
 import { parseDateSafe } from "@/lib/due-date";
 import { buildProjectPath } from "@/lib/dashboard-routes";
 import { OPEN_CREATE_PROJECT_EVENT } from "@/lib/projects";
+import { getPinnedProjectIds, setProjectPinned } from "@/app/actions/sidebar-pins";
 
 interface Project {
   id: string;
@@ -135,6 +136,28 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
   const [createFolderDialogOpen, setCreateFolderDialogOpen] = useState(false);
   const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(new Set());
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [pinnedProjectIds, setPinnedProjectIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    getPinnedProjectIds(workspaceId).then((result) => {
+      if (result.data) setPinnedProjectIds(new Set(result.data));
+    });
+  }, [workspaceId]);
+
+  const handleTogglePin = async (projectId: string) => {
+    const currentlyPinned = pinnedProjectIds.has(projectId);
+    const result = await setProjectPinned(projectId, !currentlyPinned);
+    if (result.error) {
+      setToast({ message: result.error, type: "error" });
+      return;
+    }
+    setPinnedProjectIds((prev) => {
+      const next = new Set(prev);
+      if (currentlyPinned) next.delete(projectId);
+      else next.add(projectId);
+      return next;
+    });
+  };
 
   const selectableProjectIds = useMemo(
     () => projects.filter((project) => !project.id.startsWith("temp-")).map((project) => project.id),
@@ -897,6 +920,10 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
                                   </DropdownMenuItem>
                                 ))}
                                 <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => void handleTogglePin(project.id)}>
+                                  {pinnedProjectIds.has(project.id) ? "Unpin from sidebar" : "Pin to sidebar"}
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
                                 <DropdownMenuItem onClick={(e) => handleOpenDeleteConfirm(project, e)} className="text-red-500 focus:bg-red-50 focus:text-red-600">
                                   <Trash2 className="h-4 w-4" /> Delete
                                 </DropdownMenuItem>
@@ -987,6 +1014,10 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
                                   {f.name}
                                 </DropdownMenuItem>
                               ))}
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={() => void handleTogglePin(project.id)}>
+                                {pinnedProjectIds.has(project.id) ? "Unpin from sidebar" : "Pin to sidebar"}
+                              </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem onClick={(e) => handleOpenDeleteConfirm(project, e)} className="text-red-500 focus:bg-red-50 focus:text-red-600">
                                 <Trash2 className="h-4 w-4" /> Delete

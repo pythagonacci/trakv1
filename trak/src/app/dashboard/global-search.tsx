@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, startTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Search, FileText, CheckSquare, Folder, File, Layers, X, Loader2 } from "lucide-react";
 import {
@@ -23,7 +23,7 @@ interface SearchResult {
   url: string;
   preview?: string;
   highlightedPreview?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 function isEditableKeyboardTarget(target: EventTarget | null) {
@@ -38,7 +38,12 @@ function isEditableKeyboardTarget(target: EventTarget | null) {
   );
 }
 
-export default function GlobalSearch() {
+type GlobalSearchProps = {
+  /** Compact styling for the dashboard sidebar (matches sidebar mock). */
+  variant?: "default" | "sidebar";
+};
+
+export default function GlobalSearch({ variant = "default" }: GlobalSearchProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -51,12 +56,16 @@ export default function GlobalSearch() {
   // Debounced search
   useEffect(() => {
     if (!query.trim() || query.length < 2) {
-      setResults([]);
-      setIsOpen(false);
+      startTransition(() => {
+        setResults([]);
+        setIsOpen(false);
+      });
       return;
     }
 
-    setIsSearching(true);
+    startTransition(() => {
+      setIsSearching(true);
+    });
     const timeoutId = setTimeout(async () => {
       const searchText = query.trim();
       const limit = 10;
@@ -165,13 +174,22 @@ export default function GlobalSearch() {
       }
 
       const filtered = merged.slice(0, limit);
-      setResults(filtered);
-      setIsOpen(filtered.length > 0);
-      setIsSearching(false);
+      startTransition(() => {
+        setResults(filtered);
+        setIsOpen(filtered.length > 0);
+        setIsSearching(false);
+      });
     }, 200);
 
     return () => clearTimeout(timeoutId);
   }, [query]);
+
+  const handleResultClick = useCallback((result: SearchResult) => {
+    router.push(result.url);
+    setIsOpen(false);
+    setQuery("");
+    setSelectedIndex(-1);
+  }, [router]);
 
   // Keyboard navigation
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -204,7 +222,7 @@ export default function GlobalSearch() {
         setSelectedIndex(-1);
         break;
     }
-  }, [isOpen, results, selectedIndex]);
+  }, [isOpen, results, selectedIndex, handleResultClick]);
 
   // Scroll selected item into view
   useEffect(() => {
@@ -245,13 +263,6 @@ export default function GlobalSearch() {
       return () => document.removeEventListener("mousedown", handleClickOutside);
     }
   }, [isOpen]);
-
-  const handleResultClick = (result: SearchResult) => {
-    router.push(result.url);
-    setIsOpen(false);
-    setQuery("");
-    setSelectedIndex(-1);
-  };
 
   // SARAJEVO ARTS PALETTE for search result icons
   const getResultIcon = (type: SearchResultType) => {
@@ -299,11 +310,18 @@ export default function GlobalSearch() {
 
   const flatResults = Object.values(groupedResults).flat();
 
+  const isSidebar = variant === "sidebar";
+
   return (
     <div className="relative" data-search-container>
       {/* Search Input */}
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--muted-foreground)]" />
+        <Search
+          className={cn(
+            "absolute top-1/2 -translate-y-1/2 text-[var(--sidebar-muted,#888)]",
+            isSidebar ? "left-2 h-3 w-3" : "left-3 h-4 w-4 text-[var(--muted-foreground)]"
+          )}
+        />
         <input
           ref={searchInputRef}
           type="text"
@@ -321,8 +339,15 @@ export default function GlobalSearch() {
             }
           }}
           onKeyDown={handleKeyDown}
-          placeholder="Search projects, tasks, docs... (Cmd+K)"
-          className="w-full max-w-md rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-10 py-2.5 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--secondary)] transition-colors"
+          placeholder={
+            isSidebar ? "Search projects, tasks…" : "Search projects, tasks, docs... (Cmd+K)"
+          }
+          className={cn(
+            "w-full text-[var(--foreground)] transition-colors focus:outline-none",
+            isSidebar
+              ? "rounded-md border border-[var(--sidebar-border,#e8e3db)] bg-white py-1.5 pl-7 pr-7 text-xs placeholder:text-[var(--sidebar-subtle,#aaa)] focus:border-[var(--primary)]"
+              : "max-w-md rounded-[2px] border border-[var(--border)] bg-[var(--surface)] px-10 py-2.5 text-sm placeholder:text-[var(--muted-foreground)] focus:border-[var(--secondary)]"
+          )}
         />
         {query && (
           <button
@@ -332,14 +357,17 @@ export default function GlobalSearch() {
               setIsOpen(false);
               searchInputRef.current?.focus();
             }}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
+            className={cn(
+              "absolute top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors",
+              isSidebar ? "right-2" : "right-3"
+            )}
           >
-            <X className="h-4 w-4" />
+            <X className={isSidebar ? "h-3.5 w-3.5" : "h-4 w-4"} />
           </button>
         )}
         {isSearching && (
-          <div className="absolute right-10 top-1/2 -translate-y-1/2">
-            <Loader2 className="h-4 w-4 animate-spin text-[var(--muted-foreground)]" />
+          <div className={cn("absolute top-1/2 -translate-y-1/2", isSidebar ? "right-8" : "right-10")}>
+            <Loader2 className={cn("animate-spin text-[var(--muted-foreground)]", isSidebar ? "h-3.5 w-3.5" : "h-4 w-4")} />
           </div>
         )}
       </div>
@@ -358,7 +386,7 @@ export default function GlobalSearch() {
             </div>
           ) : flatResults.length === 0 ? (
             <div className="p-4 text-center text-sm text-[var(--muted-foreground)]">
-              No results found for "{query}"
+              No results found for &ldquo;{query}&rdquo;
             </div>
           ) : (
             <div ref={resultsRef} className="py-2">
@@ -368,7 +396,7 @@ export default function GlobalSearch() {
                   <div className="px-4 py-2 text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)] bg-[var(--surface-muted)]">
                     {getResultTypeLabel(type as SearchResultType)} ({typeResults.length})
                   </div>
-                  {typeResults.map((result, idx) => {
+                  {typeResults.map((result) => {
                     const flatIndex = flatResults.indexOf(result);
                     return (
                       <button

@@ -53,6 +53,7 @@ import { parseDateSafe } from "@/lib/due-date";
 import { buildProjectPath } from "@/lib/dashboard-routes";
 import type { BlockType } from "@/app/actions/block";
 import { OPEN_CREATE_PROJECT_EVENT } from "@/lib/projects";
+import { getPinnedProjectIds, setProjectPinned } from "@/app/actions/sidebar-pins";
 
 interface Project {
   id: string;
@@ -244,6 +245,7 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
   const [isDeleting, setIsDeleting] = useState(false);
   const [createFolderDialogOpen, setCreateFolderDialogOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [pinnedProjectIds, setPinnedProjectIds] = useState<Set<string>>(new Set());
 
   // Load clients on mount
   useEffect(() => {
@@ -253,6 +255,27 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
       }
     });
   }, [workspaceId]);
+
+  useEffect(() => {
+    getPinnedProjectIds(workspaceId).then((result) => {
+      if (result.data) setPinnedProjectIds(new Set(result.data));
+    });
+  }, [workspaceId]);
+
+  const handleTogglePin = async (projectId: string) => {
+    const currentlyPinned = pinnedProjectIds.has(projectId);
+    const result = await setProjectPinned(projectId, !currentlyPinned);
+    if (result.error) {
+      setToast({ message: result.error, type: "error" });
+      return;
+    }
+    setPinnedProjectIds((prev) => {
+      const next = new Set(prev);
+      if (currentlyPinned) next.delete(projectId);
+      else next.add(projectId);
+      return next;
+    });
+  };
 
   const handleOpenCreate = () => {
     setDialogMode("create");
@@ -626,6 +649,10 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
                     </DropdownMenuItem>
                   ))}
                   <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => void handleTogglePin(project.id)}>
+                    {pinnedProjectIds.has(project.id) ? "Unpin from sidebar" : "Pin to sidebar"}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={(e) => handleOpenDeleteConfirm(project, e)}
                     className="text-[var(--error)] focus:bg-[var(--error)]/10 focus:text-[var(--error)]"
@@ -772,9 +799,12 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
                               <MoreHorizontal className="h-4 w-4 text-[var(--muted-foreground)]" />
                             </button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-40">
+                          <DropdownMenuContent align="end" className="w-48">
                             <DropdownMenuItem onClick={(e) => handleOpenEdit(project, e)}>
                               <Edit className="h-4 w-4" /> Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => void handleTogglePin(project.id)}>
+                              {pinnedProjectIds.has(project.id) ? "Unpin from sidebar" : "Pin to sidebar"}
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               onClick={(e) => handleOpenDeleteConfirm(project, e)}

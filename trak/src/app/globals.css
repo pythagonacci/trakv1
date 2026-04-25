@@ -14,7 +14,13 @@
     --surface: #FFFFFF;
     --surface-hover: #F5F3EF;
     --surface-muted: #F0EDE8;
-    --sidebar-bg: #FAF9F6;
+    --sidebar-bg: #fdfaf6;
+    --sidebar-border: #e8e3db;
+    --sidebar-item-hover: #f0ede6;
+    --sidebar-muted: #888888;
+    --sidebar-subtle: #aaaaaa;
+    --sidebar-badge-bg: #e8f0f8;
+    --sidebar-badge-text: #2a537a;
 
     /* Borders */
     --border: rgba(28, 25, 22, 0.09);

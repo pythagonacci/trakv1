@@ -1,1 +1,1 @@
-export const OPEN_CREATE_PROJECT_EVENT = "trak:open-create-project";
+export { OPEN_CREATE_PROJECT_EVENT } from "@/lib/navigation-events";

@@ -19,11 +19,12 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { OPEN_CREATE_DOC_EVENT } from "@/lib/navigation-events";
 
 interface Doc {
   id: string;
   title: string;
-  content: any;
+  content: unknown;
   is_archived: boolean;
   created_at: string;
   updated_at: string;
@@ -37,29 +38,31 @@ interface DocsGridProps {
 }
 
 // Helper function to extract plain text from Tiptap JSON
-const extractTextFromContent = (content: any): string[] => {
-  if (!content || !content.content) return [];
+const extractTextFromContent = (content: unknown): string[] => {
+  const root = content as { content?: unknown[] } | null;
+  if (!root || !Array.isArray(root.content)) return [];
   
   const lines: string[] = [];
-  const extractFromNode = (node: any) => {
+  const extractFromNode = (node: { type?: string; content?: unknown[] }) => {
     if (node.type === 'paragraph' || node.type === 'heading') {
       let text = '';
-      if (node.content) {
-        node.content.forEach((child: any) => {
+      if (Array.isArray(node.content)) {
+        node.content.forEach((childUnknown) => {
+          const child = childUnknown as { type?: string; text?: string };
           if (child.type === 'text') {
-            text += child.text;
+            text += child.text ?? "";
           }
         });
       }
       if (text.trim()) {
         lines.push(text.trim());
       }
-    } else if (node.content) {
-      node.content.forEach((child: any) => extractFromNode(child));
+    } else if (Array.isArray(node.content)) {
+      node.content.forEach((childUnknown) => extractFromNode((childUnknown ?? {}) as { type?: string; content?: unknown[] }));
     }
   };
   
-  content.content.forEach((node: any) => extractFromNode(node));
+  root.content.forEach((node) => extractFromNode((node ?? {}) as { type?: string; content?: unknown[] }));
   return lines;
 };
 
@@ -78,6 +81,14 @@ export default function DocsGrid({ docs: initialDocs, workspaceId, folders }: Do
   const [deletingDoc, setDeletingDoc] = useState<Doc | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  useEffect(() => {
+    const handleOpenCreateEvent = () => {
+      void handleCreateNew();
+    };
+    window.addEventListener(OPEN_CREATE_DOC_EVENT, handleOpenCreateEvent);
+    return () => window.removeEventListener(OPEN_CREATE_DOC_EVENT, handleOpenCreateEvent);
+  }, []);
 
   const handleMoveToFolder = async (doc: Doc, folderId: string | null) => {
     const result = await moveDocToFolder(doc.id, folderId);
@@ -150,7 +161,7 @@ export default function DocsGrid({ docs: initialDocs, workspaceId, folders }: Do
     handleCloseDeleteConfirm();
   };
 
-  const handleCreateNew = async () => {
+  async function handleCreateNew() {
     const tempId = `temp-${Date.now()}`;
     const optimisticDoc: Doc = {
       id: tempId,
@@ -174,7 +185,7 @@ export default function DocsGrid({ docs: initialDocs, workspaceId, folders }: Do
       // Navigate to the new doc
       router.push(`/dashboard/docs/${result.data.id}`);
     }
-  };
+  }
 
   const handleDocClick = (docId: string) => {
     if (!docId.startsWith("temp-")) {

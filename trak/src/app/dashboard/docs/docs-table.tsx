@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useTransition, useMemo } from "react";
+import React, { useCallback, useEffect, useState, useTransition, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { MoreHorizontal, Trash2, ArrowUp, ArrowDown, Archive, ArchiveRestore, Folder, ChevronDown, ChevronRight } from "lucide-react";
 import { createDoc, updateDoc, deleteDoc } from "@/app/actions/doc";
@@ -27,6 +27,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { OPEN_CREATE_DOC_EVENT } from "@/lib/navigation-events";
 
 interface Doc {
   id: string;
@@ -49,7 +50,7 @@ interface DocsTableProps {
 
 export default function DocsTable({ docs: initialDocs, workspaceId, folders: initialFolders, currentSort }: DocsTableProps) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   const searchParams = useSearchParams();
 
   const [docs, setDocs] = useState(initialDocs);
@@ -136,7 +137,7 @@ export default function DocsTable({ docs: initialDocs, workspaceId, folders: ini
     );
   };
 
-  const handleCreateNew = async () => {
+  const handleCreateNew = useCallback(async () => {
     const tempId = `temp-${Date.now()}`;
     const optimisticDoc: Doc = {
       id: tempId,
@@ -160,7 +161,15 @@ export default function DocsTable({ docs: initialDocs, workspaceId, folders: ini
       // Navigate to the new doc
       router.push(`/dashboard/docs/${result.data.id}`);
     }
-  };
+  }, [docs, router, workspaceId]);
+
+  useEffect(() => {
+    const handleOpenCreateEvent = () => {
+      void handleCreateNew();
+    };
+    window.addEventListener(OPEN_CREATE_DOC_EVENT, handleOpenCreateEvent);
+    return () => window.removeEventListener(OPEN_CREATE_DOC_EVENT, handleOpenCreateEvent);
+  }, [handleCreateNew]);
 
   const handleToggleArchive = async (doc: Doc, event?: React.MouseEvent) => {
     event?.stopPropagation();

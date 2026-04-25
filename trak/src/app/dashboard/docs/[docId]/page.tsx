@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getSingleDoc } from "@/app/actions/doc";
 import DocEditor from "./doc-editor";
+import DocOpenTracker from "./doc-open-tracker";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -20,7 +21,12 @@ export default async function DocPage({ params }: PageProps) {
 
   const doc = docResult.data;
 
-  return <DocEditor doc={doc} />;
+  return (
+    <>
+      <DocOpenTracker docId={doc.id} />
+      <DocEditor doc={doc} />
+    </>
+  );
 }
 
 

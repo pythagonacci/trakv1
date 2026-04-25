@@ -1,12 +1,19 @@
 import type { Metadata } from 'next';
 import P2AWarmup from '@/components/ai/p2a-warmup';
-import { Inter, Instrument_Serif } from 'next/font/google';
+import { DM_Sans, Inter, Instrument_Serif } from 'next/font/google';
 import './globals.css';
 
 const inter = Inter({
   subsets: ['latin'],
   variable: '--font-sans',
   weight: ['300', '400', '500', '600'],
+  display: 'swap',
+});
+
+const dmSans = DM_Sans({
+  subsets: ['latin'],
+  variable: '--font-sidebar',
+  weight: ['400', '500', '600'],
   display: 'swap',
 });
 
@@ -35,7 +42,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${inter.variable} ${instrumentSerif.variable}`}
+      className={`${inter.variable} ${instrumentSerif.variable} ${dmSans.variable}`}
     >
       <body className={`bg-[var(--background)] text-[var(--foreground)]`}>
         <div id="app-scale-wrapper">

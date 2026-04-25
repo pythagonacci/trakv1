@@ -12,6 +12,7 @@ import { ProjectUndoProvider } from "./project-undo-context";
 import { TabNavigationProvider } from "./tab-navigation-context";
 import ClientTabShell from "./client-tab-shell";
 import TabPrefetcher from "./tab-prefetcher";
+import ProjectOpenTracker from "./project-open-tracker";
 
 export const dynamic = "force-dynamic";
 
@@ -86,6 +87,7 @@ export default async function ProjectLayout({
             serverTabId={null}
         >
             <ProjectUndoProvider>
+                <ProjectOpenTracker projectId={projectId} />
                 <div className="flex-1 min-h-0 bg-transparent flex flex-col">
                     <div className="w-full px-2 md:px-3 lg:px-4 shrink-0">
                         <div className="pt-2 pb-1">
