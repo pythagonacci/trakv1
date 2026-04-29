@@ -8,6 +8,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
   const entityType = body?.entityType as OpenEntityType | undefined;
   const entityId = body?.entityId as string | undefined;
+  const tabId = typeof body?.tabId === "string" ? body.tabId : undefined;
 
   if (!entityType || !entityId || !["project", "doc"].includes(entityType)) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
@@ -45,9 +46,32 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  if (entityType === "project" && tabId) {
+    const { data: tab, error: tabError } = await supabase
+      .from("tabs")
+      .select("id")
+      .eq("id", tabId)
+      .eq("project_id", row.id)
+      .maybeSingle();
+
+    if (tabError || !tab) {
+      return NextResponse.json({ error: "Invalid tab" }, { status: 400 });
+    }
+  }
+
+  const updates =
+    entityType === "project"
+      ? {
+          last_opened_at: new Date().toISOString(),
+          ...(tabId ? { last_opened_tab_id: tabId } : {}),
+        }
+      : {
+          last_opened_at: new Date().toISOString(),
+        };
+
   const { error: updateError } = await supabase
     .from(table)
-    .update({ last_opened_at: new Date().toISOString() })
+    .update(updates)
     .eq("id", entityId);
 
   if (updateError) {

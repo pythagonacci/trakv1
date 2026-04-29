@@ -24,7 +24,7 @@ export default async function ProjectLayout({
     params: Promise<{ projectId: string; tabId?: string }>;
 }) {
     const supabase = await createClient();
-    const { projectId: projectIdParam } = await params;
+    const { projectId: projectIdParam, tabId } = await params;
 
     // 1. Auth + workspace (parallel where possible)
     const workspaceId = await getCurrentWorkspaceId();
@@ -87,7 +87,7 @@ export default async function ProjectLayout({
             serverTabId={null}
         >
             <ProjectUndoProvider>
-                <ProjectOpenTracker projectId={projectId} />
+                <ProjectOpenTracker projectId={projectId} tabId={tabId ?? null} tabs={hierarchicalTabs} />
                 <div className="flex-1 min-h-0 bg-transparent flex flex-col">
                     <div className="w-full px-2 md:px-3 lg:px-4 shrink-0">
                         <div className="pt-2 pb-1">

@@ -1,28 +1,44 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
 type EntityType = "project" | "doc";
 
-export function useTrackOpen(entityType: EntityType, entityId: string | null | undefined) {
+type TrackOpenOptions = {
+  tabId?: string | null;
+};
+
+export function useTrackOpen(entityType: EntityType, entityId: string | null | undefined, options?: TrackOpenOptions) {
+  const queryClient = useQueryClient();
+  const tabId = options?.tabId ?? null;
+
   useEffect(() => {
     if (!entityId) return;
 
-    const payload = JSON.stringify({ entityType, entityId });
+    const payload = JSON.stringify({ entityType, entityId, ...(tabId ? { tabId } : {}) });
     const url = "/api/navigation/open";
+    let cancelled = false;
 
-    // Fire and forget: navigation should never wait on this.
-    if (navigator.sendBeacon) {
-      const blob = new Blob([payload], { type: "application/json" });
-      navigator.sendBeacon(url, blob);
-      return;
-    }
+    void (async () => {
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: payload,
+          keepalive: true,
+        });
+        if (!cancelled && res.ok) {
+          // Sidebar query uses staleTime 5m + refetchOnMount false; invalidate so Recent lists update.
+          await queryClient.invalidateQueries({ queryKey: ["sidebar-sections"], refetchType: "active" });
+        }
+      } catch {
+        // Navigation must not depend on telemetry.
+      }
+    })();
 
-    void fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: payload,
-      keepalive: true,
-    }).catch(() => undefined);
-  }, [entityId, entityType]);
+    return () => {
+      cancelled = true;
+    };
+  }, [entityId, entityType, queryClient, tabId]);
 }

@@ -6,13 +6,22 @@ type SidebarProject = {
   id: string;
   name: string;
   last_opened_at: string | null;
+  last_opened_tab_id?: string | null;
+  last_opened_tab_name?: string | null;
   pinned_at?: string | null;
+};
+
+type SidebarTaskRow = {
+  project_id: string | null;
+  statuses: Array<{ value?: string }> | null;
 };
 
 type PinnedProjectRow = {
   pinned_at: string | null;
   project_id: string;
-  projects: { id: string; name: string; last_opened_at: string | null } | { id: string; name: string; last_opened_at: string | null }[];
+  projects:
+    | { id: string; name: string; last_opened_at: string | null; last_opened_tab_id: string | null }
+    | { id: string; name: string; last_opened_at: string | null; last_opened_tab_id: string | null }[];
 };
 
 const relativeTime = (value: string | null) => {
@@ -53,7 +62,7 @@ export async function GET(request: NextRequest) {
 
   const { data: pinnedRows, error: pinnedError } = await supabase
     .from("user_pinned_projects")
-    .select("pinned_at, project_id, projects!inner(id, name, last_opened_at, workspace_id, project_type)")
+    .select("pinned_at, project_id, projects!inner(id, name, last_opened_at, last_opened_tab_id, workspace_id, project_type)")
     .eq("user_id", user.id)
     .eq("projects.workspace_id", workspaceId)
     .eq("projects.project_type", "project")
@@ -69,6 +78,7 @@ export async function GET(request: NextRequest) {
       id: project.id,
       name: project.name,
       last_opened_at: project.last_opened_at ?? null,
+      last_opened_tab_id: project.last_opened_tab_id ?? null,
       pinned_at: row.pinned_at ?? null,
     };
   });
@@ -76,7 +86,7 @@ export async function GET(request: NextRequest) {
 
   const { data: recentProjectRows, error: recentProjectsError } = await supabase
     .from("projects")
-    .select("id, name, last_opened_at")
+    .select("id, name, last_opened_at, last_opened_tab_id")
     .eq("workspace_id", workspaceId)
     .eq("project_type", "project")
     .not("last_opened_at", "is", null)
@@ -90,6 +100,30 @@ export async function GET(request: NextRequest) {
   const recentProjects: SidebarProject[] = (recentProjectRows ?? [])
     .filter((project) => !pinnedProjectIds.has(project.id))
     .slice(0, 3);
+
+  const recentAndPinnedProjects = [...pinnedProjects, ...recentProjects];
+  const lastOpenedTabIds = Array.from(
+    new Set(
+      recentAndPinnedProjects
+        .map((project) => project.last_opened_tab_id)
+        .filter((value): value is string => typeof value === "string" && value.length > 0)
+    )
+  );
+
+  const { data: tabRows, error: tabError } =
+    lastOpenedTabIds.length === 0
+      ? { data: [] as Array<{ id: string; name: string }>, error: null as PostgrestError | null }
+      : await supabase.from("tabs").select("id, name").in("id", lastOpenedTabIds);
+
+  if (tabError) {
+    return NextResponse.json({ error: tabError.message }, { status: 500 });
+  }
+
+  const tabNameById = new Map((tabRows ?? []).map((tab) => [tab.id, tab.name] as const));
+  const withTabMeta = (project: SidebarProject) => ({
+    ...project,
+    last_opened_tab_name: project.last_opened_tab_id ? (tabNameById.get(project.last_opened_tab_id) ?? null) : null,
+  });
 
   const { data: recentDocsRows, error: recentDocsError } = await supabase
     .from("docs")
@@ -107,12 +141,12 @@ export async function GET(request: NextRequest) {
   const { data: taskRows, error: taskError } =
     pinnedProjectIds.size === 0
       ? {
-          data: [] as Array<{ project_id: string | null; statuses: Array<{ value?: string }> | null; status: string | null }>,
+          data: [] as SidebarTaskRow[],
           error: null as PostgrestError | null,
         }
       : await supabase
           .from("task_items")
-          .select("project_id, statuses, status")
+          .select("project_id, statuses")
           .eq("workspace_id", workspaceId)
           .eq("is_placeholder", false)
           .in("project_id", [...pinnedProjectIds]);
@@ -122,9 +156,7 @@ export async function GET(request: NextRequest) {
   }
 
   const doneStatuses = new Set(["done", "complete", "completed"]);
-  const isDone = (task: { statuses: Array<{ value?: string }> | null; status: string | null }) => {
-    const legacy = typeof task?.status === "string" ? task.status.toLowerCase() : "";
-    if (doneStatuses.has(legacy)) return true;
+  const isDone = (task: SidebarTaskRow) => {
     const statuses = Array.isArray(task?.statuses) ? task.statuses : [];
     return statuses.some((entry) => {
       const value = typeof entry?.value === "string" ? entry.value.toLowerCase() : "";
@@ -141,14 +173,20 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     data: {
       pinnedProjects,
-      recentProjects: recentProjects.map((project) => ({ ...project, relative_last_opened: relativeTime(project.last_opened_at) })),
+      recentProjects: recentProjects.map((project) => ({
+        ...withTabMeta(project),
+        relative_last_opened: relativeTime(project.last_opened_at),
+      })),
       recentDocs: (recentDocsRows ?? []).map((doc) => ({
         id: doc.id,
         title: doc.title,
         last_opened_at: doc.last_opened_at,
         relative_last_opened: relativeTime(doc.last_opened_at),
       })),
-      pinnedProjectsWithMeta: pinnedProjects.map((project) => ({ ...project, relative_last_opened: relativeTime(project.last_opened_at) })),
+      pinnedProjectsWithMeta: pinnedProjects.map((project) => ({
+        ...withTabMeta(project),
+        relative_last_opened: relativeTime(project.last_opened_at),
+      })),
       openTaskCountByProjectId,
     },
   });

@@ -137,11 +137,21 @@ export interface TaskReference {
   updated_at: string;
 }
 
+/** Client-side sort for task rows (list, table, board). Does not replace persisted display_order until user reorders manually. */
+export type TaskBlockSortKey = "priority" | "status";
+export type TaskBlockSortDirection = "asc" | "desc";
+export interface TaskBlockSort {
+  key: TaskBlockSortKey;
+  direction: TaskBlockSortDirection;
+}
+
 export interface TaskBlockContent {
   title: string;
   hideIcons?: boolean;
   viewMode?: "list" | "board" | "table";
   boardGroupBy?: "status" | "priority" | "assignee" | "dueDate" | "tags";
+  /** Sort tasks by priority or status (all view modes). Manual board reorder clears this. */
+  taskSort?: TaskBlockSort | null;
   /** Optional custom height in pixels for the task block container (mainly list view). */
   heightPx?: number;
   filters?: TaskFilterExpr;

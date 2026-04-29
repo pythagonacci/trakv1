@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import { sanitizeHtml } from "@/lib/sanitize-html";
 import { useBlockReferencePicker } from "@/components/blocks/block-reference-picker-provider";
 import { useBlockReferences, useDeleteBlockReference } from "@/lib/hooks/use-block-references";
+import { usePersistentState } from "@/lib/hooks/use-persistent-state";
 import type { LinkableItem } from "@/app/actions/timelines/linkable-actions";
 import { getLinkableItemHref } from "@/lib/references/navigation";
 import { shouldPreserveTextBlockEditModeOnBlur } from "./text-block-blur";
@@ -491,7 +492,10 @@ export default function TextBlock({
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [isBorderless, setIsBorderless] = useState(Boolean(blockContent.borderless));
   const [minHeightPx, setMinHeightPx] = useState<number | null>(initialHeightPx);
-  const [isHeightExpanded, setIsHeightExpanded] = useState(false);
+  const [isHeightExpanded, setIsHeightExpanded] = usePersistentState(
+    `trak-block-height-expanded-${block.id}`,
+    false,
+  );
   const [activeFormatting, setActiveFormatting] = useState({ bold: false, italic: false, underline: false });
   const [activeListMode, setActiveListMode] = useState<"bullet" | "checklist" | null>(null);
   const [activeHighlightColor, setActiveHighlightColor] = useState<HighlightColor | null>(null);
@@ -537,7 +541,7 @@ export default function TextBlock({
     if (!next) {
       setIsHeightExpanded(false);
     }
-  }, [block.content]);
+  }, [block.content, setIsHeightExpanded]);
 
   const editingRef = useRef(false);
 
@@ -749,7 +753,7 @@ export default function TextBlock({
       document.addEventListener("mousemove", handleMouseMove);
       document.addEventListener("mouseup", handleMouseUp);
     },
-    [block.content, block.id, content, isBorderless, onUpdate, readOnly]
+    [block.content, block.id, content, isBorderless, onUpdate, readOnly, setIsHeightExpanded]
   );
 
   useEffect(() => {
@@ -1946,7 +1950,7 @@ export default function TextBlock({
       aria-pressed={isHeightExpanded}
     >
       {isHeightExpanded ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
-      <span>{isHeightExpanded ? "Shrink" : "Expand"}</span>
+      {!isHeightExpanded && <span>Expand</span>}
     </button>
   ) : null;
 

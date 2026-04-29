@@ -116,6 +116,11 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
 
   const hasDueDate = project.due_date_text || project.due_date_date;
   const dueDateText = formatDueDate();
+  const hasHeaderMeta = Boolean(
+    (hasDueDate && dueDateText) ||
+    project.priority ||
+    (project.tags && project.tags.length > 0)
+  );
 
   const pathname = usePathname();
   const isOverview = pathname?.endsWith("/overview");
@@ -260,34 +265,36 @@ export default function ProjectHeader({ project, tabId, tabs = [], workspaceId }
           <h1 className="text-lg font-bold tracking-normal text-[var(--foreground)] md:text-xl">
             {project.name}
           </h1>
-          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-            <StatusBadge status={project.status} />
-            {hasDueDate && dueDateText && (
-              <span className="flex items-center gap-1 text-[var(--foreground)]/70 font-medium">
-                Due {dueDateText}
-              </span>
-            )}
-            {project.priority && (
-              <span className="rounded-[2px] border border-[var(--border)] bg-[var(--surface-hover)] px-1.5 py-0.5 font-medium capitalize text-[var(--foreground)]/80">
-                {project.priority}
-              </span>
-            )}
-            {project.tags && project.tags.length > 0 && (
-              <span className="flex flex-wrap items-center gap-1">
-                {project.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="rounded-[2px] border border-[var(--border)] bg-[var(--background)] px-1.5 py-0.5 text-[10px] text-[var(--muted-foreground)]"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </span>
-            )}
-          </div>
+          {hasHeaderMeta && (
+            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+              {hasDueDate && dueDateText && (
+                <span className="flex items-center gap-1 text-[var(--foreground)]/70 font-medium">
+                  Due {dueDateText}
+                </span>
+              )}
+              {project.priority && (
+                <span className="rounded-[2px] border border-[var(--border)] bg-[var(--surface-hover)] px-1.5 py-0.5 font-medium capitalize text-[var(--foreground)]/80">
+                  {project.priority}
+                </span>
+              )}
+              {project.tags && project.tags.length > 0 && (
+                <span className="flex flex-wrap items-center gap-1">
+                  {project.tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="rounded-[2px] border border-[var(--border)] bg-[var(--background)] px-1.5 py-0.5 text-[10px] text-[var(--muted-foreground)]"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
+          <StatusBadge status={project.status} />
           {projectUndo.canRedo && (
             <button
               onClick={() => void projectUndo.redoLast()}

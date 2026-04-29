@@ -15,6 +15,7 @@ import { formatBlockText } from "@/lib/format-block-text";
 import FileUploadZone from "./file-upload-zone";
 import { useAI } from "@/components/ai";
 import { useUser } from "@/hooks/use-user";
+import { usePersistentState } from "@/lib/hooks/use-persistent-state";
 import {
   buildClientPerfHeaders,
   getCurrentPerfNavigationId,
@@ -139,7 +140,10 @@ function PdfAttachment({
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
   const [zoom, setZoom] = useState(100);
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = usePersistentState(
+    `trak-file-preview-expanded-${attachmentId}`,
+    true,
+  );
   const [showSidebar, setShowSidebar] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
 

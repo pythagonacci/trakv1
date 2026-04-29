@@ -507,8 +507,20 @@ function Sidebar({
       if (!res.ok) throw new Error("Failed to load sidebar");
       const json = await res.json();
       return json.data as {
-        pinnedProjectsWithMeta: Array<{ id: string; name: string; last_opened_at: string | null; relative_last_opened: string }>;
-        recentProjects: Array<{ id: string; name: string; last_opened_at: string | null; relative_last_opened: string }>;
+        pinnedProjectsWithMeta: Array<{
+          id: string;
+          name: string;
+          last_opened_at: string | null;
+          last_opened_tab_name?: string | null;
+          relative_last_opened: string;
+        }>;
+        recentProjects: Array<{
+          id: string;
+          name: string;
+          last_opened_at: string | null;
+          last_opened_tab_name?: string | null;
+          relative_last_opened: string;
+        }>;
         recentDocs: Array<{ id: string; title: string; last_opened_at: string | null; relative_last_opened: string }>;
         openTaskCountByProjectId: Record<string, number>;
       };
@@ -715,6 +727,7 @@ function Sidebar({
                       key={project.id}
                       href={`/dashboard/projects/${project.id}`}
                       label={project.name}
+                      subtitle={project.last_opened_tab_name ?? undefined}
                       dotColor="#9E9E9E"
                       right={
                         project.relative_last_opened ? (
@@ -1086,12 +1099,14 @@ function ExpandableSection({
 function SidebarProjectRow({
   href,
   label,
+  subtitle,
   dotColor,
   right,
   active,
 }: {
   href: string;
   label: string;
+  subtitle?: string;
   dotColor: string;
   right?: React.ReactNode;
   active?: boolean;
@@ -1100,12 +1115,15 @@ function SidebarProjectRow({
     <Link
       href={href}
       className={cn(
-        "flex items-center gap-2 rounded-md py-1 pl-[30px] pr-2 text-left text-[12px] transition-colors",
+        "flex items-start gap-2 rounded-md py-1 pl-[30px] pr-2 text-left text-[12px] transition-colors",
         active ? "bg-[var(--sidebar-item-hover,#f0ede6)] text-[#1a1a1a]" : "text-[#666] hover:bg-[var(--sidebar-item-hover,#f0ede6)] hover:text-[#1a1a1a]"
       )}
     >
-      <span className="h-[7px] w-[7px] shrink-0 rounded-[2px]" style={{ backgroundColor: dotColor }} />
-      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <span className="mt-[5px] h-[7px] w-[7px] shrink-0 rounded-[2px]" style={{ backgroundColor: dotColor }} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">{label}</span>
+        {subtitle ? <span className="block truncate text-[11px] text-[#9b948a]">{subtitle}</span> : null}
+      </span>
       {right}
     </Link>
   );

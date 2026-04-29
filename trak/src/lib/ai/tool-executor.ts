@@ -197,6 +197,7 @@ import {
 import { getCurrentWorkspaceId, setTestContext, clearTestContext } from "@/app/actions/workspace";
 import { getAuthContext, type AuthContext } from "@/lib/auth-context";
 import { aiDebug, aiTiming, isAITimingEnabled } from "./debug";
+import { narrowWorkspaceMemberMatches } from "./assignee-resolution";
 import { createClient as createSupabaseClient } from "@/lib/supabase/server";
 import type { UndoStep, UndoTracker } from "@/lib/ai/undo";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -5352,18 +5353,19 @@ async function resolveTaskAssignees(
         { searchText: name, limit: 5 },
         opts
       );
+      const matches = narrowWorkspaceMemberMatches(name, search.data ?? []);
 
-      if (search.data && search.data.length === 1) {
+      if (matches.length === 1) {
         // Exact match - use it
         resolved.push({
-          id: search.data[0].user_id,
-          name: search.data[0].name ?? name,
+          id: matches[0].user_id,
+          name: matches[0].name ?? name,
         });
-      } else if (search.data && search.data.length > 1) {
+      } else if (matches.length > 1) {
         // CRITICAL FIX: Multiple matches - report ambiguity instead of creating external assignee
         ambiguities.push({
           input: name,
-          matches: search.data.map((m) => ({
+          matches: matches.map((m) => ({
             id: m.user_id,
             name: m.name ?? "",
             email: m.email,

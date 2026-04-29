@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   MoreHorizontal,
   Edit,
@@ -109,6 +110,7 @@ interface FormData {
 
 export default function ProjectsTable({ projects: initialProjects, workspaceId, folders: initialFolders, currentSort }: ProjectsTableProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [, startTransition] = useTransition();
   const searchParams = useSearchParams();
 
@@ -157,6 +159,7 @@ export default function ProjectsTable({ projects: initialProjects, workspaceId, 
       else next.add(projectId);
       return next;
     });
+    await queryClient.invalidateQueries({ queryKey: ["sidebar-sections"], refetchType: "active" });
   };
 
   const selectableProjectIds = useMemo(

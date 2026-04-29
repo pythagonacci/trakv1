@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useTransition, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import type { LucideIcon } from "lucide-react";
 import {
   MoreHorizontal,
@@ -223,6 +224,7 @@ const renderFirstTabSnapshot = (preview?: FirstTabPreview | null, isPlanLocked?:
 
 export default function ProjectsGrid({ projects: initialProjects, workspaceId, folders: initialFolders }: ProjectsGridProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [isPending, startTransition] = useTransition();
 
   const [projects, setProjects] = useState(initialProjects);
@@ -275,6 +277,7 @@ export default function ProjectsGrid({ projects: initialProjects, workspaceId, f
       else next.add(projectId);
       return next;
     });
+    await queryClient.invalidateQueries({ queryKey: ["sidebar-sections"], refetchType: "active" });
   };
 
   const handleOpenCreate = () => {

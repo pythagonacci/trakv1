@@ -28,6 +28,9 @@ import {
   Table,
   XCircle,
   FileText,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -56,6 +59,7 @@ import { useTabContents } from "./tab-contents-context";
 import { useAI } from "@/components/ai";
 import ReferencePicker from "@/components/timelines/reference-picker";
 import { useBlockReferencePicker } from "@/components/blocks/block-reference-picker-provider";
+import { usePersistentState } from "@/lib/hooks/use-persistent-state";
 import type { LinkableItem } from "@/app/actions/timelines/linkable-actions";
 import { getLinkableItemHref } from "@/lib/references/navigation";
 import { sanitizeHtml } from "@/lib/sanitize-html";
@@ -69,7 +73,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/react-query/query-client";
 import { PRIORITY_COLORS, PRIORITY_OPTIONS, STATUS_COLORS, STATUS_OPTIONS, type EntityProperties, type EntityType, type Priority, type Status } from "@/types/properties";
-import { type TaskBlockContent, type TaskItemPriority } from "@/types/task";
+import { type TaskBlockContent, type TaskBlockSort, type TaskItemPriority } from "@/types/task";
 import type { TaskBlockBundle } from "@/app/actions/tasks/query-actions";
 import { DndContext, DragEndEvent, DragStartEvent, PointerSensor, useSensor, useSensors, DragOverlay, useDroppable, closestCenter } from "@dnd-kit/core";
 import { SortableContext, useSortable, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -617,13 +621,13 @@ interface WorkspaceMember {
 }
 
 const TABLE_COLUMN_DEFINITIONS = [
-  { key: "status", label: "Status", width: "56px", hideable: true },
-  { key: "task", label: "Task", width: "minmax(240px, 2fr)", hideable: false },
-  { key: "priority", label: "Priority", width: "minmax(140px, 1fr)", hideable: true },
-  { key: "assignee", label: "Assignee", width: "minmax(180px, 1fr)", hideable: true },
-  { key: "dueDate", label: "Due Date", width: "minmax(140px, 1fr)", hideable: true },
-  { key: "tags", label: "Tags", width: "minmax(200px, 1fr)", hideable: true },
-  { key: "actions", label: "Actions", width: "36px", hideable: false },
+  { key: "status", label: "Status", width: "124px", hideable: true },
+  { key: "task", label: "Task", width: "minmax(220px, 1.8fr)", hideable: false },
+  { key: "priority", label: "Priority", width: "112px", hideable: true },
+  { key: "assignee", label: "Assignee", width: "116px", hideable: true },
+  { key: "dueDate", label: "Due Date", width: "116px", hideable: true },
+  { key: "tags", label: "Tags", width: "92px", hideable: true },
+  { key: "actions", label: "Actions", width: "30px", hideable: false },
 ] as const;
 
 type TableColumnKey = typeof TABLE_COLUMN_DEFINITIONS[number]["key"];
@@ -824,6 +828,27 @@ function BoardTaskCard(props: BoardTaskCardProps) {
   );
 }
 
+/** Radix/cmdk surfaces are portaled outside the task detail DOM; ignore those so we do not close while using menus from the card. */
+function isLikelyPortaledOverlayTarget(node: EventTarget | null): boolean {
+  if (!(node instanceof Element)) return false;
+  return Boolean(
+    node.closest(
+      [
+        "[data-radix-popper-content-wrapper]",
+        "[data-radix-dropdown-menu-content]",
+        "[data-radix-dropdown-menu-sub-content]",
+        "[data-radix-popover-content]",
+        "[data-radix-select-content]",
+        "[data-radix-dialog-content]",
+        "[data-radix-alert-dialog-content]",
+        "[data-radix-sheet-content]",
+        "[cmdk-root]",
+        "[role='listbox']",
+      ].join(", ")
+    )
+  );
+}
+
 interface TaskBlockProps {
   block: Block;
   onUpdate?: (updatedBlock?: Block) => void;
@@ -904,13 +929,20 @@ export default function TaskBlock({
   const [viewMode, setViewMode] = useState<TaskViewMode>(initialViewMode);
   const [boardGroupBy, setBoardGroupBy] = useState<BoardGroupBy>(initialBoardGroupBy);
   const [tableHiddenColumns, setTableHiddenColumns] = useState<HideableTableColumnKey[]>(initialTableHiddenColumns);
+  const [taskSort, setTaskSort] = useState<TaskBlockSort | null>(content.taskSort ?? null);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingTaskText, setEditingTaskText] = useState("");
   const [pendingTaskTitleByClientKey, setPendingTaskTitleByClientKey] = useState<Record<string, string>>({});
   const [editingSubtaskId, setEditingSubtaskId] = useState<string | null>(null);
   const [editingSubtaskText, setEditingSubtaskText] = useState("");
-  const [expandedSections, setExpandedSections] = useState<Record<string | number, { description?: boolean; subtasks?: boolean; comments?: boolean; references?: boolean }>>({});
-  const [expandedSubtasks, setExpandedSubtasks] = useState<Record<string, { description?: boolean; references?: boolean }>>({});
+  const [expandedSections, setExpandedSections] = usePersistentState<Record<string | number, { description?: boolean; subtasks?: boolean; comments?: boolean; references?: boolean }>>(
+    `trak-task-block-expanded-sections-${block.id}`,
+    {},
+  );
+  const [expandedSubtasks, setExpandedSubtasks] = usePersistentState<Record<string, { description?: boolean; references?: boolean }>>(
+    `trak-task-block-expanded-subtasks-${block.id}`,
+    {},
+  );
   const [newComment, setNewComment] = useState<Record<string | number, string>>({});
   const [commentMentionSpans, setCommentMentionSpans] = useState<
     Record<string | number, Array<{ start: number; end: number; href: string; label: string }>>
@@ -946,12 +978,16 @@ export default function TaskBlock({
   const [activeItemId, setActiveItemId] = useState<BoardItemId | null>(null);
   const [propertyOverrides, setPropertyOverrides] = useState<Record<string, Partial<EntityProperties>>>({});
   const [subtaskPropertyOverrides, setSubtaskPropertyOverrides] = useState<Record<string, Partial<EntityProperties>>>({});
-  const [collapsedTaskIds, setCollapsedTaskIds] = useState<Record<string, boolean>>({});
+  const [collapsedTaskIds, setCollapsedTaskIds] = usePersistentState<Record<string, boolean>>(
+    `trak-task-block-collapsed-tasks-${block.id}`,
+    {},
+  );
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [selectedSubtaskId, setSelectedSubtaskId] = useState<string | null>(null);
   const [selectedSubtaskParentTaskId, setSelectedSubtaskParentTaskId] = useState<string | null>(null);
   const taskListScrollRef = useRef<HTMLDivElement | null>(null);
   const headerRowRef = useRef<HTMLDivElement>(null);
+  const taskDetailPanelRef = useRef<HTMLDivElement | null>(null);
   const [detailCardStickyTopPx, setDetailCardStickyTopPx] = useState(56);
   const tabContents = useTabContents();
   const { isOpen: aiChatOpen } = useAI();
@@ -961,7 +997,10 @@ export default function TaskBlock({
   const initialHeightPx =
     typeof content.heightPx === "number" && content.heightPx > 0 ? content.heightPx : null;
   const [listHeightPx, setListHeightPx] = useState<number | null>(initialHeightPx);
-  const [isHeightExpanded, setIsHeightExpanded] = useState(false);
+  const [isHeightExpanded, setIsHeightExpanded] = usePersistentState(
+    `trak-task-block-height-expanded-${block.id}`,
+    false,
+  );
   const listHeightRef = useRef<number | null>(initialHeightPx);
 
   const openPropertiesFromElement = (
@@ -1075,89 +1114,7 @@ export default function TaskBlock({
       listHeightRef.current = null;
       setIsHeightExpanded(false);
     }
-  }, [content.heightPx]);
-
-  const orderedTasks = useMemo(() => {
-    if (taskOrder.length === 0) return dedupeTasksByClientKey(tasks);
-    const taskMap = new Map(tasks.map((task) => [String(task.id), task]));
-    return dedupeTasksByClientKey(
-      taskOrder.map((id) => taskMap.get(id)).filter(Boolean) as Task[]
-    );
-  }, [tasks, taskOrder]);
-
-  // Virtual scrolling for list view — only render visible task rows
-  const taskVirtualizer = useVirtualizer({
-    count: orderedTasks.length,
-    getScrollElement: () => taskListScrollRef.current,
-    estimateSize: () => 68, // estimated row height + spacing (px)
-    overscan: 5, // render 5 extra rows above/below viewport
-    getItemKey: (index) => {
-      const task = orderedTasks[index];
-      return task ? getTaskClientKey(task) : index;
-    },
-  });
-
-  // Board view: flattened array of tasks and subtasks as independent items
-  const boardItems: BoardItem[] = useMemo(() => {
-    const out: BoardItem[] = [];
-    orderedTasks.forEach((task) => {
-      const taskId = String(task.id);
-      out.push({ type: "task", id: toTaskItemId(taskId), taskId, task });
-      (task.subtasks ?? []).forEach((subtask) => {
-        const subtaskId = String(subtask.id);
-        out.push({
-          type: "subtask",
-          id: toSubtaskItemId(subtaskId),
-          subtaskId,
-          subtask,
-          parentTaskId: taskId,
-          parentTask: task,
-        });
-      });
-    });
-    return out;
-  }, [orderedTasks]);
-
-  // Fast lookup maps for board items
-  const boardItemById = useMemo(() => {
-    return new Map<BoardItemId, BoardItem>(boardItems.map((item) => [item.id, item]));
-  }, [boardItems]);
-
-  const parentTaskIdBySubtaskId = useMemo(() => {
-    return new Map<string, string>(
-      boardItems
-        .filter((item): item is Extract<BoardItem, { type: "subtask" }> => item.type === "subtask")
-        .map((item) => [item.subtaskId, item.parentTaskId])
-    );
-  }, [boardItems]);
-
-  const copiedTasks = useMemo(
-    () =>
-      orderedTasks.filter(
-        (task) => Boolean(task.sourceEntityId || task.sourceTaskId)
-      ),
-    [orderedTasks]
-  );
-  const hasSourceLinkedCopies = copiedTasks.length > 0;
-  const liveSyncEligibleTasks = useMemo(
-    () =>
-      copiedTasks.filter((task) => {
-        if (task.sourceEntityType === "task" && task.sourceEntityId) return true;
-        if (task.sourceEntityType === "timeline_event" && task.sourceEntityId) return true;
-        if (task.sourceEntityType === "table_row" && task.sourceEntityId) return true;
-        if (!task.sourceEntityType && task.sourceTaskId) return true; // Legacy rows
-        return false;
-      }),
-    [copiedTasks]
-  );
-  const hasLiveSyncEligibleCopies = liveSyncEligibleTasks.length > 0;
-  const liveSyncEnabled =
-    hasLiveSyncEligibleCopies &&
-    liveSyncEligibleTasks.every((task) => task.sourceSyncMode === "live");
-
-  const taskMapById = useMemo(() => {
-    return new Map(orderedTasks.map((task) => [String(task.id), task]));
-  }, [orderedTasks]);
+  }, [content.heightPx, setIsHeightExpanded]);
 
   const propertiesTargetTask = useMemo(() => {
     if (!propertiesTarget || propertiesTarget.type !== "task") return undefined;
@@ -1245,7 +1202,7 @@ export default function TaskBlock({
       aria-pressed={isHeightExpanded}
     >
       {isHeightExpanded ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
-      <span>{isHeightExpanded ? "Shrink" : "Expand"}</span>
+      {!isHeightExpanded && <span>Expand</span>}
     </button>
   ) : null;
 
@@ -1262,9 +1219,14 @@ export default function TaskBlock({
 
   const getEffectiveProperties = (taskId: string, task: Task) => {
     const override = propertyOverrides[taskId];
-    const base = taskPropertiesById[taskId];
-    if (!base && !override) return null;
-    return { ...(base || {}), ...(override || {}) } as EntityProperties;
+    const fromBundle = entityPropertiesByTaskId[taskId];
+    const fromBulk = taskPropertiesById[taskId];
+    const base = {
+      ...(fromBundle || {}),
+      ...(fromBulk || {}),
+    } as EntityProperties;
+    if (!Object.keys(base).length && !override) return null;
+    return { ...base, ...(override || {}) } as EntityProperties;
   };
 
   const getSubtaskEffectiveProperties = (subtaskId: string) => {
@@ -1340,9 +1302,10 @@ export default function TaskBlock({
   };
 
   const normalizePriority = (value?: string | null) => {
-    if (!value || value === "none") return null;
-    if (value === "low" || value === "medium" || value === "high" || value === "urgent") {
-      return value;
+    const v = typeof value === "string" ? value.trim().toLowerCase() : "";
+    if (!v || v === "none") return null;
+    if (v === "low" || v === "medium" || v === "high" || v === "urgent") {
+      return v as Priority;
     }
     return null;
   };
@@ -1480,6 +1443,152 @@ export default function TaskBlock({
     return task.tags ?? [];
   };
 
+  const PRIORITY_SORT_RANK: Record<Priority, number> = {
+    low: 1,
+    medium: 2,
+    high: 3,
+    urgent: 4,
+  };
+
+  /** Same resolution as entity merge: flat `priority`, else row named "Priority", else first row. */
+  const getPriorityValueForSort = (taskId: string, task: Task): Priority | null => {
+    const props = getEffectiveProperties(taskId, task);
+    const fromFlat = normalizePriority(props?.priority ?? null);
+    if (fromFlat) return fromFlat;
+    const pickFromRows = (rows: Array<{ field_name?: string | null; value?: string | null }> | undefined) => {
+      if (!Array.isArray(rows) || rows.length === 0) return null;
+      const preferred =
+        rows.find((r) => String(r?.field_name ?? "").trim().toLowerCase() === "priority") ?? rows[0];
+      return normalizePriority(preferred?.value ?? null);
+    };
+    const fromPropsRows = pickFromRows(props?.priorities);
+    if (fromPropsRows) return fromPropsRows;
+    return pickFromRows(task.priorities);
+  };
+
+  const orderedTasks = useMemo(() => {
+    const baseOrdered = (() => {
+      if (taskOrder.length === 0) return dedupeTasksByClientKey(tasks);
+      const taskMap = new Map(tasks.map((task) => [String(task.id), task]));
+      return dedupeTasksByClientKey(
+        taskOrder.map((id) => taskMap.get(id)).filter(Boolean) as Task[]
+      );
+    })();
+
+    if (!taskSort) return baseOrdered;
+
+    const statusOrderIndex = (s: Status) => STATUS_OPTIONS.findIndex((o) => o.value === s);
+
+    const compare = (a: Task, b: Task) => {
+      const aid = String(a.id);
+      const bid = String(b.id);
+      if (taskSort.key === "priority") {
+        const pa = getPriorityValueForSort(aid, a);
+        const pb = getPriorityValueForSort(bid, b);
+        const hasA = pa != null;
+        const hasB = pb != null;
+        if (!hasA && !hasB) return aid.localeCompare(bid);
+        if (!hasA) return 1;
+        if (!hasB) return -1;
+        const ra = PRIORITY_SORT_RANK[pa];
+        const rb = PRIORITY_SORT_RANK[pb];
+        const cmp = taskSort.direction === "asc" ? ra - rb : rb - ra;
+        return cmp !== 0 ? cmp : aid.localeCompare(bid);
+      }
+      const sa = getEffectiveStatus(aid, a);
+      const sb = getEffectiveStatus(bid, b);
+      const ia = statusOrderIndex(sa);
+      const ib = statusOrderIndex(sb);
+      const cmp = taskSort.direction === "asc" ? ia - ib : ib - ia;
+      return cmp !== 0 ? cmp : aid.localeCompare(bid);
+    };
+
+    return [...baseOrdered].sort(compare);
+  }, [
+    tasks,
+    taskOrder,
+    taskSort,
+    propertyOverrides,
+    entityPropertiesByTaskId,
+    taskPropertiesById,
+    subtaskPropertyOverrides,
+    subtaskPropertiesById,
+  ]);
+
+  // Virtual scrolling for list view — only render visible task rows
+  const taskVirtualizer = useVirtualizer({
+    count: orderedTasks.length,
+    getScrollElement: () => taskListScrollRef.current,
+    estimateSize: () => 68, // estimated row height + spacing (px)
+    overscan: 5, // render 5 extra rows above/below viewport
+    getItemKey: (index) => {
+      const task = orderedTasks[index];
+      return task ? getTaskClientKey(task) : index;
+    },
+  });
+
+  // Board view: flattened array of tasks and subtasks as independent items
+  const boardItems: BoardItem[] = useMemo(() => {
+    const out: BoardItem[] = [];
+    orderedTasks.forEach((task) => {
+      const taskId = String(task.id);
+      out.push({ type: "task", id: toTaskItemId(taskId), taskId, task });
+      (task.subtasks ?? []).forEach((subtask) => {
+        const subtaskId = String(subtask.id);
+        out.push({
+          type: "subtask",
+          id: toSubtaskItemId(subtaskId),
+          subtaskId,
+          subtask,
+          parentTaskId: taskId,
+          parentTask: task,
+        });
+      });
+    });
+    return out;
+  }, [orderedTasks]);
+
+  // Fast lookup maps for board items
+  const boardItemById = useMemo(() => {
+    return new Map<BoardItemId, BoardItem>(boardItems.map((item) => [item.id, item]));
+  }, [boardItems]);
+
+  const parentTaskIdBySubtaskId = useMemo(() => {
+    return new Map<string, string>(
+      boardItems
+        .filter((item): item is Extract<BoardItem, { type: "subtask" }> => item.type === "subtask")
+        .map((item) => [item.subtaskId, item.parentTaskId])
+    );
+  }, [boardItems]);
+
+  const copiedTasks = useMemo(
+    () =>
+      orderedTasks.filter(
+        (task) => Boolean(task.sourceEntityId || task.sourceTaskId)
+      ),
+    [orderedTasks]
+  );
+  const hasSourceLinkedCopies = copiedTasks.length > 0;
+  const liveSyncEligibleTasks = useMemo(
+    () =>
+      copiedTasks.filter((task) => {
+        if (task.sourceEntityType === "task" && task.sourceEntityId) return true;
+        if (task.sourceEntityType === "timeline_event" && task.sourceEntityId) return true;
+        if (task.sourceEntityType === "table_row" && task.sourceEntityId) return true;
+        if (!task.sourceEntityType && task.sourceTaskId) return true; // Legacy rows
+        return false;
+      }),
+    [copiedTasks]
+  );
+  const hasLiveSyncEligibleCopies = liveSyncEligibleTasks.length > 0;
+  const liveSyncEnabled =
+    hasLiveSyncEligibleCopies &&
+    liveSyncEligibleTasks.every((task) => task.sourceSyncMode === "live");
+
+  const taskMapById = useMemo(() => {
+    return new Map(orderedTasks.map((task) => [String(task.id), task]));
+  }, [orderedTasks]);
+
   const rollupTasks: RollupTask[] = useMemo(
     () =>
       orderedTasks.map((task) => ({
@@ -1543,6 +1652,11 @@ export default function TaskBlock({
   useEffect(() => {
     setTableHiddenColumns((content.tableHiddenColumns || []) as HideableTableColumnKey[]);
   }, [content.tableHiddenColumns]);
+
+  // Stay in sync if task sort changes externally
+  useEffect(() => {
+    setTaskSort(content.taskSort ?? null);
+  }, [content.taskSort]);
 
   // Keep a stable task order for drag + drop
   useEffect(() => {
@@ -1629,7 +1743,7 @@ export default function TaskBlock({
       ...prev,
       [owningTask.id]: { ...(prev[owningTask.id] || {}), comments: true },
     }));
-  }, [focusedCommentId, tasks]);
+  }, [focusedCommentId, setExpandedSections, tasks]);
 
   const toggleTask = async (taskId: string | number) => {
     // For temp blocks (unsaved), just toggle local task status for UI.
@@ -2139,6 +2253,15 @@ export default function TaskBlock({
     await persistBlockContent(updatedContent);
     if (!isTempBlock) {
       setTableHiddenColumns((updatedContent.tableHiddenColumns || []) as HideableTableColumnKey[]);
+    }
+  };
+
+  const handleTaskSortChange = async (next: TaskBlockSort | null) => {
+    setTaskSort(next);
+    const updatedContent = { ...content, taskSort: next } as TaskBlockContent & { tasks?: Task[] };
+    await persistBlockContent(updatedContent);
+    if (!isTempBlock) {
+      setTaskSort(updatedContent.taskSort ?? null);
     }
   };
 
@@ -2872,6 +2995,9 @@ export default function TaskBlock({
         } else {
           await reorderTaskMutation.mutateAsync(nextOrder);
         }
+        if (taskSort) {
+          await handleTaskSortChange(null);
+        }
       } else {
         // Subtask reordering - persist within parent
         // NOTE: Subtask ordering persistence is ambiguous when subtasks are spread across columns.
@@ -2949,6 +3075,9 @@ export default function TaskBlock({
       await applyBoardGroupUpdate(taskId, targetColumn);
       if (!isTempBlock) {
         await reorderTaskMutation.mutateAsync(nextOrder);
+      }
+      if (taskSort) {
+        await handleTaskSortChange(null);
       }
     } else {
       // Subtask cross-column move - update subtask property
@@ -3172,11 +3301,25 @@ export default function TaskBlock({
     return () => ro.disconnect();
   }, [showTaskCard, showSubtaskCard]);
 
-  const closeCard = () => {
+  const closeCard = useCallback(() => {
     setSelectedTaskId(null);
     setSelectedSubtaskId(null);
     setSelectedSubtaskParentTaskId(null);
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!(showTaskCard || showSubtaskCard)) return;
+    const onPointerDownCapture = (e: PointerEvent) => {
+      const panel = taskDetailPanelRef.current;
+      if (!panel) return;
+      const t = e.target;
+      if (t instanceof Node && panel.contains(t)) return;
+      if (isLikelyPortaledOverlayTarget(t)) return;
+      closeCard();
+    };
+    document.addEventListener("pointerdown", onPointerDownCapture, true);
+    return () => document.removeEventListener("pointerdown", onPointerDownCapture, true);
+  }, [showTaskCard, showSubtaskCard, closeCard]);
 
   const buildDetailCardStatusBadge = (t: Task) => {
     const effectiveStatus = getEffectiveStatus(String(t.id), t);
@@ -3356,6 +3499,71 @@ export default function TaskBlock({
               <Table className="h-3.5 w-3.5" />
             </button>
           </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                disabled={locked}
+                className={cn(
+                  "flex items-center gap-1 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[10px] font-medium transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]",
+                  taskSort ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]",
+                  locked && "pointer-events-none opacity-50"
+                )}
+                title="Sort tasks by priority or status"
+              >
+                Sort
+                {taskSort?.key === "priority" ? (
+                  taskSort.direction === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+                ) : taskSort?.key === "status" ? (
+                  taskSort.direction === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+                ) : (
+                  <ArrowUpDown className="h-3 w-3 opacity-50" />
+                )}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem
+                onClick={() => void handleTaskSortChange(null)}
+                className={cn(!taskSort && "bg-[var(--surface-hover)]")}
+              >
+                Default (saved order)
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => void handleTaskSortChange({ key: "priority", direction: "desc" })}
+                className={cn(
+                  taskSort?.key === "priority" && taskSort.direction === "desc" && "bg-[var(--surface-hover)]"
+                )}
+              >
+                Priority: Urgent first
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => void handleTaskSortChange({ key: "priority", direction: "asc" })}
+                className={cn(
+                  taskSort?.key === "priority" && taskSort.direction === "asc" && "bg-[var(--surface-hover)]"
+                )}
+              >
+                Priority: Low first
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => void handleTaskSortChange({ key: "status", direction: "asc" })}
+                className={cn(
+                  taskSort?.key === "status" && taskSort.direction === "asc" && "bg-[var(--surface-hover)]"
+                )}
+              >
+                Status: To-do first
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => void handleTaskSortChange({ key: "status", direction: "desc" })}
+                className={cn(
+                  taskSort?.key === "status" && taskSort.direction === "desc" && "bg-[var(--surface-hover)]"
+                )}
+              >
+                Status: Blocked first
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           {viewMode === "board" && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -5377,40 +5585,94 @@ export default function TaskBlock({
             }}
           >
             <div className="overflow-x-auto min-h-0">
-              <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] overflow-hidden min-w-max">
+              <div className="w-full min-w-0 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
               <div
                 className="grid border-b border-l border-[var(--border)] bg-[#d8d8d8]/20 w-full"
                 style={{ gridTemplateColumns: tableColumnTemplate }}
               >
               {isTableColumnVisible("status") && (
-                <div className="flex items-center justify-center border-r border-black/10 px-2 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-                  Status
+                <div className="border-r border-black/10 pl-2 pr-4 py-2">
+                  <button
+                    type="button"
+                    disabled={locked}
+                    onClick={() => {
+                      if (locked) return;
+                      const next =
+                        !taskSort || taskSort.key !== "status"
+                          ? ({ key: "status", direction: "asc" } as TaskBlockSort)
+                          : taskSort.direction === "asc"
+                            ? ({ key: "status", direction: "desc" } as TaskBlockSort)
+                            : null;
+                      void handleTaskSortChange(next);
+                    }}
+                    className={cn(
+                      "flex w-full items-center justify-between gap-1 text-left text-[10px] font-medium uppercase tracking-wide transition-colors",
+                      taskSort?.key === "status" ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]",
+                      !locked && "hover:text-[var(--foreground)]",
+                      locked && "cursor-not-allowed opacity-50"
+                    )}
+                    title="Sort by status: click to cycle default → ascending → descending"
+                  >
+                    <span>Status</span>
+                    {taskSort?.key === "status" ? (
+                      taskSort.direction === "asc" ? <ArrowUp className="h-3 w-3 shrink-0" /> : <ArrowDown className="h-3 w-3 shrink-0" />
+                    ) : (
+                      <ArrowUpDown className="h-3 w-3 shrink-0 opacity-40" />
+                    )}
+                  </button>
                 </div>
               )}
               <div className="border-r border-black/10 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
                 Task
               </div>
               {isTableColumnVisible("priority") && (
-                <div className="border-r border-black/10 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-                  Priority
+                <div className="border-r border-black/10 pl-2 pr-4 py-2">
+                  <button
+                    type="button"
+                    disabled={locked}
+                    onClick={() => {
+                      if (locked) return;
+                      const next =
+                        !taskSort || taskSort.key !== "priority"
+                          ? ({ key: "priority", direction: "asc" } as TaskBlockSort)
+                          : taskSort.direction === "asc"
+                            ? ({ key: "priority", direction: "desc" } as TaskBlockSort)
+                            : null;
+                      void handleTaskSortChange(next);
+                    }}
+                    className={cn(
+                      "flex w-full items-center justify-between gap-1 text-left text-[10px] font-medium uppercase tracking-wide transition-colors",
+                      taskSort?.key === "priority" ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]",
+                      !locked && "hover:text-[var(--foreground)]",
+                      locked && "cursor-not-allowed opacity-50"
+                    )}
+                    title="Sort by priority: click to cycle default → ascending → descending"
+                  >
+                    <span>Priority</span>
+                    {taskSort?.key === "priority" ? (
+                      taskSort.direction === "asc" ? <ArrowUp className="h-3 w-3 shrink-0" /> : <ArrowDown className="h-3 w-3 shrink-0" />
+                    ) : (
+                      <ArrowUpDown className="h-3 w-3 shrink-0 opacity-40" />
+                    )}
+                  </button>
                 </div>
               )}
               {isTableColumnVisible("assignee") && (
-                <div className="border-r border-black/10 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                <div className="border-r border-black/10 pl-2 pr-4 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
                   Assignee
                 </div>
               )}
               {isTableColumnVisible("dueDate") && (
-                <div className="border-r border-black/10 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                <div className="border-r border-black/10 pl-2 pr-4 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
                   Due Date
                 </div>
               )}
               {isTableColumnVisible("tags") && (
-                <div className="border-r border-black/10 px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                <div className="border-r border-black/10 pl-2 pr-4 py-2 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
                   Tags
                 </div>
               )}
-              <div className="w-9 flex-shrink-0" aria-hidden />
+              <div className="w-[30px] flex-shrink-0" aria-hidden />
             </div>
             <div className="[&>div:last-child>div.grid:last-child]:border-b-0">
             {orderedTasks.map((task) => {
@@ -5468,23 +5730,12 @@ export default function TaskBlock({
                     }}
                   >
                     {showTableStatusColumn && (
-                      <div className="flex items-center justify-center border-r border-[var(--border-strong)] px-2 py-2">
-                        <div className="flex flex-wrap items-center justify-center gap-1">
+                      <div className="border-r border-[var(--border-strong)] pl-2 pr-4 py-2">
+                        <div className="flex flex-wrap items-center gap-1">
                           {effectiveStatusFields.map((statusField, sIdx) => {
                             const statusLabel = getStatusDisplayLabel(statusField);
                             const statusValue = normalizeStatusValue(statusField.value ?? null);
                             if (!statusLabel || !statusValue) return null;
-
-                            const tableStatusIcon =
-                              statusValue === "done" ? (
-                                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                              ) : statusValue === "blocked" ? (
-                                <XCircle className="h-4 w-4 text-red-500" />
-                              ) : statusValue === "in_progress" ? (
-                                <Clock className="h-4 w-4 text-[var(--tram-yellow)]" />
-                              ) : (
-                                <Circle className="h-4 w-4 text-neutral-300 dark:text-neutral-600" />
-                              );
 
                             if (canUseProperties && taskEntityId && !statusIsDerived) {
                               const entityProps = entityPropertiesByTaskId[task.id];
@@ -5502,11 +5753,14 @@ export default function TaskBlock({
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
-                                    className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--foreground)] flex-shrink-0 cursor-pointer"
+                                    className={cn(
+                                      "inline-flex items-center rounded-[4px] px-2 py-1 text-xs transition-opacity hover:opacity-90",
+                                      STATUS_COLORS[statusValue]
+                                    )}
                                     title={statusLabel}
                                     aria-label={statusLabel}
                                   >
-                                    {tableStatusIcon}
+                                    <span className="max-w-[200px] truncate">{statusLabel}</span>
                                   </button>
                                 </PropertyFieldDropdown>
                               );
@@ -5516,10 +5770,13 @@ export default function TaskBlock({
                               return (
                                 <span
                                   key={`${task.id}-table-status-${statusField.field_name.toLowerCase()}`}
-                                  className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] flex-shrink-0 cursor-not-allowed opacity-70"
+                                  className={cn(
+                                    "inline-flex items-center rounded-[4px] px-2 py-1 text-xs cursor-not-allowed opacity-70",
+                                    STATUS_COLORS[statusValue]
+                                  )}
                                   title={statusLabel}
                                 >
-                                  {tableStatusIcon}
+                                  <span className="max-w-[200px] truncate">{statusLabel}</span>
                                 </span>
                               );
                             }
@@ -5533,18 +5790,21 @@ export default function TaskBlock({
                                   e.preventDefault();
                                   toggleTask(task.id);
                                 }}
-                                className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--foreground)] flex-shrink-0 cursor-pointer"
+                                className={cn(
+                                  "inline-flex items-center rounded-[4px] px-2 py-1 text-xs transition-opacity hover:opacity-90",
+                                  STATUS_COLORS[statusValue]
+                                )}
                                 title={statusLabel}
                                 aria-label="Toggle task"
                               >
-                                {tableStatusIcon}
+                                <span className="max-w-[200px] truncate">{statusLabel}</span>
                               </button>
                             );
                           })}
                         </div>
                       </div>
                     )}
-                    <div className="border-r border-[var(--border-strong)] px-3 py-2">
+                    <div className="min-w-0 border-r border-[var(--border-strong)] px-3 py-2">
                       <div className="flex items-start gap-2">
                         {hasSubtasks && (
                           <button
@@ -5622,7 +5882,7 @@ export default function TaskBlock({
                                 setEditingTaskText(task.text);
                               }}
                               className={cn(
-                                "cursor-text text-[13px] font-medium leading-normal text-[var(--foreground)] transition-colors hover:text-[var(--foreground)]",
+                                "cursor-text text-[13px] font-medium leading-normal text-[var(--foreground)] transition-colors hover:text-[var(--foreground)] whitespace-normal break-words [overflow-wrap:anywhere] [&_*]:whitespace-normal [&_*]:break-words [&_*]:[overflow-wrap:anywhere]",
                                 isDone && "line-through text-[var(--muted-foreground)]"
                               )}
                               dangerouslySetInnerHTML={{ __html: formatTaskText(task.text) }}
@@ -5654,7 +5914,7 @@ export default function TaskBlock({
                       </div>
                     </div>
                     {showTablePriorityColumn && (
-                    <div className="border-r border-[var(--border-strong)] px-3 py-2">
+                    <div className="border-r border-[var(--border-strong)] pl-2 pr-4 py-2">
                       <div className="flex flex-wrap items-center gap-1">
                         {getRenderablePriorityFields(String(task.id), task).map((priorityField, pIdx) => {
                             const priorityLabel = getPriorityButtonLabel(priorityField);
@@ -5709,7 +5969,7 @@ export default function TaskBlock({
                     </div>
                     )}
                     {showTableAssigneeColumn && (
-                    <div className="border-r border-[var(--border-strong)] px-3 py-2">
+                    <div className="border-r border-[var(--border-strong)] pl-2 pr-4 py-2">
                       {canUseProperties && taskEntityId ? (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -5725,7 +5985,7 @@ export default function TaskBlock({
                               title={assigneeLabel ? `Assignees: ${assigneeLabel}` : "Assign"}
                             >
                               {shouldShowIcons(task) && <Users className="h-3 w-3" />}
-                              <span className="max-w-[160px] truncate">{assigneeLabel || "Unassigned"}</span>
+                              <span className="max-w-[96px] truncate">{assigneeLabel || "Unassigned"}</span>
                             </button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="start" className="w-auto min-w-0 max-w-[12rem] p-1.5" onClick={(e) => e.stopPropagation()}>
@@ -5769,12 +6029,12 @@ export default function TaskBlock({
                           </DropdownMenuContent>
                         </DropdownMenu>
                       ) : (
-                        <span className="text-xs text-[var(--muted-foreground)]">{assigneeLabel ?? "—"}</span>
+                        <span className="inline-block max-w-[96px] truncate text-xs text-[var(--muted-foreground)]">{assigneeLabel ?? "—"}</span>
                       )}
                     </div>
                     )}
                     {showTableDueDateColumn && (
-                    <div className="border-r border-[var(--border-strong)] px-3 py-2">
+                    <div className="border-r border-[var(--border-strong)] pl-2 pr-4 py-2">
                       {canUseProperties && taskEntityId ? (
                         <DateRangeCalendarDropdown
                           range={{
@@ -5801,16 +6061,16 @@ export default function TaskBlock({
                             title={hasDueDateValue ? `Due: ${dueDateLabel}` : "Set due date"}
                           >
                             {shouldShowIcons(task) && <Calendar className="h-3 w-3" />}
-                            <span className="whitespace-nowrap">{dueDateLabel || "No due date"}</span>
+                            <span className="inline-block max-w-[96px] truncate whitespace-nowrap">{dueDateLabel || "No due date"}</span>
                           </button>
                         </DateRangeCalendarDropdown>
                       ) : (
-                        <span className="text-xs text-[var(--muted-foreground)]">{dueDateLabel ?? "—"}</span>
+                        <span className="inline-block max-w-[96px] truncate text-xs text-[var(--muted-foreground)]">{dueDateLabel ?? "—"}</span>
                       )}
                     </div>
                     )}
                     {showTableTagsColumn && (
-                    <div className="border-r border-[var(--border-strong)] px-3 py-2">
+                    <div className="border-r border-[var(--border-strong)] pl-2 pr-4 py-2">
                       <EntityTagPills
                         tags={effectiveTags}
                         onOpen={
@@ -5829,13 +6089,13 @@ export default function TaskBlock({
                       />
                     </div>
                     )}
-                    <div className="px-2 py-2">
+                    <div className="px-1 py-2">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <button
                             onPointerDown={handlePropertiesMenuTriggerPointerDown}
                             onKeyDown={handlePropertiesMenuTriggerKeyDown}
-                            className="flex h-7 w-7 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                            className="flex h-6 w-6 items-center justify-center rounded text-[var(--tertiary-foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
                           >
                             <MoreVertical className="h-3.5 w-3.5" />
                           </button>
@@ -5974,30 +6234,26 @@ export default function TaskBlock({
                           }}
                         >
                           {showTableStatusColumn && (
-                          <div className="flex items-center justify-center border-r border-[var(--border-strong)] px-2 py-1.5">
+                          <div className="border-r border-[var(--border-strong)] pl-2 pr-4 py-1.5">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 e.preventDefault();
                                 toggleSubtask(task.id, subtask.id);
                               }}
-                              className="flex h-4 w-4 items-center justify-center rounded-full border border-[var(--border)] transition-colors hover:border-[var(--foreground)]"
+                              className={cn(
+                                "inline-flex items-center rounded-[4px] px-2 py-0.5 text-xs transition-opacity hover:opacity-90",
+                                STATUS_COLORS[subtaskStatus]
+                              )}
+                              title={`Status: ${STATUS_OPTIONS.find((o) => o.value === subtaskStatus)?.label ?? subtaskStatus}`}
                               aria-label="Toggle subtask"
                               type="button"
                             >
-                              {subtaskStatus === "done" ? (
-                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                              ) : subtaskStatus === "blocked" ? (
-                                <XCircle className="w-3 h-3 text-red-500" />
-                              ) : subtaskStatus === "in_progress" ? (
-                                <Clock className="w-3 h-3 text-[var(--tram-yellow)]" />
-                              ) : (
-                                <Circle className="w-3 h-3 text-neutral-300 dark:text-neutral-600" />
-                              )}
+                              {STATUS_OPTIONS.find((o) => o.value === subtaskStatus)?.label ?? subtaskStatus}
                             </button>
                           </div>
                           )}
-                          <div className="border-r border-[var(--border-strong)] px-3 py-1.5">
+                          <div className="min-w-0 border-r border-[var(--border-strong)] px-3 py-1.5">
                             <div className="relative min-h-[1.5rem]">
                               {/* Subtle hierarchy guide: vertical + elbow, depth > 0 only, 1px, ~10% opacity, task cell only */}
                               <span
@@ -6053,7 +6309,7 @@ export default function TaskBlock({
                             )}
                           </div>
                           {showTablePriorityColumn && (
-                          <div className="border-r border-[var(--border-strong)] px-3 py-1.5">
+                          <div className="border-r border-[var(--border-strong)] pl-2 pr-4 py-1.5">
                             {canUseSubtaskProperties && subtaskEntityId ? (
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
@@ -6093,7 +6349,7 @@ export default function TaskBlock({
                           </div>
                           )}
                           {showTableAssigneeColumn && (
-                          <div className="border-r border-[var(--border-strong)] px-3 py-1.5">
+                          <div className="border-r border-[var(--border-strong)] pl-2 pr-4 py-1.5">
                             {canUseSubtaskProperties && subtaskEntityId ? (
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
@@ -6143,7 +6399,7 @@ export default function TaskBlock({
                           </div>
                           )}
                           {showTableDueDateColumn && (
-                          <div className="border-r border-[var(--border-strong)] px-3 py-1.5">
+                          <div className="border-r border-[var(--border-strong)] pl-2 pr-4 py-1.5">
                             {canUseSubtaskProperties && subtaskEntityId ? (
                               <DateRangeCalendarDropdown
                                 range={{
@@ -6170,16 +6426,16 @@ export default function TaskBlock({
                                   title={hasSubtaskDueDate ? `Due: ${subtaskDueDateLabel}` : "Set due date"}
                                 >
                                   <Calendar className="h-3 w-3" />
-                                  <span className="whitespace-nowrap">{subtaskDueDateLabel || "No due date"}</span>
+                                  <span className="inline-block max-w-[96px] truncate whitespace-nowrap">{subtaskDueDateLabel || "No due date"}</span>
                                 </button>
                               </DateRangeCalendarDropdown>
                             ) : (
-                              <span className="text-xs text-[var(--muted-foreground)]">{subtaskDueDateLabel ?? "—"}</span>
+                              <span className="inline-block max-w-[96px] truncate text-xs text-[var(--muted-foreground)]">{subtaskDueDateLabel ?? "—"}</span>
                             )}
                           </div>
                           )}
                           {showTableTagsColumn && (
-                          <div className="border-r border-[var(--border-strong)] px-3 py-1.5">
+                          <div className="border-r border-[var(--border-strong)] pl-2 pr-4 py-1.5">
                             <EntityTagPills
                               tags={subtaskTags}
                               onOpen={
@@ -6461,6 +6717,7 @@ export default function TaskBlock({
     </div>
     {(showTaskCard || showSubtaskCard) && (
       <div
+        ref={taskDetailPanelRef}
         className={cn("shrink-0 z-50 min-h-0 flex flex-col h-full", detailCardInsideBlock ? "self-stretch" : "sticky self-stretch")}
         style={detailCardInsideBlock ? undefined : { top: detailCardStickyTopPx }}
       >
